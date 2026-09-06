@@ -8,8 +8,9 @@
 //   read_graph_csr                 variable-length adjacency list -> (ia, ja)
 //   write_matrix_market            CSR matrix -> Matrix Market (real, or pattern)
 //
-// Every reader checks that the file opened and that the data it returns is
-// complete, exiting with a message rather than returning a short container.
+// Every reader checks that the file opened. Readers whose format carries a
+// count also check that they got that many, exiting with a message rather
+// than returning a short container.
 // Every writer emits full round-trip precision for floating point, so a file
 // written here reproduces the values it was given.
 //
@@ -160,28 +161,23 @@ ArrayOfStructs read_points_aos(const std::string& fname)
 //     x1 y1 flag1
 //     ...
 //
-// Appends nothing: x, y and flag are cleared and filled, and the node count
-// is returned. The flag is 0 for interior nodes and nonzero for boundary
-// nodes. The file is expected to be complete; a record that does not parse
-// as "x y flag" is an error. NodeSet's constructor delegates to this.
+// x, y and flag are cleared and filled, and the node count is returned. The
+// flag is 0 for interior nodes and nonzero for boundary nodes. The file is
+// taken to be complete: reading stops at the first record that does not
+// parse as three numbers, whether that is the end of the file or not.
+// NodeSet's constructor delegates to this.
 template <class T>
 std::size_t read_nodes(const std::string& fname,
                        std::vector<T>& x, std::vector<T>& y, std::vector<int>& flag)
 {
     auto in = detail::open_in(fname);
     x.clear(); y.clear(); flag.clear();
-    for (T px; in >> px; ) {
-        T py; int f;
-        if (!(in >> py >> f))
-            detail::fail(fname, "node " + std::to_string(x.size())
-                                + ": expected \"x y flag\"");
+    T px, py; int f;
+    while (in >> px >> py >> f) {
         x.push_back(px);
         y.push_back(py);
         flag.push_back(f);
     }
-    // the loop ends at end of file, or on a token that is not a number
-    if (!in.eof())
-        detail::fail(fname, "node " + std::to_string(x.size()) + ": malformed record");
     return x.size();
 }
 
