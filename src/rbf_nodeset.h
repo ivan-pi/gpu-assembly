@@ -8,6 +8,8 @@
 
 #include <nanoflann.hpp>
 
+namespace rbf {
+
 // Node set with its own k-d tree.
 //
 // nanoflann's tree keeps a reference to the dataset, so the tree
@@ -105,5 +107,7 @@ private:
     Tree tree_;
     size_t num_points_{0}, num_boundary_{0};
 };
+
+} // namespace rbf
 
 #endif // RBF_NODESET_H
