@@ -16,6 +16,8 @@
 // These are ASCII formats: convenient, diffable, and slow. If reading becomes
 // a bottleneck the answer is a binary format, not a faster parser.
 
+#include <algorithm>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -25,6 +27,8 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -65,9 +69,24 @@ std::ostream& full_precision(std::ostream& os) {
     return os << std::setprecision(std::numeric_limits<T>::max_digits10);
 }
 
-// True if the line holds nothing but whitespace.
-inline bool blank(const std::string& line) {
-    return line.find_first_not_of(" \t\r\n") == std::string::npos;
+// Everything from the current position to the end of the stream, in one
+// read; the size comes from seeking, so this needs a real file.
+inline std::string read_rest(std::istream& in) {
+    const auto here = in.tellg();
+    in.seekg(0, std::ios::end);
+    std::string body(static_cast<std::size_t>(in.tellg() - here), '\0');
+    in.seekg(here);
+    in.read(body.data(), static_cast<std::streamsize>(body.size()));
+    body.resize(static_cast<std::size_t>(in.gcount()));
+    return body;
+}
+
+// Nothing but whitespace remains: readers call this after consuming what
+// the header announced, so trailing data is reported, not ignored.
+inline void expect_end(std::istream& in, const std::string& fname,
+                       const std::string& what) {
+    in >> std::ws;
+    if (!in.eof()) detail::fail(fname, "unexpected data after " + what);
 }
 
 } // namespace detail
@@ -135,39 +154,35 @@ ArrayOfStructs read_points_aos(const std::string& fname)
 // Nodes: coordinates plus a per-node flag, the format NodeSet reads
 // ---------------------------------------------------------------------------
 
-template <class T = double>
-struct Nodes {
-    std::vector<T> x, y;
-    std::vector<int> flag;   // 0 = interior, nonzero = boundary
-    std::size_t size() const { return x.size(); }
-};
-
-// One node per line, no header, blank lines ignored:
+// One node per line, no header, read to end of file:
 //
 //     x0 y0 flag0
 //     x1 y1 flag1
 //     ...
 //
-// A line that does not parse as "x y flag" is an error, reported with its
-// line number. NodeSet's constructor delegates to this.
-template <class T = double>
-Nodes<T> read_nodes(const std::string& fname)
+// Appends nothing: x, y and flag are cleared and filled, and the node count
+// is returned. The flag is 0 for interior nodes and nonzero for boundary
+// nodes. The file is expected to be complete; a record that does not parse
+// as "x y flag" is an error. NodeSet's constructor delegates to this.
+template <class T>
+std::size_t read_nodes(const std::string& fname,
+                       std::vector<T>& x, std::vector<T>& y, std::vector<int>& flag)
 {
     auto in = detail::open_in(fname);
-    Nodes<T> nodes;
-    std::string line;
-    for (std::size_t lineno = 1; std::getline(in, line); ++lineno) {
-        if (detail::blank(line)) continue;
-        std::istringstream ls(line);
-        T px, py; int f;
-        if (!(ls >> px >> py >> f))
-            detail::fail(fname, "line " + std::to_string(lineno)
+    x.clear(); y.clear(); flag.clear();
+    for (T px; in >> px; ) {
+        T py; int f;
+        if (!(in >> py >> f))
+            detail::fail(fname, "node " + std::to_string(x.size())
                                 + ": expected \"x y flag\"");
-        nodes.x.push_back(px);
-        nodes.y.push_back(py);
-        nodes.flag.push_back(f);
+        x.push_back(px);
+        y.push_back(py);
+        flag.push_back(f);
     }
-    return nodes;
+    // the loop ends at end of file, or on a token that is not a number
+    if (!in.eof())
+        detail::fail(fname, "node " + std::to_string(x.size()) + ": malformed record");
+    return x.size();
 }
 
 // Inverse of read_nodes. A null flag writes 0 (interior) for every node.
@@ -181,16 +196,37 @@ void write_nodes(const std::string& fname, std::size_t n,
         out << x[i] << ' ' << y[i] << ' ' << (flag ? flag[i] : 0) << '\n';
 }
 
-template <class T>
-void write_nodes(const std::string& fname, const Nodes<T>& nodes)
-{
-    write_nodes(fname, nodes.size(), nodes.x.data(), nodes.y.data(),
-                nodes.flag.data());
-}
-
 // ---------------------------------------------------------------------------
 // Graph
 // ---------------------------------------------------------------------------
+
+namespace detail {
+
+// Parse every integer in text into ja; returns how many were found.
+// Anything that is not whitespace or an integer is an error, reported
+// under the given context ("row 3", "body").
+template <class I>
+std::size_t parse_ints(std::string_view text, std::vector<I>& ja,
+                       const std::string& fname, const std::string& context)
+{
+    std::size_t count = 0;
+    const char* p = text.data();
+    const char* const end = p + text.size();
+    for (;;) {
+        while (p != end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) ++p;
+        if (p == end) return count;
+        I j;
+        const auto [next, ec] = std::from_chars(p, end, j);
+        if (ec != std::errc{})
+            fail(fname, context + ": bad index at \""
+                        + std::string(p, std::min<std::size_t>(end - p, 16)) + "\"");
+        ja.push_back(j);
+        ++count;
+        p = next;
+    }
+}
+
+} // namespace detail
 
 // Adjacency graph in compressed sparse row form, from a file with a
 // "rows nnz" header followed by one line of neighbour indices per row:
@@ -200,50 +236,63 @@ void write_nodes(const std::string& fname, const Nodes<T>& nodes)
 //     j10 j11 ...
 //     ...
 //
-// Row lengths need not be equal, which is the point: a fixed-k stencil set
-// does not need a file at all. Exactly n rows are read and each must list at
-// least one neighbour; a node with no neighbours would give a singular
-// system, so an empty row is reported as an error rather than stored. The
-// entry count is checked against nnz, and anything but whitespace after the
-// n-th row is an error too.
+// With k == 0 (the default) row lengths may differ, and the line structure
+// says where each row ends. Every row must list at least one neighbour: a
+// node with no neighbours gives a singular system, so an empty row is an
+// error, as are a short file, an entry count that disagrees with nnz, and
+// data after the n-th row.
+//
+// With k > 0 every row is known to hold exactly k entries, as for k-nearest
+// neighbour stencils. The header must satisfy nnz == n * k, and the body is
+// then read as a flat list of n * k indices, line breaks carrying no
+// meaning. Use it when k is known: the check against the header is the
+// stronger one.
 //
 // Returns {ia, ja}. Index values are passed through unchanged, so they must
 // already be in the base (0 or 1) the consumer expects; ia is built 0-based.
 template <class I = std::int32_t>
-std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fname)
+std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fname,
+                                                         int k = 0)
 {
     auto in = detail::open_in(fname);
 
-    std::string header;
-    if (!std::getline(in, header)) detail::fail(fname, "empty file");
-    std::istringstream hs(header);
     std::size_t n = 0, nnz = 0;
-    if (!(hs >> n >> nnz)) detail::fail(fname, "malformed header, expected: rows nnz");
+    if (!(in >> n >> nnz)) detail::fail(fname, "malformed header, expected: rows nnz");
 
     std::vector<I> ia, ja;
-    ia.reserve(n + 1); ja.reserve(nnz);
+    ia.reserve(n + 1);
     ia.push_back(0);
 
-    std::string line;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (!std::getline(in, line))
-            detail::fail(fname, "header says " + std::to_string(n) + " rows, found "
-                                + std::to_string(i));
-        std::istringstream rs(line);
-        const std::size_t before = ja.size();
-        for (I j; rs >> j; ) ja.push_back(j);
-        if (ja.size() == before)
-            detail::fail(fname, "row " + std::to_string(i) + " has no entries");
-        ia.push_back(static_cast<I>(ja.size()));
+    if (k > 0) {
+        if (nnz != n * static_cast<std::size_t>(k))
+            detail::fail(fname, "header says " + std::to_string(n) + " rows and "
+                                + std::to_string(nnz) + " entries, inconsistent with k="
+                                + std::to_string(k));
+        ja.reserve(nnz);
+        const std::string body = detail::read_rest(in);
+        const std::size_t found = detail::parse_ints(body, ja, fname, "body");
+        if (found != nnz)
+            detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
+                                + std::to_string(found));
+        for (std::size_t i = 1; i <= n; ++i) ia.push_back(static_cast<I>(i * k));
+        return {std::move(ia), std::move(ja)};
+    } else {
+        ja.reserve(nnz);
+        std::string line;
+        std::getline(in, line);   // rest of the header line
+        for (std::size_t i = 0; i < n; ++i) {
+            if (!std::getline(in, line))
+                detail::fail(fname, "header says " + std::to_string(n)
+                                    + " rows, found " + std::to_string(i));
+            if (detail::parse_ints(line, ja, fname, "row " + std::to_string(i)) == 0)
+                detail::fail(fname, "row " + std::to_string(i) + " has no entries");
+            ia.push_back(static_cast<I>(ja.size()));
+        }
+        if (ja.size() != nnz)
+            detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
+                                + std::to_string(ja.size()));
     }
-    while (std::getline(in, line))
-        if (!detail::blank(line))
-            detail::fail(fname, "data after row " + std::to_string(n - 1)
-                                + ", header says " + std::to_string(n) + " rows");
-
-    if (ja.size() != nnz)
-        detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
-                            + std::to_string(ja.size()));
+    detail::expect_end(in, fname, "row " + std::to_string(n - 1));
     return {std::move(ia), std::move(ja)};
 }
 

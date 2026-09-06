@@ -71,51 +71,64 @@ static void test_read_points() {
 }
 
 static void test_nodes_roundtrip() {
-    rbf::io::Nodes<double> n;
-    n.x = awkward;
-    n.y = awkward;
-    for (auto& v : n.y) v = -v;
-    n.flag = {0, 1, 0, 2, 0, 1};
+    std::vector<double> x = awkward, y = awkward;
+    for (auto& v : y) v = -v;
+    const std::vector<int> flag{0, 1, 0, 2, 0, 1};
 
-    rbf::io::write_nodes("nodes.txt", n);
-    auto m = rbf::io::read_nodes("nodes.txt");
-    CHECK(m.size() == n.size());
-    CHECK(m.x == n.x);
-    CHECK(m.y == n.y);
-    CHECK(m.flag == n.flag);
+    rbf::io::write_nodes("nodes.txt", x.size(), x.data(), y.data(), flag.data());
+    std::vector<double> rx, ry; std::vector<int> rflag;
+    CHECK(rbf::io::read_nodes("nodes.txt", rx, ry, rflag) == x.size());
+    CHECK(rx == x);
+    CHECK(ry == y);
+    CHECK(rflag == flag);
+
+    // the output buffers are replaced, not appended to
+    CHECK(rbf::io::read_nodes("nodes.txt", rx, ry, rflag) == x.size());
+    CHECK(rx.size() == x.size());
 
     // NodeSet reads the same file and agrees on the tags
     rbf::NodeSet<double> ns("nodes.txt");
     CHECK(ns.num_points() == 6);
     CHECK(ns.num_boundary() == 3);
     CHECK(ns.indices_with(2) == (std::vector<std::int32_t>{3}));
-    CHECK(ns.x == n.x);
+    CHECK(ns.x == x);
 
-    // null flag writes interior everywhere; blank lines are skipped
-    rbf::io::write_nodes("nodes.txt", n.size(), n.x.data(), n.y.data());
-    {
-        std::ofstream f("nodes.txt", std::ios::app);
-        f << "\n   \n";
-    }
-    auto z = rbf::io::read_nodes("nodes.txt");
-    CHECK(z.size() == n.size());
-    CHECK(z.flag == std::vector<int>(n.size(), 0));
+    // null flag writes interior everywhere; a missing final newline is fine
+    rbf::io::write_nodes("nodes.txt", x.size(), x.data(), y.data());
+    write_text("nodes2.txt", "1 2 0\n3 4 1");
+    CHECK(rbf::io::read_nodes("nodes.txt", rx, ry, rflag) == x.size());
+    CHECK(rflag == std::vector<int>(x.size(), 0));
+    CHECK(rbf::io::read_nodes("nodes2.txt", rx, ry, rflag) == 2);
+    CHECK(rx == (std::vector<double>{1, 3}) && rflag == (std::vector<int>{0, 1}));
 
     std::remove("nodes.txt");
+    std::remove("nodes2.txt");
 }
 
 static void test_read_graph_csr() {
-    // ragged rows, extra whitespace, CRLF line ends, trailing blank line
-    write_text("graph.txt", "3 6\r\n0 1 2\r\n  1 0 \r\n2 \r\n\r\n");
+    // ragged rows, extra whitespace, CRLF line ends, trailing newline
+    write_text("graph.txt", "3 6\r\n0 1 2\r\n  1 0 \r\n2 \r\n");
     auto [ia, ja] = rbf::io::read_graph_csr<std::int32_t>("graph.txt");
     CHECK(ia == (std::vector<std::int32_t>{0, 3, 5, 6}));
     CHECK(ja == (std::vector<std::int32_t>{0, 1, 2, 1, 0, 2}));
 
-    // indices are passed through unchanged (here 1-based)
-    write_text("graph.txt", "2 3\n1 2\n2\n");
+    // indices are passed through unchanged (here 1-based); no final newline
+    write_text("graph.txt", "2 3\n1 2\n2");
     auto [ia1, ja1] = rbf::io::read_graph_csr<std::int64_t>("graph.txt");
     CHECK(ia1 == (std::vector<std::int64_t>{0, 2, 3}));
     CHECK(ja1 == (std::vector<std::int64_t>{1, 2, 2}));
+
+    // fixed k: same file read both ways gives the same result
+    write_text("graph.txt", "3 6\n0 1\n1 2\n2 0\n");
+    auto [ia2, ja2] = rbf::io::read_graph_csr<std::int32_t>("graph.txt");
+    auto [ia3, ja3] = rbf::io::read_graph_csr<std::int32_t>("graph.txt", 2);
+    CHECK(ia2 == (std::vector<std::int32_t>{0, 2, 4, 6}));
+    CHECK(ia3 == ia2 && ja3 == ja2);
+
+    // with k the body is a flat list: line breaks carry no meaning
+    write_text("graph.txt", "3 6\n0 1 1 2\n2 0\n");
+    auto [ia4, ja4] = rbf::io::read_graph_csr<std::int32_t>("graph.txt", 2);
+    CHECK(ia4 == ia2 && ja4 == ja2);
 
     std::remove("graph.txt");
 }
