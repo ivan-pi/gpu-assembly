@@ -3,16 +3,17 @@
 
 #include <cassert>
 #include <cstdint>
-#include <fstream>
 #include <iostream>
 #include <optional>
 #include <span>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <nanoflann.hpp>
 
+#include "rbf_io.h"
 #include "rbf_reorder.h"
 
 namespace rbf {
@@ -52,18 +53,13 @@ public:
     std::vector<int> flag;        // per-node tag; 0 = interior, nonzero = boundary
     std::vector<index_type> bnd;  // indices of nonzero-flag nodes (boundary)
 
+    // Reads the "x y flag" file format; see rbf::io::read_nodes.
     explicit NodeSet(const std::string& fname) {
-        std::ifstream in{fname};
-        if (!in) { std::cerr << "cannot open " << fname << '\n'; std::exit(1); }
-        T px, py; int f;
-        size_t n = 0;
-        while (in >> px >> py >> f) {
-            x.push_back(px);
-            y.push_back(py);
-            flag.push_back(f);
-            ++n;
-        }
-        num_points_ = n;
+        auto nodes = io::read_nodes<T>(fname);
+        x = std::move(nodes.x);
+        y = std::move(nodes.y);
+        flag = std::move(nodes.flag);
+        num_points_ = x.size();
         rebuild_bnd();
         file_order_ = Permutation<I>::identity(num_points_);
     }

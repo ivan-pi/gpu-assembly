@@ -114,3 +114,4 @@ void writeLbmVtkPolydata(
 
 } // namespace rbf::io
 
+#endif // RBF_IO_VTK_H
