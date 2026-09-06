@@ -10,6 +10,7 @@
 // field lands in POINT_DATA under the name given. Values are written at full
 // precision for T. Files should be given the .vtk extension.
 
+#include <cassert>
 #include <cstddef>
 #include <fstream>
 #include <initializer_list>
@@ -23,6 +24,12 @@
 namespace rbf::io {
 
 namespace detail {
+
+// Legacy VTK reads array names as single whitespace-delimited tokens; a
+// name with a space, or none at all, gives a file ParaView rejects.
+inline bool vtk_name_ok(std::string_view name) {
+    return !name.empty() && name.find_first_of(" \t\r\n") == std::string_view::npos;
+}
 
 // The scalar type label the legacy VTK format expects for T.
 template <class T> constexpr const char* vtk_type_name();
@@ -65,6 +72,15 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
                         std::span<const VtkVector<std::type_identity_t<T>>> vectors = {},
                         std::size_t point_stride = 1)
 {
+    assert(point_stride >= 1);
+    for ([[maybe_unused]] const auto& s : scalars) {
+        assert(detail::vtk_name_ok(s.name) && "scalar name empty or contains whitespace");
+        assert(s.v && s.stride >= 1);
+    }
+    for ([[maybe_unused]] const auto& v : vectors) {
+        assert(detail::vtk_name_ok(v.name) && "vector name empty or contains whitespace");
+        assert(v.x && v.y && v.stride >= 1);
+    }
     auto out = detail::open_out(fname);
     detail::full_precision<T>(out);
     const char* tn = detail::vtk_type_name<T>();

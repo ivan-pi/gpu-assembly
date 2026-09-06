@@ -72,6 +72,7 @@ std::ostream& full_precision(std::ostream& os) {
 // read; the size comes from seeking, so this needs a real file.
 inline std::string read_rest(std::istream& in) {
     const auto here = in.tellg();
+    assert(here != std::istream::pos_type(-1) && "stream is not seekable");
     in.seekg(0, std::ios::end);
     std::string body(static_cast<std::size_t>(in.tellg() - here), '\0');
     in.seekg(here);
@@ -248,6 +249,7 @@ template <class I = std::int32_t>
 std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fname,
                                                          int k = 0)
 {
+    assert(k >= 0 && "k must be 0 (ragged rows) or the row length");
     auto in = detail::open_in(fname);
 
     std::size_t n = 0, nnz = 0;
@@ -300,8 +302,11 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
 //
 // The output is always 1-based, as the format requires. csr_base is the base
 // of the ia and ja arrays passed in (0 or 1) and is removed before the
-// conversion; ia[0] must equal it, which is asserted. The entry count is
-// taken from ia, so the header can never disagree with the body.
+// conversion. ia[0] must equal it, ia must be non-decreasing, and every
+// column must lie in [csr_base, csr_base + cols); all of this is asserted,
+// since a violation would write a file that solvers reject or misread.
+// The entry count is taken from ia, so the header can never disagree with
+// the body.
 //
 // Pass a == nullptr to write the sparsity pattern alone, as Matrix Market's
 // "pattern" value type: (row, col) entries with no values. Useful before
@@ -316,7 +321,16 @@ void write_matrix_market(const std::string& fname,
                          const I* ia, const I* ja, const T* a,
                          I csr_base = 0)
 {
+    assert((csr_base == 0 || csr_base == 1) && "csr_base must be 0 or 1");
+    assert(rows >= 0 && cols >= 0);
     assert(ia[0] == csr_base && "ia does not start at the declared csr_base");
+#ifndef NDEBUG
+    for (I i = 0; i < rows; ++i) {
+        assert(ia[i + 1] >= ia[i] && "ia is not non-decreasing");
+        for (I k = ia[i] - csr_base; k < ia[i + 1] - csr_base; ++k)
+            assert(ja[k] >= csr_base && ja[k] - csr_base < cols && "ja column out of range");
+    }
+#endif
     auto out = detail::open_out(fname);
     const I nnz = ia[rows] - ia[0];
     out << "%%MatrixMarket matrix coordinate " << (a ? "real" : "pattern")
