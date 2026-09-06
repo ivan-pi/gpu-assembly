@@ -94,11 +94,14 @@ contains
     integer(i8) :: z
       !! The z-order index.
 
-    integer :: i, d
-    real(wp) :: center(2), bb(4), vertex(2)
+    integer :: i
+    real(wp) :: cx, cy, x0, y0, x1, y1
 
-    vertex = [px, py]
-    bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
+    x0 = bbox%xmin
+    y0 = bbox%ymin
+    x1 = bbox%xmax
+    y1 = bbox%ymax
+
     z = 0
     do i = 1, ndiv
 
@@ -109,7 +112,8 @@ contains
       z = shiftl(z,2)
 #endif
 
-      center = midpoint(bb)
+      cx = x0 + 0.5_wp*(x1 - x0)
+      cy = y0 + 0.5_wp*(y1 - y0)
 
       ! Set the quadrant using Morton order
       !
@@ -117,17 +121,20 @@ contains
       ! ----|----
       !   0 | 1
       !
-      if (vertex(1) > center(1)) z = z + 1
-      if (vertex(2) > center(2)) z = z + 2
+      if (px > cx) z = z + 1
+      if (py > cy) z = z + 2
 
-      ! Update the bounding box to the appropriate quadrant
-      do d = 1, 2
-        if (vertex(d) > center(d)) then
-          bb(d) = center(d)
-        else
-          bb(2+d) = center(d)
-        end if
-      end do
+      ! Shrink the bounding box to the chosen quadrant
+      if (px > cx) then
+        x0 = cx
+      else
+        x1 = cx
+      end if
+      if (py > cy) then
+        y0 = cy
+      else
+        y1 = cy
+      end if
 
     end do
 
@@ -173,11 +180,14 @@ contains
         2,2,3,1, &
         0,3,2,3], [4,4])
 
-    integer :: i, d, rot, q
-    real(wp) :: center(2), bb(4), vertex(2)
+    integer :: i, rot, q
+    real(wp) :: cx, cy, x0, y0, x1, y1
 
-    vertex = [px, py]
-    bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
+    x0 = bbox%xmin
+    y0 = bbox%ymin
+    x1 = bbox%xmax
+    y1 = bbox%ymax
+
     h = 0
     rot = 0
 
@@ -188,36 +198,31 @@ contains
 #else
       h = shiftl(h,2)
 #endif
-      center = midpoint(bb)
+      cx = x0 + 0.5_wp*(x1 - x0)
+      cy = y0 + 0.5_wp*(y1 - y0)
 
       q = 0
-      if (vertex(1) > center(1)) q = q + 1
-      if (vertex(2) > center(2)) q = q + 2
+      if (px > cx) q = q + 1
+      if (py > cy) q = q + 2
 
       h = h + table(q,rot)
 
       rot = tr(q,rot)
 
-      ! Update the bounding box to the appropriate quadrant
-      do d = 1, 2
-        if (vertex(d) > center(d)) then
-          bb(d) = center(d)
-        else
-          bb(2+d) = center(d)
-        end if
-      end do
+      ! Shrink the bounding box to the chosen quadrant
+      if (px > cx) then
+        x0 = cx
+      else
+        x1 = cx
+      end if
+      if (py > cy) then
+        y0 = cy
+      else
+        y1 = cy
+      end if
 
     end do
 
-  end function
-
-
-  ! Midpoint of a bounding box [xmin,ymin,xmax,ymax]
-  pure function midpoint(bb) result(center)
-    real(wp), intent(in) :: bb(4)
-    real(wp) :: center(2)
-    center(1) = bb(1) + 0.5_wp*(bb(3) - bb(1))
-    center(2) = bb(2) + 0.5_wp*(bb(4) - bb(2))
   end function
 
 end module
