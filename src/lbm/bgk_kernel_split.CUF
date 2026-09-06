@@ -1,0 +1,93 @@
+attributes(global) subroutine bgk_kernel_split(n,omega,pdf,rho,ux,uy,indp)
+   implicit none
+
+   integer, value :: n
+   real, value :: omega
+   real, intent(inout) :: pdf(:)
+   real, intent(out) :: rho(:), ux(:), uy(:)
+   real, intent(out) :: indp(:)
+
+   real :: omegabar, omega_w0, omega_ws, omega_wd
+   real :: f(0:8), invrho
+   real :: vel_trm_13, vel_trm_24
+   real :: vel_trm_57, vel_trm_68
+   real :: velxpy, velxmy
+
+   real, parameter :: one_third = 1.0_wp / 3.0_wp
+   real, parameter :: one_half = 1.0_wp / 2.0_wp
+   real, parameter :: th = 3.0_wp / 2.0_wp
+
+   integer :: i, ic, icPlus, ica
+   
+   ! example I found online used blockDim%x * (blockIdx%x - 1) + threadIdx%x
+   ! probably depends on how you define your arrays?
+   i = blockDim%x * blockIdx%x + threadIdx%x
+
+   if (i <= n) then
+        ! unsure about these indices, they're 0 based here
+        ic = i * n
+        icPlus = (i + 1) * n
+
+        omegabar = 1.0_wp - omega
+
+        omega_w0 = 3.0_wp * omega * w0
+        omega_ws = 3.0_wp * omega * ws
+        omega_wd = 3.0_wp * omega * wd
+
+
+        ! pull pdfs travelling in different directions
+        f = pdf(ic:icPlus)
+
+        ! density
+        rho(i) = (((f(5) + f(7)) + (f(6) + f(8))) + &
+                    ((f(1) + f(3)) + (f(2) + f(4)))) + f(0)
+
+        invrho = 1.0_wp/rho(i)
+
+        ! velocity
+        ux(i) = invrho * (((f(5) - f(7)) + (f(8) - f(6))) + (f(1) - f(3)))
+        uy(i) = invrho * (((f(5) - f(7)) + (f(6) - f(8))) + (f(2) - f(4)))
+
+        ! direction independent part
+        indp(i) = one_third - 0.5_wp * (ux(i)**2 + uy(i)**2)
+
+        ! update direction 0
+        ica = ic + 0
+        pdf(ica) = omegabar*pdf(ica) + omega_w0*rho(i)*indp(i)
+
+        vel_trm_13 = indp(i) + th * ux(i) * ux(i)
+
+        ica = ic + 1
+        pdf(ica) = omegabar*pdf(ica) + omega_ws * rho(i) * (vel_trm_13 + ux(i))
+
+        ica = ic + 3
+        pdf(ica) = omegabar*pdf(ica) + omega_ws * rho(i) * (vel_trm_13 - ux(i))
+
+        vel_trm_24 = indp(i) + th * uy(i) * uy(i)
+
+        ica = ic + 2
+        pdf(ica) = omegabar*pdf(ica) + omega_ws * rho(i) * (vel_trm_24 + uy(i))
+
+        ica = ic + 4
+        pdf(ica) = omegabar*pdf(ica) + omega_ws * rho(i) * (vel_trm_24 - uy(i))
+
+        velxpy = ux(i) + uy(i)
+        vel_trm_57 = indp(i) + th * velxpy * velxpy
+
+        ica = ic + 5
+        pdf(ica) = omegabar*pdf(ica) + omega_wd * rho(i) * (vel_trm_57 + velxpy)
+
+        ica = ic + 7
+        pdf(ica) = omegabar*pdf(ica) + omega_wd * rho(i) * (vel_trm_57 - velxpy)
+
+        velxmy = ux(i) - uy(i)
+        vel_trm_68 = indp(i) + th * velxmy * velxmy
+
+        ica = ic + 6
+        pdf(ica) = omegabar*pdf(ica) + omega_wd * rho(i) * (vel_trm_68 - velxmy)
+
+        ica = ic + 8
+        pdf(ica) = omegabar*pdf(ica) + omega_wd * rho(i) * (vel_trm_68 + velxmy)
+    end if
+
+end subroutine bgk_kernel_split
