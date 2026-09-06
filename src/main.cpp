@@ -1,6 +1,25 @@
-void run()
-{
-    constexpr int N = 21, NRHS = 9, P = 4, ARCH = 900;
+
+#include <nanoflann.hpp>
+#include "rbf_operators.h"
+
+namespace poisson {
+
+
+}
+
+int main() {
+
+    constexpr int N = 21; // stencil size
+    constexpr int P = 2; // augmentation degree
+    constexpr int Q = 3; // PHS exponent, phi = r^Q (odd)
+    constexpr unsigned ARCH = 900; // cusolverDx SM<> code of the target GPU
+
+    using T = double;
+
+    using Config = rbf_operators::laplace_config<N, P, Q, ARCH, T>;
+    auto laplace_weight_kernel =
+        &rbf_operators::assemble_laplace_weights<Config>;
+
     constexpr int nt = N + operators::npoly(P);
 
     const int nnz = nstencils * N;
@@ -8,73 +27,59 @@ void run()
     using T      = double
     using solver = operators::GESV<T, nt, NRHS, ARCH>
 
-    std::vector<double> x, y;
-    auto nstencils = read_coordinates("filename.txt", x, y);
+    // 1) Read coordinates from file
 
-    T *x_d, *y_d, *xc_d, *yc_d;
-    int *ja_d, *info_d;
 
-    CUDA_CHECK(cudaMalloc(&x_d,    sizeof(T) * nstencils));
-    CUDA_CHECK(cudaMalloc(&y_d,    sizeof(T) * nstencils));
-    CUDA_CHECK(cudaMalloc(&xc_d,   sizeof(T) * NRHS));
-    CUDA_CHECK(cudaMalloc(&yc_d,   sizeof(T) * NRHS));
-    CUDA_CHECK(cudaMalloc(&ja_d,   sizeof(int) * nnz));
-    CUDA_CHECK(cudaMalloc(&info_d, sizeof(int) * nstencils));
+    // --- 1. nodes and stencils ---
 
-    CUDA_CHECK(cudaMemcpy(x_d,  x.data(),  sizeof(T) * nstencils, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(y_d,  y.data(),  sizeof(T) * nstencils, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(xc_d, xc.data(), sizeof(T) * NRHS,      cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(yc_d, yc.data(), sizeof(T) * NRHS,      cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(ja_d, ja.data(), sizeof(int) * nnz,     cudaMemcpyHostToDevice));
+    const NodeSet nodes(nodefile);
+    const int npoints = nodes.npoints();
 
-    // A is T* const* : a DEVICE array of NRHS device pointers, one CSR values
-    // array per operator. Building the table on the host and copying it over is
-    // the part that is easy to get wrong.
-    std::array<T*, NRHS> A_h;
-    for (auto& p : A_h) {
-        CUDA_CHECK(cudaMalloc(&p, sizeof(T) * nnz));
+
+    // Adjacency graph (host)
+    const std::vector<int> ja_h = nodes.stencils(N);
+
+
+
+    // --- 2. batched assembly over all nodes ---
+    {
+        const dim3    block = Config::block_dim;
+        const unsigned smem = Config::shared_memory_size();
+
+        if (Config::needs_dynamic_smem_opt_in) {
+            CHECK_CUDA(cudaFuncSetAttribute(
+                reinterpret_cast<const void *>(assembly_kernel),
+                cudaFuncAttributeMaxDynamicSharedMemorySize, smem));
+        }
+
+        laplace_weight_kernel<<<npoints, block, smem>>>(
+            npoints, ptr(x_d), ptr(y_d), ptr(A.ja), ptr(A_tab), ptr(info_d));
+        CHECK_CUDA(cudaGetLastError());
+
+        thrust::host_vector<int> info = info_d;
+        const int bad_stencils = std::count_if(info.begin(), info.end(),
+                                               [](int i) { return i != 0; });
+        if (bad_stencils) {
+            std::fprintf(stderr, "error: %d singular stencils\n", bad_stencils);
+            return EXIT_FAILURE;
+        }
     }
 
-    T** A_d;
-    CUDA_CHECK(cudaMalloc(&A_d, sizeof(T*) * NRHS));
-    CUDA_CHECK(cudaMemcpy(A_d, A_h.data(), sizeof(T*) * NRHS, cudaMemcpyHostToDevice));
+    // --- 3. operator
 
-    // --- launch configuration ------------------------------------------------
+    auto mv_op = [&](const T* x, T* y) {
+        // Apply bulk operator
+        A.spmv(x, y);
 
-    const dim3 block{solver::blockDim};
-    const unsigned int smem = ...;
-
-    /* check attributes */ {
-        auto kernel = &operators::assemble_interp<N, NRHS, P, ARCH, T>;
-
-        // Mandatory above 48 KB, harmless below it
-        CUDA_CHECK(cudaFuncSetAttribute(reinterpret_cast<const void*>(kernel),
-                                        cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                        smem));
-
-        cudaFuncAttributes attr;
-        CUDA_CHECK(cudaFuncGetAttributes(&attr, reinterpret_cast<const void*>(kernel)));
-        printf("block=%u smem=%u regs=%d spill=%zu maxdyn=%d\n",
-               block.x * block.y * block.z, smem, attr.numRegs,
-               attr.localSizeBytes, attr.maxDynamicSharedSizeBytes);
+        // Fix boundary values
+        const int* bi = ptr(bnd_d);
+        parallel_for(nbnd, [=] __device__ (int k) {
+            y[bi[k]] = x[bi[k]];
+        });
     }
 
 
-    operators::assemble_interp<N, NRHS, P, T>
-        <<<nstencils, block, smem>>>(nstencils, x_d, y_d,
-                                     ja_d, A_d,
-                                     xc_d, yc_d,
-                                     info_d);
-
-    CUDA_CHECK(cudaGetLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
-
-    // --- status check --------------------------------------------------------
-
-    std::vector<int> info(nstencils);
-
-    CUDA_CHECK(cudaMemcpy(info.data(), info_d, sizeof(int) * nstencils,
-                          cudaMemcpyDevicetoHost));
+    // --- 5. solve ---
 
 
 }
