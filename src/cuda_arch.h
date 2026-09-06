@@ -148,7 +148,7 @@ static_assert([] {
     for (const auto& e : detail::table)
         if (e.carveouts_kb.largest() != e.max_per_sm_kb) return false;
     return true;
-}(), "largest carveout must equal the per-SM maximum");
+    }(), "largest carveout must equal the per-SM maximum");
 
 } // namespace cuda_arch
 
