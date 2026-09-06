@@ -268,7 +268,6 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
             detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
                                 + std::to_string(found));
         for (std::size_t i = 1; i <= n; ++i) ia.push_back(static_cast<I>(i * k));
-        return {std::move(ia), std::move(ja)};
     } else {
         ja.reserve(nnz);
         std::string line;
@@ -284,8 +283,10 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
         if (ja.size() != nnz)
             detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
                                 + std::to_string(ja.size()));
+        // the flat path consumed the whole file above; only this one can
+        // leave data behind
+        detail::expect_end(in, fname, "row " + std::to_string(n - 1));
     }
-    detail::expect_end(in, fname, "row " + std::to_string(n - 1));
     return {std::move(ia), std::move(ja)};
 }
 
