@@ -35,10 +35,7 @@
 
 namespace rbf::io {
 
-// Helpers shared by the readers and writers. A named namespace rather than an
-// anonymous one: an anonymous namespace in a header gives every translation
-// unit its own copy, and the templates below would then refer to different
-// functions in different units, which the one-definition rule forbids.
+// Helpers shared by the readers and writers.
 namespace detail {
 
 inline std::ifstream open_in(const std::string& fname) {
