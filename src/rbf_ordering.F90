@@ -41,8 +41,7 @@ contains
     bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
 
     ! Fixed-depth iterations, so a static schedule balances fine
-    !$omp target teams distribute parallel do schedule(static) &
-    !$omp   map(to: x, y, bb) map(from: keys)
+    !$omp parallel do schedule(static)
     do i = 1, n
       keys(i) = zidx([x(i),y(i)],bb,ndiv)
     end do
@@ -62,8 +61,7 @@ contains
 
     bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
 
-    !$omp target teams distribute parallel do schedule(static) &
-    !$omp   map(to: x, y, bb) map(from: keys)
+    !$omp parallel do schedule(static)
     do i = 1, n
       keys(i) = hidx([x(i),y(i)],bb,ndiv)
     end do
@@ -72,7 +70,6 @@ contains
 
 
   pure function zidx(vertex,bbox,ndiv) result(z)
-    !$omp declare target
 
     real(wp), intent(in) :: vertex(2)
       !! A two-dimensional Cartesian point.
@@ -93,14 +90,14 @@ contains
     z = 0
     do i = 1, ndiv
 
-#ifdef __NVCOMPILER
-! nvfortran v22.7 lacks the F2008 bit-shifting intrinsics
+#if defined(__NVCOMPILER) && __NVCOMPILER_MAJOR < 23
+! nvfortran releases before 23.x lack the F2008 bit-shifting intrinsics
       z = lshift(z,2)
 #else
       z = shiftl(z,2)
 #endif
 
-      center = bbox_center(bb)
+      center = midpoint(bb)
 
       ! Set the quadrant using Morton order
       !
@@ -126,7 +123,6 @@ contains
 
 
   pure function hidx(vertex,bbox,ndiv) result(h)
-    !$omp declare target
 
     real(wp), intent(in) :: vertex(2)
       !! A two-dimensional Cartesian point.
@@ -173,12 +169,12 @@ contains
 
     do i = 1, ndiv
 
-#ifdef __NVCOMPILER
+#if defined(__NVCOMPILER) && __NVCOMPILER_MAJOR < 23
       h = lshift(h,2)
 #else
       h = shiftl(h,2)
 #endif
-      center = bbox_center(bb)
+      center = midpoint(bb)
 
       q = 0
       if (vertex(1) > center(1)) q = q + 1
@@ -202,12 +198,12 @@ contains
   end function
 
 
-  pure function bbox_center(bbox) result(center)
-    !$omp declare target
-    real(wp), intent(in) :: bbox(4)
+  ! Midpoint of a bounding box [xmin,ymin,xmax,ymax]
+  pure function midpoint(bb) result(center)
+    real(wp), intent(in) :: bb(4)
     real(wp) :: center(2)
-    center(1) = bbox(1) + 0.5_wp*(bbox(3) - bbox(1))
-    center(2) = bbox(2) + 0.5_wp*(bbox(4) - bbox(2))
+    center(1) = bb(1) + 0.5_wp*(bb(3) - bb(1))
+    center(2) = bb(2) + 0.5_wp*(bb(4) - bb(2))
   end function
 
 end module

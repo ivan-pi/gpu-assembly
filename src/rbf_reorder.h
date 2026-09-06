@@ -286,8 +286,8 @@ void renumber_csr(std::span<I> ia, std::span<I> ja, const Permutation<I>& p) {
 template<typename I = std::int32_t>
 std::vector<I> make_row_ptr(I n, int k) {
     std::vector<I> ia(static_cast<size_t>(n) + 1);
-    std::generate(ia.begin(), ia.end(),
-        [s = I{0}, k]() mutable { const I r = s; s += static_cast<I>(k); return r; });
+    for (size_t s = 0; s <= static_cast<size_t>(n); ++s)
+        ia[s] = static_cast<I>(s * k);
     return ia;
 }
 
