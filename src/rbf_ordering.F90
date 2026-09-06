@@ -35,15 +35,14 @@ contains
     integer(c_int), intent(in) :: ndiv
     integer(i8), intent(out) :: keys(n)
 
-    real(wp) :: bb(4)
     integer :: i
 
-    bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
+    call check_ndiv(ndiv)
 
     ! Fixed-depth iterations, so a static schedule balances fine
     !$omp parallel do schedule(static)
     do i = 1, n
-      keys(i) = zidx([x(i),y(i)],bb,ndiv)
+      keys(i) = zidx(x(i),y(i),bbox,ndiv)
     end do
 
   end subroutine
@@ -56,37 +55,50 @@ contains
     integer(c_int), intent(in) :: ndiv
     integer(i8), intent(out) :: keys(n)
 
-    real(wp) :: bb(4)
     integer :: i
 
-    bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
+    call check_ndiv(ndiv)
 
     !$omp parallel do schedule(static)
     do i = 1, n
-      keys(i) = hidx([x(i),y(i)],bb,ndiv)
+      keys(i) = hidx(x(i),y(i),bbox,ndiv)
     end do
 
   end subroutine
 
-
-  pure function zidx(vertex,bbox,ndiv) result(z)
-
-    real(wp), intent(in) :: vertex(2)
-      !! A two-dimensional Cartesian point.
-    real(wp), intent(in) :: bbox(4)
-      !! Bounding box of the domain, specified as the axis-aligned
-      !! values (xmin,ymin,xmax,ymax) corresponding to the bottom-left,
-      !! and top-right corners.
+  ! The key functions zidx/hidx are elemental (hence pure), and error
+  ! stop in a pure procedure requires F2018, which not all compilers
+  ! we target support. The check therefore lives here, in the non-pure
+  ! wrappers, before the loop; anyone calling the elemental functions
+  ! directly must validate ndiv at the call site.
+  subroutine check_ndiv(ndiv)
     integer(c_int), intent(in) :: ndiv
-      !! Number of bounding box sub-divisions.
+    if (ndiv < 1 .or. ndiv > 31) then
+      error stop "rbf_ordering: ndiv must be between 1 and 31"
+    end if
+  end subroutine
+
+
+  elemental function zidx(px,py,bbox,ndiv) result(z)
+
+    real(wp), intent(in) :: px, py
+      !! A two-dimensional Cartesian point, which must lie inside bbox.
+    type(bbox2d), intent(in) :: bbox
+      !! Axis-aligned bounding box of the domain.
+    integer(c_int), intent(in) :: ndiv
+      !! Number of bounding box sub-divisions, 1 <= ndiv <= 31.
+      !! Not validated here (an elemental function is pure and cannot
+      !! portably error stop); validate at the call site, as the
+      !! wrapper subroutines above do.
 
     integer(i8) :: z
       !! The z-order index.
 
     integer :: i, d
-    real(wp) :: center(2), bb(4)
+    real(wp) :: center(2), bb(4), vertex(2)
 
-    bb = bbox
+    vertex = [px, py]
+    bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
     z = 0
     do i = 1, ndiv
 
@@ -122,16 +134,17 @@ contains
   end function
 
 
-  pure function hidx(vertex,bbox,ndiv) result(h)
+  elemental function hidx(px,py,bbox,ndiv) result(h)
 
-    real(wp), intent(in) :: vertex(2)
-      !! A two-dimensional Cartesian point.
-    real(wp), intent(in) :: bbox(4)
-      !! Bounding box of the domain, specified as the axis-aligned
-      !! values (xmin,ymin,xmax,ymax) corresponding to the bottom-left,
-      !! and top-right corners.
+    real(wp), intent(in) :: px, py
+      !! A two-dimensional Cartesian point, which must lie inside bbox.
+    type(bbox2d), intent(in) :: bbox
+      !! Axis-aligned bounding box of the domain.
     integer(c_int), intent(in) :: ndiv
-      !! Number of bounding box sub-divisions.
+      !! Number of bounding box sub-divisions, 1 <= ndiv <= 31.
+      !! Not validated here (an elemental function is pure and cannot
+      !! portably error stop); validate at the call site, as the
+      !! wrapper subroutines above do.
 
     integer(i8) :: h
       !! The Hilbert-order index.
@@ -161,9 +174,10 @@ contains
         0,3,2,3], [4,4])
 
     integer :: i, d, rot, q
-    real(wp) :: center(2), bb(4)
+    real(wp) :: center(2), bb(4), vertex(2)
 
-    bb = bbox
+    vertex = [px, py]
+    bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
     h = 0
     rot = 0
 
