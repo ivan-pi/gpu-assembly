@@ -9,7 +9,7 @@
 
 module rbf_ordering
 
-  use, intrinsic :: iso_c_binding, only: c_int, c_int64_t, c_double
+  use, intrinsic :: iso_c_binding, only: c_int32_t, c_int64_t, c_double
   implicit none
   private
 
@@ -29,10 +29,10 @@ contains
 
   ! Morton (Z-curve) keys for n points.
   subroutine morton_keys(n,x,y,bbox,ndiv,keys) bind(c,name="rbf_morton_keys")
-    integer(c_int), intent(in) :: n
+    integer(c_int32_t), intent(in) :: n
     real(wp), intent(in) :: x(n), y(n)
     type(bbox2d), intent(in) :: bbox
-    integer(c_int), intent(in) :: ndiv
+    integer(c_int32_t), intent(in) :: ndiv
     integer(i8), intent(out) :: keys(n)
 
     integer :: i
@@ -49,10 +49,10 @@ contains
 
   ! Hilbert-curve keys for n points; same interface as morton_keys.
   subroutine hilbert_keys(n,x,y,bbox,ndiv,keys) bind(c,name="rbf_hilbert_keys")
-    integer(c_int), intent(in) :: n
+    integer(c_int32_t), intent(in) :: n
     real(wp), intent(in) :: x(n), y(n)
     type(bbox2d), intent(in) :: bbox
-    integer(c_int), intent(in) :: ndiv
+    integer(c_int32_t), intent(in) :: ndiv
     integer(i8), intent(out) :: keys(n)
 
     integer :: i
@@ -72,7 +72,7 @@ contains
   ! wrappers, before the loop; anyone calling the elemental functions
   ! directly must validate ndiv at the call site.
   subroutine check_ndiv(ndiv)
-    integer(c_int), intent(in) :: ndiv
+    integer(c_int32_t), intent(in) :: ndiv
     if (ndiv < 1 .or. ndiv > 31) then
       error stop "rbf_ordering: ndiv must be between 1 and 31"
     end if
@@ -85,7 +85,7 @@ contains
       !! A two-dimensional Cartesian point, which must lie inside bbox.
     type(bbox2d), intent(in) :: bbox
       !! Axis-aligned bounding box of the domain.
-    integer(c_int), intent(in) :: ndiv
+    integer(c_int32_t), intent(in) :: ndiv
       !! Number of bounding box sub-divisions, 1 <= ndiv <= 31.
       !! Not validated here (an elemental function is pure and cannot
       !! portably error stop); validate at the call site, as the
@@ -147,7 +147,7 @@ contains
       !! A two-dimensional Cartesian point, which must lie inside bbox.
     type(bbox2d), intent(in) :: bbox
       !! Axis-aligned bounding box of the domain.
-    integer(c_int), intent(in) :: ndiv
+    integer(c_int32_t), intent(in) :: ndiv
       !! Number of bounding box sub-divisions, 1 <= ndiv <= 31.
       !! Not validated here (an elemental function is pure and cannot
       !! portably error stop); validate at the call site, as the

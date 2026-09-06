@@ -1,4 +1,23 @@
 
+## Building
+
+The host library (node set, renumbering, curve keys) and its tests build
+with any C++20/Fortran toolchain:
+
+```
+cmake -B build
+cmake --build build
+ctest --test-dir build
+```
+
+The CUDA parts (cuSolverDx assembly kernels, CUDA Fortran demo) are
+opt-in and need the NVHPC toolchain plus MathDx:
+
+```
+cmake -B build -DGPU_ASSEMBLY_ENABLE_CUDA=ON \
+      -DCMAKE_CXX_COMPILER=nvc++ -DCMAKE_Fortran_COMPILER=nvfortran
+```
+
 Export the MathDx path:
 
 ```

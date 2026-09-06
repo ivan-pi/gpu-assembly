@@ -1,14 +1,10 @@
 // Tests for rbf_reorder.h / rbf_ordering.F90 / NodeSet::renumber.
 //
-// Build (from the repository root), GNU:
+// Build and run via CMake, from the repository root:
 //
-//   gfortran -c src/rbf_ordering.F90 -o rbf_ordering.o
-//   g++ -std=c++20 -fopenmp -Ithird_party/nanoflann src/test_reorder.cpp rbf_ordering.o -lgfortran -o test_reorder
-//
-// NVHPC:
-//
-//   nvfortran -c src/rbf_ordering.F90 -o rbf_ordering.o
-//   nvc++ -std=c++20 -mp -Ithird_party/nanoflann src/test_reorder.cpp rbf_ordering.o -fortranlibs -o test_reorder
+//   cmake -B build
+//   cmake --build build
+//   ctest --test-dir build
 
 #include <cstdint>
 #include <cstdio>
