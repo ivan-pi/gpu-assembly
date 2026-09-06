@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -206,22 +207,99 @@ static void test_matrix_market() {
     std::remove("p.mtx"); std::remove("f.mtx");
 }
 
-static void test_vtk_compiles_and_writes() {
-    // Checks the header is usable, the layout, and that the type label
-    // follows T.
-    const std::vector<double> x{0, 1}, y{0, 1}, rho{1, 2}, ux{3, 4}, uy{5, 6};
-    rbf::io::write_lbm_vtk_polydata("out.vtk", 2, x.data(), y.data(),
-                                 rho.data(), ux.data(), uy.data());
-    std::ifstream f("out.vtk");
-    std::string line;
-    int points = 0, vectors = 0, scalars = 0;
-    while (std::getline(f, line)) {
-        if (line == "POINTS 2 double") ++points;
-        if (line.rfind("VECTORS Velocity", 0) == 0) ++vectors;
-        if (line.rfind("SCALARS Density", 0) == 0) ++scalars;
+// Read a legacy POLYDATA file back: point count, vertex count, and the
+// POINT_DATA blocks in order as (kind, name, values flattened).
+struct VtkBlock { std::string kind, name; std::vector<double> v; };
+struct VtkFile { std::size_t npoints = 0, nverts = 0; std::vector<double> xyz; std::vector<VtkBlock> blocks; };
+
+static VtkFile read_vtk(const std::string& fname) {
+    VtkFile f;
+    std::ifstream in(fname);
+    std::string tok;
+    while (in >> tok) {
+        if (tok == "POINTS") {
+            std::string type; in >> f.npoints >> type;
+            f.xyz.resize(3 * f.npoints);
+            for (auto& v : f.xyz) in >> v;
+        } else if (tok == "VERTICES") {
+            std::size_t size; in >> f.nverts >> size;
+            for (std::size_t i = 0; i < size; ++i) in >> tok;
+        } else if (tok == "SCALARS" || tok == "VECTORS") {
+            VtkBlock b; b.kind = tok;
+            std::string type; in >> b.name >> type;
+            if (b.kind == "SCALARS") { in >> tok >> tok >> tok; }   // "1", LOOKUP_TABLE, default
+            b.v.resize((b.kind == "SCALARS" ? 1 : 3) * f.npoints);
+            for (auto& v : b.v) in >> v;
+            f.blocks.push_back(std::move(b));
+        }
     }
-    CHECK(points == 1 && vectors == 1 && scalars == 1);
-    std::remove("out.vtk");
+    return f;
+}
+
+static bool same_file(const std::string& a, const std::string& b) {
+    std::ifstream fa(a), fb(b);
+    std::string sa((std::istreambuf_iterator<char>(fa)), {}), sb((std::istreambuf_iterator<char>(fb)), {});
+    return !sa.empty() && sa == sb;
+}
+
+static void test_vtk_polydata() {
+    const std::vector<double> x = awkward, y{1, 2, 3, 4, 5, 6};
+    const std::vector<double> u{10, 11, 12, 13, 14, 15}, r{0.5, 0.25, 0.125, 1.0 / 3.0, 1e-300, 0};
+    const std::vector<double> ux{7, 8, 9, 10, 11, 12}, uy{-1, -2, -3, -4, -5, -6};
+    const std::size_t n = x.size();
+
+    // two scalars and a vector, listed in place
+    rbf::io::write_vtk_polydata("f.vtk", n, x.data(), y.data(),
+                                {{"u", u.data()}, {"residual", r.data()}},
+                                {{"U", ux.data(), uy.data()}});
+    auto f = read_vtk("f.vtk");
+    CHECK(f.npoints == n && f.nverts == n);
+    for (std::size_t i = 0; i < n; ++i)
+        CHECK(f.xyz[3*i] == x[i] && f.xyz[3*i + 1] == y[i] && f.xyz[3*i + 2] == 0);
+    CHECK(f.blocks.size() == 3);
+    CHECK(f.blocks[0].kind == "SCALARS" && f.blocks[0].name == "u" && f.blocks[0].v == u);
+    CHECK(f.blocks[1].kind == "SCALARS" && f.blocks[1].name == "residual" && f.blocks[1].v == r);
+    CHECK(f.blocks[2].kind == "VECTORS" && f.blocks[2].name == "U");
+    for (std::size_t i = 0; i < n; ++i)
+        CHECK(f.blocks[2].v[3*i] == ux[i] && f.blocks[2].v[3*i + 1] == uy[i]);
+
+    // scalars only, from a runtime-built list; no vectors at all
+    std::vector<rbf::io::VtkScalar<double>> fields{{"u", u.data()}, {"r", r.data()}};
+    rbf::io::write_vtk_polydata("g.vtk", n, x.data(), y.data(), fields);
+    auto g = read_vtk("g.vtk");
+    CHECK(g.blocks.size() == 2 && g.blocks[1].name == "r" && g.blocks[1].v == r);
+
+    // vectors only, and no fields at all
+    rbf::io::write_vtk_polydata("h.vtk", n, x.data(), y.data(), {}, {{"U", ux.data(), uy.data()}});
+    CHECK(read_vtk("h.vtk").blocks.size() == 1);
+    rbf::io::write_vtk_polydata("i.vtk", n, x.data(), y.data(), {});
+    CHECK(read_vtk("i.vtk").blocks.empty() && read_vtk("i.vtk").npoints == n);
+
+    // the LBM wrappers: SoA and interleaved give byte-identical files
+    std::vector<double> p(2 * n), vel(2 * n);
+    for (std::size_t i = 0; i < n; ++i) {
+        p[2*i] = x[i]; p[2*i + 1] = y[i];
+        vel[2*i] = ux[i]; vel[2*i + 1] = uy[i];
+    }
+    rbf::io::write_lbm_vtk_polydata("lbm1.vtk", n, x.data(), y.data(), u.data(), ux.data(), uy.data());
+    rbf::io::write_lbm_vtk_polydata("lbm2.vtk", n, p.data(), u.data(), vel.data());
+    CHECK(same_file("lbm1.vtk", "lbm2.vtk"));
+    auto l = read_vtk("lbm1.vtk");
+    CHECK(l.blocks.size() == 2 && l.blocks[0].name == "Density" && l.blocks[1].name == "Velocity");
+    CHECK(l.blocks[0].v == u);
+
+    // float labels its arrays as float
+    const std::vector<float> xf{0, 1}, yf{0, 1}, uf{0.1f, 1.0f / 3.0f};
+    rbf::io::write_vtk_polydata("k.vtk", 2, xf.data(), yf.data(), {{"u", uf.data()}});
+    {
+        std::ifstream in("k.vtk"); std::string line; int hits = 0;
+        while (std::getline(in, line))
+            if (line == "POINTS 2 float" || line == "SCALARS u float 1") ++hits;
+        CHECK(hits == 2);
+    }
+
+    for (const char* fn : {"f.vtk", "g.vtk", "h.vtk", "i.vtk", "lbm1.vtk", "lbm2.vtk", "k.vtk"})
+        std::remove(fn);
 }
 
 int main() {
@@ -229,7 +307,7 @@ int main() {
     test_nodes_roundtrip();
     test_read_graph_csr();
     test_matrix_market();
-    test_vtk_compiles_and_writes();
+    test_vtk_polydata();
 
     if (failures) {
         std::printf("%d failure(s)\n", failures);
