@@ -1,115 +1,92 @@
 #ifndef RBF_IO_VTK_H
 #define RBF_IO_VTK_H
 
+// Legacy (ASCII, non-XML) VTK output for point clouds.
+//
+//   write_lbm_vtk_polydata   points + velocity + density as POLYDATA
+
 #include <cstddef>
 #include <fstream>
+#include <string>
+
+#include "rbf_io.h"
 
 namespace rbf::io {
 
-/**
- * @brief Write LBM output as VTK POLYDATA (sequential storage).
- * 
- * @param filepath The filename; if not ending with the extension .vtp,
- *                 it will be appended automatically.
- * @param n Number of points.
- * @param x Nodal coordinates, x-component.
- * @param y Nodal coordinates, y-component.
- * @param p Pointer to an array of size 2*n, with the coordinates
- *          layed out as `{x[0], y[0], x[1], y[1], ...}`
- * @param rho Density values
- * @param ux  Velocity values, x-component.
- * @param uy  Velocity values, y-component.
- */ 
-template<typename T>
-void writeLbmVtkPolydata(
-    const char* filepath, 
-    int n, 
-    const T x[], const T y[],
-    const T rho[], 
-    const T ux[], const T uy[]) {
+namespace detail {
 
-  using std::size_t;
+// The scalar type label the legacy VTK format expects for T.
+template <class T> constexpr const char* vtk_type_name();
+template <> constexpr const char* vtk_type_name<float>()  { return "float"; }
+template <> constexpr const char* vtk_type_name<double>() { return "double"; }
 
-  std::ofstream vtkfile(filepath);
+} // namespace detail
 
-  vtkfile << "# vtk DataFile Version 2.0\n";
-  vtkfile << "lbm pointcloud output\n";
-  vtkfile << "ASCII\n";
-  vtkfile << "DATASET POLYDATA\n";
+// LBM output as legacy VTK POLYDATA, one vertex per node, with the
+// velocity as a point vector field and the density as a point scalar.
+// The z coordinate and z velocity are written as 0. Values are written
+// at full precision for T; the file should be given the .vtk extension.
+//
+// SoA form: x, y, rho, ux, uy are arrays of n.
+template <class T>
+void write_lbm_vtk_polydata(const std::string& fname, std::size_t n,
+                            const T* x, const T* y,
+                            const T* rho, const T* ux, const T* uy)
+{
+    auto out = detail::open_out(fname);
+    detail::full_precision<T>(out);
+    const char* tn = detail::vtk_type_name<T>();
 
-  vtkfile << "POINTS " << n << " float\n";
-  
-  for (int i = 0; i < n; ++i) {
-    vtkfile << x[i] << " " << y[i] << " 0\n";
-  }
+    out << "# vtk DataFile Version 2.0\n"
+           "lbm pointcloud output\n"
+           "ASCII\n"
+           "DATASET POLYDATA\n";
 
-  vtkfile << "POINT_DATA " << n << '\n';
+    out << "POINTS " << n << ' ' << tn << '\n';
+    for (std::size_t i = 0; i < n; ++i)
+        out << x[i] << ' ' << y[i] << " 0\n";
 
-  vtkfile << "VECTORS Velocity float\n";
+    out << "POINT_DATA " << n << '\n';
 
-  for (int i = 0; i < n; ++i) {
-    vtkfile << ux[i] << " " << uy[i] << " 0\n";
-  }
+    out << "VECTORS Velocity " << tn << '\n';
+    for (std::size_t i = 0; i < n; ++i)
+        out << ux[i] << ' ' << uy[i] << " 0\n";
 
-  vtkfile << "SCALARS Density float 1\n";
-  vtkfile << "LOOKUP_TABLE default\n";
-
-  for (int i = 0; i < n; ++i) {
-    vtkfile << rho[i] << '\n';
-  }
-
-  vtkfile.close();
+    out << "SCALARS Density " << tn << " 1\n"
+           "LOOKUP_TABLE default\n";
+    for (std::size_t i = 0; i < n; ++i)
+        out << rho[i] << '\n';
 }
 
-/**
- * @brief Write LBM output as VTK POLYDATA (inter-leaved storage).
- * 
- * @param filepath The filename; if not ending with the extension .vtp,
- *                 it will be appended automatically.
- * @param n Number of points.
- * @param p Nodal coordinates (interleaved storage), i.e. an array of size `2*n` with
- *          the coordinates laid out in memory as `{x[0], y[0], x[1], y[1], ...}`.
- * @param rho Density values, array of size n.
- * @param ux  Velocity values (interleaved storage), i.e. an array of size `2*n` with
- *            the velocity component laid out in memory as `{ux[0], uy[0], ux[1], uy[1], ...}`.
- */  
-template<typename T>
-void writeLbmVtkPolydata(
-    const char* filepath, 
-    int n, 
-    const T p[],
-    const T rho[], 
-    const T vel[]) {
+// Interleaved form: p and vel are arrays of 2n laid out as
+// {x0, y0, x1, y1, ...} and {ux0, uy0, ux1, uy1, ...}; rho is n.
+template <class T>
+void write_lbm_vtk_polydata(const std::string& fname, std::size_t n,
+                            const T* p, const T* rho, const T* vel)
+{
+    auto out = detail::open_out(fname);
+    detail::full_precision<T>(out);
+    const char* tn = detail::vtk_type_name<T>();
 
-  std::ofstream vtkfile(filepath);
+    out << "# vtk DataFile Version 2.0\n"
+           "lbm pointcloud output\n"
+           "ASCII\n"
+           "DATASET POLYDATA\n";
 
-  vtkfile << "# vtk DataFile Version 2.0\n";
-  vtkfile << "lbm pointcloud output\n";
-  vtkfile << "ASCII\n";
-  vtkfile << "DATASET POLYDATA\n";
+    out << "POINTS " << n << ' ' << tn << '\n';
+    for (std::size_t i = 0; i < n; ++i)
+        out << p[2*i] << ' ' << p[2*i + 1] << " 0\n";
 
-  vtkfile << "POINTS " << n << " float\n";
-  
-  for (int i = 0; i < n; ++i) {
-    vtkfile << p[2*i] << " " << p[2*i+1] << " 0\n";
-  }
+    out << "POINT_DATA " << n << '\n';
 
-  vtkfile << "POINT_DATA " << n << '\n';
+    out << "VECTORS Velocity " << tn << '\n';
+    for (std::size_t i = 0; i < n; ++i)
+        out << vel[2*i] << ' ' << vel[2*i + 1] << " 0\n";
 
-  vtkfile << "VECTORS Velocity float\n";
-
-  for (int i = 0; i < n; ++i) {
-    vtkfile << vel[2*i] << " " << vel[2*i+1] << " 0\n";
-  }
-
-  vtkfile << "SCALARS Density float 1\n";
-  vtkfile << "LOOKUP_TABLE default\n";
-
-  for (int i = 0; i < n; ++i) {
-    vtkfile << rho[i] << '\n';
-  }
-
-  vtkfile.close();
+    out << "SCALARS Density " << tn << " 1\n"
+           "LOOKUP_TABLE default\n";
+    for (std::size_t i = 0; i < n; ++i)
+        out << rho[i] << '\n';
 }
 
 } // namespace rbf::io

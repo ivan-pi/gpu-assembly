@@ -193,31 +193,17 @@ static void test_matrix_market() {
     std::remove("p.mtx"); std::remove("f.mtx");
 }
 
-static void test_field_roundtrip() {
-    rbf::io::write_field("u.txt", awkward);
-    auto u = rbf::io::read_field("u.txt");
-    CHECK(u == awkward);
-
-    rbf::io::write_field("u.txt", awkward.size(), awkward.data());
-    CHECK(rbf::io::read_field<double>("u.txt") == awkward);
-
-    const std::vector<float> uf{0.1f, 1.0f / 3.0f, 1e-30f};
-    rbf::io::write_field("u.txt", uf);
-    CHECK(rbf::io::read_field<float>("u.txt") == uf);
-
-    std::remove("u.txt");
-}
-
 static void test_vtk_compiles_and_writes() {
-    // Only checks the header is usable and produces the expected layout.
+    // Checks the header is usable, the layout, and that the type label
+    // follows T.
     const std::vector<double> x{0, 1}, y{0, 1}, rho{1, 2}, ux{3, 4}, uy{5, 6};
-    rbf::io::writeLbmVtkPolydata("out.vtk", 2, x.data(), y.data(),
+    rbf::io::write_lbm_vtk_polydata("out.vtk", 2, x.data(), y.data(),
                                  rho.data(), ux.data(), uy.data());
     std::ifstream f("out.vtk");
     std::string line;
     int points = 0, vectors = 0, scalars = 0;
     while (std::getline(f, line)) {
-        if (line.rfind("POINTS 2", 0) == 0) ++points;
+        if (line == "POINTS 2 double") ++points;
         if (line.rfind("VECTORS Velocity", 0) == 0) ++vectors;
         if (line.rfind("SCALARS Density", 0) == 0) ++scalars;
     }
@@ -230,7 +216,6 @@ int main() {
     test_nodes_roundtrip();
     test_read_graph_csr();
     test_matrix_market();
-    test_field_roundtrip();
     test_vtk_compiles_and_writes();
 
     if (failures) {

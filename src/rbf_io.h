@@ -7,7 +7,6 @@
 //   read_nodes, write_nodes        "x y flag" list, the format NodeSet reads
 //   read_graph_csr                 variable-length adjacency list -> (ia, ja)
 //   write_matrix_market            CSR matrix -> Matrix Market (real, or pattern)
-//   write_field, read_field        one value per node <-> plain list
 //
 // Every reader checks that the file opened and that the data it returns is
 // complete, exiting with a message rather than returning a short container.
@@ -298,39 +297,6 @@ void write_matrix_market_pattern(const std::string& fname,
                                  I csr_base = 0)
 {
     write_matrix_market<double, I>(fname, rows, cols, ia, ja, nullptr, csr_base);
-}
-
-// ---------------------------------------------------------------------------
-// Fields
-// ---------------------------------------------------------------------------
-
-// One value per line, with an "n" header: solutions, residuals, errors.
-template <class T>
-void write_field(const std::string& fname, std::size_t n, const T* v)
-{
-    auto out = detail::open_out(fname);
-    detail::full_precision<T>(out);
-    out << n << '\n';
-    for (std::size_t i = 0; i < n; ++i) out << v[i] << '\n';
-}
-
-template <class T>
-void write_field(const std::string& fname, const std::vector<T>& v)
-{
-    write_field(fname, v.size(), v.data());
-}
-
-// Inverse of write_field: reference solutions, restart data.
-template <class T = double>
-std::vector<T> read_field(const std::string& fname)
-{
-    auto in = detail::open_in(fname);
-    std::size_t n = 0;
-    if (!(in >> n)) detail::fail(fname, "missing or malformed value count");
-    std::vector<T> v(n);
-    for (std::size_t i = 0; i < n; ++i) in >> v[i];
-    if (!in) detail::fail(fname, "expected " + std::to_string(n) + " values");
-    return v;
 }
 
 } // namespace rbf::io

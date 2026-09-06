@@ -56,10 +56,10 @@ public:
     // Reads the "x y flag" file format; see rbf::io::read_nodes.
     explicit NodeSet(const std::string& fname) {
         auto nodes = io::read_nodes<T>(fname);
+        num_points_ = nodes.size();
         x = std::move(nodes.x);
         y = std::move(nodes.y);
         flag = std::move(nodes.flag);
-        num_points_ = x.size();
         rebuild_bnd();
         file_order_ = Permutation<I>::identity(num_points_);
     }
