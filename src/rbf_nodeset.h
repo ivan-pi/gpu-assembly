@@ -1,19 +1,43 @@
 #ifndef RBF_NODESET_H
 #define RBF_NODESET_H
 
+#include <cassert>
 #include <cstdint>
-#include <vector>
+#include <fstream>
 #include <iostream>
+#include <memory>
+#include <span>
 #include <string>
+#include <type_traits>
+#include <vector>
 
 #include <nanoflann.hpp>
 
+#include "rbf_reorder.h"
+
 namespace rbf {
 
-// Node set with its own k-d tree.
+// Parameters for the k-d tree build; see nanoflann's
+// KDTreeSingleIndexAdaptorParams. They take effect when the tree is
+// (re)built, i.e. on the first stencils() call after construction or
+// after a renumber().
+struct TreeParams {
+    size_t leaf_max_size = 10;
+    unsigned n_thread_build = 1;
+};
+
+// Node set with a lazily-built k-d tree.
 //
-// nanoflann's tree keeps a reference to the dataset, so the tree
-// here refers to the enclosing object.
+// nanoflann's tree keeps a reference to the dataset, so the tree here
+// refers to the enclosing object. It is built on first use (stencils())
+// and invalidated by renumber(), so the natural flow
+//
+//     NodeSet ns("case.nodes");
+//     ns.renumber(morton_order(ns.x, ns.y))
+//       .renumber(boundary_last_by_flag(ns.flag));
+//     auto ja = ns.stencils(k);
+//
+// builds the tree exactly once, in the final numbering.
 //
 // The class is non-copyable.
 //
@@ -22,52 +46,64 @@ class NodeSet {
     static_assert(std::is_integral_v<I>, "index type must be integral");
 public:
     using value_type = T;
-    using index_type= I;
+    using index_type = I;
 
     std::vector<T> x, y;
     std::vector<int> flag;        // per-node tag; 0 = interior, nonzero = boundary
     std::vector<index_type> bnd;  // indices of nonzero-flag nodes (boundary)
 
-    explicit NodeSet(const std::string& fname, size_t leaf_max_size = 10,
-                     unsigned n_thread_build = 1)
-        : tree_(2, *this, nanoflann::KDTreeSingleIndexAdaptorParams(
-                leaf_max_size
-                nanoflann:KDTreeSingleIndexAdaptorFlags::SkipInitialBuildIndex,
-                n_thread_build))
-    {
+    explicit NodeSet(const std::string& fname) {
         std::ifstream in{fname};
         if (!in) { std::cerr << "cannot open " << fname << '\n'; std::exit(1); }
-        double px, py; int f;
-        index_type n = 0; nb = 0;
+        T px, py; int f;
         while (in >> px >> py >> f) {
-            if (f) {
-                bnd.push_back(n);
-                ++nb;
-            }
             x.push_back(px);
             y.push_back(py);
             flag.push_back(f);
-            ++n;
         }
-        num_points_ = n;
-        num_boundary_ = nb;
-        tree_.buildIndex(); // now that x, y and num_points_ are final
+        num_points_ = x.size();
+        rebuild_bnd();
+        file_order_ = Permutation<I>::identity(static_cast<I>(num_points_));
     }
 
     NodeSet(const NodeSet&) = delete;
     NodeSet& operator=(const NodeSet&) = delete;
 
     size_t num_points() const { return num_points_; }
-    size_t num_boundary() const { return num_boundary_; }
-    size_t num_interior() const { return num_points_ - num_boundary_; }
+    size_t num_boundary() const { return bnd.size(); }
+    size_t num_interior() const { return num_points_ - bnd.size(); }
+
+    // Renumber the nodes: permutes x, y and flag, recomputes bnd,
+    // invalidates the k-d tree, and folds p into file_order(). Returns
+    // *this so orderings can be chained. Stencils extracted before a
+    // renumber are expressed in the old numbering and are not updated
+    // (renumber_stencils() in rbf_reorder.h does that if needed).
+    NodeSet& renumber(const Permutation<I>& p) {
+        assert(static_cast<size_t>(p.size()) == num_points_);
+        p.permute(std::span{x});
+        p.permute(std::span{y});
+        p.permute(std::span{flag});
+        rebuild_bnd();
+        file_order_ = file_order_.then(p);
+        tree_.reset();
+        return *this;
+    }
+
+    // Current numbering -> original file order; identity if renumber()
+    // was never called. Use it to permute per-node data loaded in file
+    // order, or to unpermute results for output:
+    //
+    //     file_order().permute(std::span{u});    // file order -> current
+    //     file_order().unpermute(std::span{u});  // current -> file order
+    const Permutation<I>& file_order() const { return file_order_; }
 
     // Indices of nodes with a particular flag value
     //
     // Useful for problems with several boundary kinds
     std::vector<index_type> indices_with(int value) const {
         std::vector<I> out;
-        for (index_type i = 0; i < num_points_; ++i) {
-            if (flag[i] == value) out.push_back(i);
+        for (size_t i = 0; i < num_points_; ++i) {
+            if (flag[i] == value) out.push_back(static_cast<I>(i));
         }
         return out;
     }
@@ -76,21 +112,27 @@ public:
     // neighbours of node s are contiguous at ja[s*k], sorted by distance, so
     // ja[s*k] == s. Values are 0-based, of the index type I chosen to match
     // the CsrMatrix<T, I> they will feed (int32_t by default).
-    auto stencils(int k) const {
-        const int n = num_points_;
-        if (k < 1 || k > n) {
+    //
+    // Builds the k-d tree on first use (not safe to race the first call);
+    // tp only takes effect when the tree is actually (re)built.
+    auto stencils(int k, const TreeParams& tp = {}) const {
+        const auto n = static_cast<index_type>(num_points_);
+        if (k < 1 || static_cast<size_t>(k) > num_points_) {
             std::cerr << "error: NodeSet::stencils: k=" << k
                       << " with " << n << " nodes\n";
             std::exit(1);
         }
-        std::vector<index_type> ja(n * k);
+        ensure_tree(tp);
+        std::vector<index_type> ja(num_points_ * k);
         #pragma omp parallel
         {
             std::vector<T> d2(k);
             #pragma omp for schedule(static)
             for (index_type s = 0; s < n; ++s) {
                 const T q[2] = {x[s], y[s]};
-                tree_.knnSearch(q, k, &ja[s*k], d2.data());
+                [[maybe_unused]] const auto found =
+                    tree_->knnSearch(q, k, &ja[s*k], d2.data());
+                assert(found == static_cast<size_t>(k));
             }
         }
         return ja;
@@ -104,8 +146,29 @@ public:
 private:
     using Tree = nanoflann::KDTreeSingleIndexAdaptor<
         nanoflann::L2_Simple_Adaptor<T, NodeSet>, NodeSet, 2, I>;
-    Tree tree_;
-    size_t num_points_{0}, num_boundary_{0};
+
+    void rebuild_bnd() {
+        bnd.clear();
+        for (size_t i = 0; i < num_points_; ++i) {
+            if (flag[i]) bnd.push_back(static_cast<I>(i));
+        }
+    }
+
+    // Building the index is deferred to first use so that renumber()
+    // can run beforehand (or in between) without paying for a rebuild.
+    void ensure_tree(const TreeParams& tp) const {
+        if (!tree_) {
+            tree_ = std::make_unique<Tree>(2, *this,
+                nanoflann::KDTreeSingleIndexAdaptorParams(
+                    tp.leaf_max_size,
+                    nanoflann::KDTreeSingleIndexAdaptorFlags::None,
+                    tp.n_thread_build));
+        }
+    }
+
+    mutable std::unique_ptr<Tree> tree_;
+    size_t num_points_{0};
+    Permutation<I> file_order_;
 };
 
 } // namespace rbf
