@@ -22,7 +22,7 @@ module rbf_cuda
     private
 
     public :: dp, fill_kernel, fill_rhs, print_matrix
-    public :: store_to_csr
+    public :: store_to_csr, NMAX
 
     integer, parameter :: dp = kind(1.0d0)
 
@@ -102,7 +102,7 @@ end subroutine
 ! B = [Lphi, Lp] for columns j = 1 to nc, where each
 ! column performs interpolation at the point (xc(j),yc(j))
 attributes(global) subroutine fill_rhs(n,x,y,nc,xc,yc,B,ldb)
-    integer, value :: n, nc
+    integer, value :: n, nc, ldb
     real(dp), intent(in) :: x(n), y(n)
     real(dp), intent(in) :: xc(nc), yc(nc)
 
@@ -136,13 +136,13 @@ attributes(global) subroutine fill_rhs(n,x,y,nc,xc,yc,B,ldb)
 end subroutine
 
 !> Pack stencil weights into CSR storage
-attributes(device) subroutine store_to_csr(nstencils,ia,va,W,ldw)
-    integer, value :: nstencils, ldw
+attributes(device) subroutine store_to_csr(nstencils,ia,va,W,ldw,idx)
+    integer, value :: nstencils, ldw, idx
     integer, intent(in) :: ia(0:nstencils)
     real(dp), intent(inout) :: va(0:*)
     real(dp), intent(in) :: W(ldw,2) ! Laplacian weights
 
-    integer :: iaa, iab, n
+    integer :: iaa, iab, n, k
 
     iaa = ia(idx)
     iab = ia(idx+1)-1
@@ -156,15 +156,15 @@ attributes(device) subroutine store_to_csr(nstencils,ia,va,W,ldw)
 
 end subroutine
 
-subroutine print_matrix(nt, ld, M, label)
-    integer,  intent(in) :: nt, ld
-    real(dp), intent(in) :: M(ld, *)
+subroutine print_matrix(nrows, ncols, M, ld, label)
+    integer,  intent(in) :: nrows, ncols, ld
+    real(dp), intent(in) :: M(ld, ncols)
     character(*), intent(in), optional :: label
     integer :: i
 
     if (present(label)) print '(a)', label
-    do i = 1, nt
-        print '(*(f10.4))', M(i, 1:nt)
+    do i = 1, nrows
+        print '(*(f10.4))', M(i, 1:ncols)
     end do
     print *
 end subroutine

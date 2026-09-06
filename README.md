@@ -1,6 +1,9 @@
 
+Export the MathDx path:
 
-
+```
+export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
+```
 
 References:
 - [RBF-FD Stencil Sizer](https://ivan-pi.github.io/tools/rbf_fd_stencil_sizer.html)

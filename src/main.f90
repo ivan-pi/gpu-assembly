@@ -1,11 +1,13 @@
 program main
 
     use cudafor, only: cudaDeviceSynchronize, cudaSuccess, cudaGetErrorString
-    use rbf_cuda, only: dp, fill_kernel, NMAX, print_matrix
+    use rbf_cuda, only: dp, fill_kernel, fill_rhs, NMAX, print_matrix
 
     interface
-        attributes(global) subroutine solve(A,B,info) bind(c,name="solve")
+        attributes(global) subroutine solve_dp(A,ipiv,B,info) bind(c,name="solve_dp")
+            use, intrinsic :: iso_c_binding, only: c_double, c_int
             real(c_double), intent(inout) :: A(*)  ! [15,15]
+            integer(c_int), intent(inout) :: ipiv(*) ! 15
             real(c_double), intent(inout) :: B(*)  ! [15, 9]
             integer(c_int), intent(out) :: info
         end subroutine
@@ -18,6 +20,8 @@ program main
     integer :: idx, nstencils, ldm, ldb, istat
     integer, managed :: ia(0:1), ja(0:8)
     real(dp), allocatable, managed :: M(:,:), B(:,:)
+    integer, allocatable, managed :: ipiv(:)
+    integer, managed :: info
 
     nstencils = 1
     x = [real(dp) :: 0, 1, 0, -1, 0, 1, 1, -1, -1]
@@ -30,7 +34,7 @@ program main
     y0 = 0.0_dp
 
     ldm = nt
-    allocate(M(ldm, nt))
+    allocate(M(ldm, nt), ipiv(nt))
 
     ldb = nt
     allocate(B(ldb, nrhs))
@@ -46,11 +50,13 @@ program main
     end if
 
     ! Print matrix
-    call print_matrix(nt,ldm,M,"M = ")
+    call print_matrix(nt,nt,M,ldm,"M = ")
 
     call fill_rhs<<<1,32>>>(n,x,y,nrhs,(0.5*x),(0.5*y),B,ldb)
 
-    call solve<<<1,32>>>(M, B, istat)
-    print *, "istat (solve) = ", istat
+    call solve_dp<<<1,32>>>(M, ipiv, B, info)
+    print *, "info (solve) = ", info
+
+    call print_matrix(nt,nrhs,B,ldb,"B = ")
 
 end program
