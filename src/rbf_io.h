@@ -18,6 +18,7 @@
 // a bottleneck the answer is a binary format, not a faster parser.
 
 #include <algorithm>
+#include <cassert>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
@@ -299,8 +300,8 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
 //
 // The output is always 1-based, as the format requires. csr_base is the base
 // of the ia and ja arrays passed in (0 or 1) and is removed before the
-// conversion. The entry count is taken from ia, so the header can never
-// disagree with the body.
+// conversion; ia[0] must equal it, which is asserted. The entry count is
+// taken from ia, so the header can never disagree with the body.
 //
 // Pass a == nullptr to write the sparsity pattern alone, as Matrix Market's
 // "pattern" value type: (row, col) entries with no values. Useful before
@@ -315,6 +316,7 @@ void write_matrix_market(const std::string& fname,
                          const I* ia, const I* ja, const T* a,
                          I csr_base = 0)
 {
+    assert(ia[0] == csr_base && "ia does not start at the declared csr_base");
     auto out = detail::open_out(fname);
     const I nnz = ia[rows] - ia[0];
     out << "%%MatrixMarket matrix coordinate " << (a ? "real" : "pattern")
