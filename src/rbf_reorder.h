@@ -4,6 +4,9 @@
 // Node renumbering: permutations, space-filling-curve orderings, and
 // boundary-last partitions.
 //
+// Deliberately independent of NodeSet: besides the main workflow, it
+// can back offline tools that reorder node/graph files ahead of a run.
+//
 // The curve keys (Morton/Hilbert) are computed by the Fortran module
 // rbf_ordering.F90; link it into any target that uses morton_order,
 // hilbert_order, or the *_keys functions. Everything else in this
@@ -15,18 +18,8 @@
 #include <numeric>
 #include <optional>
 #include <span>
+#include <type_traits>
 #include <vector>
-
-extern "C" {
-void rbf_fill_morton_keys(const std::int32_t* n,
-                          const double* x, const double* y,
-                          const double* bbox, const std::int32_t* ndiv,
-                          std::int64_t* keys);
-void rbf_fill_hilbert_keys(const std::int32_t* n,
-                           const double* x, const double* y,
-                           const double* bbox, const std::int32_t* ndiv,
-                           std::int64_t* keys);
-}
 
 namespace rbf {
 
@@ -34,6 +27,28 @@ template<typename T>
 struct BBox2 {
     T xmin, ymin, xmax, ymax;
 };
+
+// BBox2<double> is passed by reference through the bind(c) interface
+// below and must stay layout-compatible with type bbox2d in
+// rbf_ordering.F90.
+static_assert(std::is_standard_layout_v<BBox2<double>> &&
+              std::is_trivially_copyable_v<BBox2<double>>);
+static_assert(sizeof(BBox2<double>) == 4 * sizeof(double));
+
+} // namespace rbf
+
+extern "C" {
+void rbf_morton_keys(const std::int32_t* n,
+                     const double* x, const double* y,
+                     const rbf::BBox2<double>* bbox, const std::int32_t* ndiv,
+                     std::int64_t* keys);
+void rbf_hilbert_keys(const std::int32_t* n,
+                      const double* x, const double* y,
+                      const rbf::BBox2<double>* bbox, const std::int32_t* ndiv,
+                      std::int64_t* keys);
+}
+
+namespace rbf {
 
 template<typename T>
 BBox2<T> compute_bbox(std::span<const T> x, std::span<const T> y) {
@@ -54,13 +69,13 @@ public:
     explicit Permutation(std::vector<I> new_to_old)
         : p_(std::move(new_to_old)), ip_(make_inverse(p_)) {}
 
-    static Permutation identity(I n) {
-        std::vector<I> v(static_cast<size_t>(n));
+    static Permutation identity(size_t n) {
+        std::vector<I> v(n);
         std::iota(v.begin(), v.end(), I{0});
         return Permutation(std::move(v));
     }
 
-    I size() const { return static_cast<I>(p_.size()); }
+    size_t size() const { return p_.size(); }
 
     std::span<const I> map() const { return p_; }  // new -> old
     std::span<const I> inv() const { return ip_; } // old -> new
@@ -119,7 +134,8 @@ private:
 namespace detail {
 
 using KeyFill = void (*)(const std::int32_t*, const double*, const double*,
-                         const double*, const std::int32_t*, std::int64_t*);
+                         const BBox2<double>*, const std::int32_t*,
+                         std::int64_t*);
 
 inline std::vector<std::int64_t> fill_keys(
         KeyFill fill,
@@ -128,11 +144,10 @@ inline std::vector<std::int64_t> fill_keys(
     assert(x.size() == y.size());
     assert(ndiv >= 1 && ndiv <= 31); // 2 bits per level in an int64 key
     const auto bb = bbox ? *bbox : compute_bbox(x, y);
-    const double bb4[4] = {bb.xmin, bb.ymin, bb.xmax, bb.ymax};
     const auto n = static_cast<std::int32_t>(x.size());
     const auto nd = static_cast<std::int32_t>(ndiv);
     std::vector<std::int64_t> keys(x.size());
-    fill(&n, x.data(), y.data(), bb4, &nd, keys.data());
+    fill(&n, x.data(), y.data(), &bb, &nd, keys.data());
     return keys;
 }
 
@@ -155,13 +170,13 @@ Permutation<I> order_by_keys(std::span<const std::int64_t> keys) {
 inline std::vector<std::int64_t> morton_keys(
         std::span<const double> x, std::span<const double> y,
         int ndiv = 16, std::optional<BBox2<double>> bbox = std::nullopt) {
-    return detail::fill_keys(&rbf_fill_morton_keys, x, y, ndiv, bbox);
+    return detail::fill_keys(&rbf_morton_keys, x, y, ndiv, bbox);
 }
 
 inline std::vector<std::int64_t> hilbert_keys(
         std::span<const double> x, std::span<const double> y,
         int ndiv = 16, std::optional<BBox2<double>> bbox = std::nullopt) {
-    return detail::fill_keys(&rbf_fill_hilbert_keys, x, y, ndiv, bbox);
+    return detail::fill_keys(&rbf_hilbert_keys, x, y, ndiv, bbox);
 }
 
 // Morton (Z-curve) order of the points. Stable: points falling into the
@@ -212,13 +227,27 @@ Permutation<I> boundary_last_by_index(I n, std::span<const I> bnd) {
     return partition_last<I>(n, [&mask](I i) { return mask[i] != 0; });
 }
 
-// Renumber a fixed-width stencil graph in place: gathers the row blocks
-// and relabels the column values. Layout: the k neighbours of node s are
-// contiguous at ja[s*k]. Within-row order is preserved, so the invariant
-// ja[s*k] == s survives.
+// Renumber a fixed-width stencil graph in place. Layout: the k
+// neighbours of node s are contiguous at ja[s*k].
+//
+// In matrix terms this is the graph of the symmetric renumbering
+//
+//     A' = P A P^T,   i.e.   A'(i,j) = A(p(i), p(j)),  p = map()
+//
+// where P is the permutation matrix with P(i, p(i)) = 1. Applying P
+// from the left gathers old row p(s) into new row s, done here by
+// copying the row blocks. Applying P^T from the right permutes the
+// columns the same way; in index storage that means each stored column
+// value j (an old node number) is relabelled to the new number of that
+// node, inv()[j] -- the column relabelling IS the P^T factor, no data
+// movement within the row is needed.
+//
+// Within-row order is preserved, so the invariant ja[s*k] == s
+// survives. One pass over the graph with one temporary copy of ja;
+// writes are sequential, reads gather.
 template<typename I>
 void renumber_stencils(std::span<I> ja, int k, const Permutation<I>& p) {
-    const size_t n = static_cast<size_t>(p.size());
+    const size_t n = p.size();
     assert(ja.size() == n * static_cast<size_t>(k));
     const std::vector<I> tmp(ja.begin(), ja.end());
     const auto pm = p.map();
@@ -228,11 +257,13 @@ void renumber_stencils(std::span<I> ja, int k, const Permutation<I>& p) {
             ja[s*k + j] = ip[tmp[static_cast<size_t>(pm[s])*k + j]];
 }
 
-// Renumber a general CSR graph in place: repacks rows and relabels the
-// column values.
+// Renumber a general CSR graph in place: A' = P A P^T as in
+// renumber_stencils. Repacking old row p(i) into new row i applies P
+// from the left; relabelling each stored column value through inv()
+// applies P^T from the right.
 template<typename I>
 void renumber_csr(std::span<I> ia, std::span<I> ja, const Permutation<I>& p) {
-    const size_t n = static_cast<size_t>(p.size());
+    const size_t n = p.size();
     assert(ia.size() == n + 1);
     assert(static_cast<size_t>(ia[n]) == ja.size());
     const std::vector<I> ia_tmp(ia.begin(), ia.end());
@@ -255,8 +286,8 @@ void renumber_csr(std::span<I> ia, std::span<I> ja, const Permutation<I>& p) {
 template<typename I = std::int32_t>
 std::vector<I> make_row_ptr(I n, int k) {
     std::vector<I> ia(static_cast<size_t>(n) + 1);
-    for (size_t s = 0; s <= static_cast<size_t>(n); ++s)
-        ia[s] = static_cast<I>(s * k);
+    std::generate(ia.begin(), ia.end(),
+        [s = I{0}, k]() mutable { const I r = s; s += static_cast<I>(k); return r; });
     return ia;
 }
 

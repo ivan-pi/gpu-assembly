@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
-#include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -56,14 +56,16 @@ public:
         std::ifstream in{fname};
         if (!in) { std::cerr << "cannot open " << fname << '\n'; std::exit(1); }
         T px, py; int f;
+        size_t n = 0;
         while (in >> px >> py >> f) {
             x.push_back(px);
             y.push_back(py);
             flag.push_back(f);
+            ++n;
         }
-        num_points_ = x.size();
+        num_points_ = n;
         rebuild_bnd();
-        file_order_ = Permutation<I>::identity(static_cast<I>(num_points_));
+        file_order_ = Permutation<I>::identity(num_points_);
     }
 
     NodeSet(const NodeSet&) = delete;
@@ -73,13 +75,22 @@ public:
     size_t num_boundary() const { return bnd.size(); }
     size_t num_interior() const { return num_points_ - bnd.size(); }
 
-    // Renumber the nodes: permutes x, y and flag, recomputes bnd,
-    // invalidates the k-d tree, and folds p into file_order(). Returns
-    // *this so orderings can be chained. Stencils extracted before a
-    // renumber are expressed in the old numbering and are not updated
-    // (renumber_stencils() in rbf_reorder.h does that if needed).
+    // Renumber the nodes: permutes x, y and flag, recomputes bnd, and
+    // invalidates the k-d tree. Returns *this so orderings can be
+    // chained.
+    //
+    // file_order() is extended, never reset: it always maps the
+    // *current* numbering back to the original file order. New position
+    // i holds the node that sat at position p.map()[i] before this
+    // call, which in turn came from file position
+    // file_order().map()[p.map()[i]] -- exactly the composition
+    // file_order().then(p).
+    //
+    // Stencils extracted before a renumber are expressed in the old
+    // numbering and are not updated (renumber_stencils() in
+    // rbf_reorder.h does that if needed).
     NodeSet& renumber(const Permutation<I>& p) {
-        assert(static_cast<size_t>(p.size()) == num_points_);
+        assert(p.size() == num_points_);
         p.permute(std::span{x});
         p.permute(std::span{y});
         p.permute(std::span{flag});
@@ -113,8 +124,8 @@ public:
     // ja[s*k] == s. Values are 0-based, of the index type I chosen to match
     // the CsrMatrix<T, I> they will feed (int32_t by default).
     //
-    // Builds the k-d tree on first use (not safe to race the first call);
-    // tp only takes effect when the tree is actually (re)built.
+    // Builds the k-d tree on first use; tp only takes effect when the
+    // tree is actually (re)built.
     auto stencils(int k, const TreeParams& tp = {}) const {
         const auto n = static_cast<index_type>(num_points_);
         if (k < 1 || static_cast<size_t>(k) > num_points_) {
@@ -141,7 +152,13 @@ public:
     // nanoflann dataset-adaptor interface
     size_t kdtree_get_point_count() const { return num_points_; }
     T kdtree_get_pt(size_t i, size_t d) const { return d == 0 ? x[i] : y[i]; }
-    template <class BBOX> bool kdtree_get_bbox(BBOX&) const { return false; }
+    template <class BBOX> bool kdtree_get_bbox(BBOX& bb) const {
+        if (x.empty()) return false;
+        const auto b = compute_bbox(std::span<const T>{x}, std::span<const T>{y});
+        bb[0].low = b.xmin; bb[0].high = b.xmax;
+        bb[1].low = b.ymin; bb[1].high = b.ymax;
+        return true;
+    }
 
 private:
     using Tree = nanoflann::KDTreeSingleIndexAdaptor<
@@ -156,9 +173,14 @@ private:
 
     // Building the index is deferred to first use so that renumber()
     // can run beforehand (or in between) without paying for a rebuild.
+    // optional<Tree> gives in-class storage with deferred construction
+    // (the Tree has no default constructor: it wants the dataset
+    // reference and the build parameters up front). mutable, because
+    // stencils() is logically const: building the cache does not change
+    // the observable node set.
     void ensure_tree(const TreeParams& tp) const {
         if (!tree_) {
-            tree_ = std::make_unique<Tree>(2, *this,
+            tree_.emplace(2, *this,
                 nanoflann::KDTreeSingleIndexAdaptorParams(
                     tp.leaf_max_size,
                     nanoflann::KDTreeSingleIndexAdaptorFlags::None,
@@ -166,7 +188,7 @@ private:
         }
     }
 
-    mutable std::unique_ptr<Tree> tree_;
+    mutable std::optional<Tree> tree_;
     size_t num_points_{0};
     Permutation<I> file_order_;
 };

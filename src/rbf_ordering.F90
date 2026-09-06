@@ -13,49 +13,66 @@ module rbf_ordering
   implicit none
   private
 
-  public :: fill_morton_keys, fill_hilbert_keys
+  public :: bbox2d
+  public :: morton_keys, hilbert_keys
   public :: zidx, hidx
 
   integer, parameter :: wp = c_double
   integer, parameter :: i8 = c_int64_t
 
+  ! Interoperable with rbf::BBox2<double> on the C++ side.
+  type, bind(c) :: bbox2d
+    real(c_double) :: xmin, ymin, xmax, ymax
+  end type
+
 contains
 
   ! Morton (Z-curve) keys for n points.
-  ! bbox = [xmin,ymin,xmax,ymax], ndiv = number of quadtree subdivisions.
-  subroutine fill_morton_keys(n,x,y,bbox,ndiv,keys) bind(c,name="rbf_fill_morton_keys")
+  subroutine morton_keys(n,x,y,bbox,ndiv,keys) bind(c,name="rbf_morton_keys")
     integer(c_int), intent(in) :: n
     real(wp), intent(in) :: x(n), y(n)
-    real(wp), intent(in) :: bbox(4)
+    type(bbox2d), intent(in) :: bbox
     integer(c_int), intent(in) :: ndiv
     integer(i8), intent(out) :: keys(n)
 
+    real(wp) :: bb(4)
     integer :: i
 
-    do concurrent (i = 1:n)
-      keys(i) = zidx([x(i),y(i)],bbox,ndiv)
+    bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
+
+    ! Fixed-depth iterations, so a static schedule balances fine
+    !$omp target teams distribute parallel do schedule(static) &
+    !$omp   map(to: x, y, bb) map(from: keys)
+    do i = 1, n
+      keys(i) = zidx([x(i),y(i)],bb,ndiv)
     end do
 
   end subroutine
 
-  ! Hilbert-curve keys for n points; same interface as fill_morton_keys.
-  subroutine fill_hilbert_keys(n,x,y,bbox,ndiv,keys) bind(c,name="rbf_fill_hilbert_keys")
+  ! Hilbert-curve keys for n points; same interface as morton_keys.
+  subroutine hilbert_keys(n,x,y,bbox,ndiv,keys) bind(c,name="rbf_hilbert_keys")
     integer(c_int), intent(in) :: n
     real(wp), intent(in) :: x(n), y(n)
-    real(wp), intent(in) :: bbox(4)
+    type(bbox2d), intent(in) :: bbox
     integer(c_int), intent(in) :: ndiv
     integer(i8), intent(out) :: keys(n)
 
+    real(wp) :: bb(4)
     integer :: i
 
-    do concurrent (i = 1:n)
-      keys(i) = hidx([x(i),y(i)],bbox,ndiv)
+    bb = [bbox%xmin, bbox%ymin, bbox%xmax, bbox%ymax]
+
+    !$omp target teams distribute parallel do schedule(static) &
+    !$omp   map(to: x, y, bb) map(from: keys)
+    do i = 1, n
+      keys(i) = hidx([x(i),y(i)],bb,ndiv)
     end do
 
   end subroutine
 
 
   pure function zidx(vertex,bbox,ndiv) result(z)
+    !$omp declare target
 
     real(wp), intent(in) :: vertex(2)
       !! A two-dimensional Cartesian point.
@@ -109,6 +126,7 @@ contains
 
 
   pure function hidx(vertex,bbox,ndiv) result(h)
+    !$omp declare target
 
     real(wp), intent(in) :: vertex(2)
       !! A two-dimensional Cartesian point.
@@ -185,6 +203,7 @@ contains
 
 
   pure function bbox_center(bbox) result(center)
+    !$omp declare target
     real(wp), intent(in) :: bbox(4)
     real(wp) :: center(2)
     center(1) = bbox(1) + 0.5_wp*(bbox(3) - bbox(1))
