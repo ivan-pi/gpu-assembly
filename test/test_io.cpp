@@ -94,6 +94,15 @@ static void test_nodes_roundtrip() {
     CHECK(ns.indices_with(2) == (std::vector<std::int32_t>{3}));
     CHECK(ns.x == x);
 
+    // renumber, write, read back: the file carries the new numbering
+    ns.renumber(rbf::boundary_last_by_flag(ns.flag));
+    ns.write("nodes3.txt");
+    rbf::NodeSet<double> ns2("nodes3.txt");
+    CHECK(ns2.x == ns.x && ns2.y == ns.y && ns2.flag == ns.flag);
+    CHECK(ns2.num_boundary() == 3 && ns2.bnd == ns.bnd);
+    CHECK(ns2.flag[0] == 0 && ns2.flag[5] != 0);
+    std::remove("nodes3.txt");
+
     // null flag writes interior everywhere; a missing final newline is fine
     rbf::io::write_nodes("nodes.txt", x.size(), x.data(), y.data());
     write_text("nodes2.txt", "1 2 0\n3 4 1");

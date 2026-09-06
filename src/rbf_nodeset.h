@@ -62,6 +62,15 @@ public:
     NodeSet(const NodeSet&) = delete;
     NodeSet& operator=(const NodeSet&) = delete;
 
+    // Writes the nodes in the current numbering, in the format the
+    // constructor reads, so a renumbered set can be saved and read back
+    // as is. Only x, y and flag go to the file: file_order() and the
+    // k-d tree are not part of it, so the re-read set starts from the
+    // identity order.
+    void write(const std::string& fname) const {
+        io::write_nodes(fname, num_points_, x.data(), y.data(), flag.data());
+    }
+
     size_t num_points() const { return num_points_; }
     size_t num_boundary() const { return bnd.size(); }
     size_t num_interior() const { return num_points_ - bnd.size(); }
