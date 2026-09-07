@@ -131,4 +131,4 @@ fi
 
 echo "session-start: build with 'cmake -B build && cmake --build build && ctest --test-dir build'"
 echo "session-start: for the LLVM toolchain, 'CXX=clang++-20 FC=flang-20 cmake -B build-llvm'"
-echo "session-start: 'pre-commit run --all-files' checks the style; see README.md, \"Formatting and linting\""
+echo "session-start: 'pre-commit run --all-files' checks the style; see docs/developers.md"
