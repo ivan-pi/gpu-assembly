@@ -50,8 +50,9 @@ cavity, different boundary data: the lid velocity meets the wall's no-slip.
 Whoever assembles the boundary conditions decides what a corner gets;
 `NodeSet::indices_with(5)` picks them out.
 
-The output file is a node file, which carries the markers. A name ending
-in `.points` gives a points file instead; that format has no markers.
+The output file is a node file, which carries the markers; its first
+line is a comment with the command that produced it. A name ending in
+`.points` gives a points file instead; that format has neither.
 """
 
 import argparse
@@ -149,8 +150,9 @@ def markers(pts, Lx, Ly):
     return m
 
 
-def write_node(fname, pts, m):
+def write_node(fname, pts, m, provenance):
     with open(fname, "w") as f:
+        f.write(f"# {provenance}\n")
         f.write(f"{len(pts)} 2 0 1\n")
         for i, ((x, y), mi) in enumerate(zip(pts.tolist(), m.tolist())):
             f.write(f"{i} {x!r} {y!r} {mi}\n")     # repr: shortest round-trip text
@@ -198,9 +200,11 @@ def main():
     m = markers(pts, Lx, Ly)
 
     if args.output.endswith(".points"):
-        write_points(args.output, pts)
+        write_points(args.output, pts)           # the format has no comments
     else:
-        write_node(args.output, pts, m)
+        write_node(args.output, pts, m,
+                   f"produced by cavity_refined.py --distribution {args.distribution} "
+                   f"--size {Lx:g} {Ly:g} --steps {args.steps}")
 
     counts = np.bincount(m, minlength=6)
     print(f"{args.output}: {len(pts)} nodes, {counts[0]} interior, "
