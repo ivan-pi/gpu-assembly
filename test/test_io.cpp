@@ -11,11 +11,13 @@
 //
 // Assisted-by: Claude Fable 5.1
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -138,6 +140,33 @@ static void test_read_graph_csr() {
     CHECK(ia3 == ia2 && ja3 == ja2);
 
     std::remove("g.graph");
+}
+
+static void test_ordering() {
+    using rbf::Permutation;
+    // p places old item p[i] at new position i; the file stores old -> new
+    const Permutation<int> p(std::vector<int>{2, 0, 3, 1});
+    rbf::io::write_ordering("o.iperm", p.size(), p.inv().data());
+    const auto iperm = rbf::io::read_ordering<int>("o.iperm");
+    CHECK(iperm == (std::vector<int>{1, 3, 0, 2}));
+    const auto q = Permutation<int>::from_inverse(iperm);
+    CHECK(std::equal(q.map().begin(), q.map().end(), p.map().begin()));
+    CHECK(std::equal(q.inv().begin(), q.inv().end(), p.inv().begin()));
+
+    // 64-bit read of the same file
+    CHECK(rbf::io::read_ordering<std::int64_t>("o.iperm") == (std::vector<std::int64_t>{1, 3, 0, 2}));
+
+    // NodeSet: the file maps file order to the current numbering
+    write_text("d.nodeset", "0 0 1\n1 0 0\n2 0 1\n3 0 0\n");
+    rbf::NodeSet<double> ns("d.nodeset");
+    ns.renumber(rbf::boundary_last_by_flag(ns.flag));
+    ns.write_ordering("d.iperm");
+    const auto fo = Permutation<int>::from_inverse(rbf::io::read_ordering<int>("d.iperm"));
+    std::vector<double> u{0, 1, 2, 3};   // per-node data in file order: x
+    fo.permute(std::span{u});
+    CHECK(u == ns.x);
+
+    for (const char* fn : {"o.iperm", "d.nodeset", "d.iperm"}) std::remove(fn);
 }
 
 // Parse a Matrix Market coordinate file back into header + triplets.
@@ -320,6 +349,7 @@ int main() {
     test_read_nodes();
     test_nodeset_roundtrip();
     test_read_graph_csr();
+    test_ordering();
     test_matrix_market();
     test_vtk_polydata();
 

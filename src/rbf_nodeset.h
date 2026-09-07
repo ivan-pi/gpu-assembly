@@ -71,6 +71,14 @@ public:
         io::write_nodeset(fname, num_points_, x.data(), y.data(), flag.data());
     }
 
+    // Writes the renumbering applied so far as an ordering file (.iperm):
+    // line i holds the current index of the node at file position i. With
+    // it, per-node data kept in file order can be brought into the current
+    // numbering elsewhere, by Permutation::from_inverse(read_ordering(...)).
+    void write_ordering(const std::string& fname) const {
+        io::write_ordering(fname, num_points_, file_order_.inv().data());
+    }
+
     size_t num_points() const { return num_points_; }
     size_t num_boundary() const { return bnd.size(); }
     size_t num_interior() const { return num_points_ - bnd.size(); }

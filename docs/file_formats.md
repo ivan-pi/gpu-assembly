@@ -1,14 +1,16 @@
 # File formats
 
 The formats read and written by `rbf::io` (`src/rbf_io.h`, `src/rbf_io_vtk.h`).
-Three of them are our own plain-text formats; the other two are standards,
-and only the parts we use are described here.
+Three of them are our own plain-text formats, one is borrowed from METIS,
+and the last two are standards of which only the parts we use are
+described here.
 
 | Format | Extension | Read | Write |
 |---|---|---|---|
 | [Node file](#node-file) | `.nodes` | `read_nodes`, `read_nodes_aos` | |
 | [Graph file](#graph-file) | `.graph` | `read_graph_csr` | |
 | [NodeSet file](#nodeset-file) | | `read_nodeset`, `NodeSet(fname)` | `write_nodeset`, `NodeSet::write` |
+| [Ordering file](#ordering-file) | `.iperm` | `read_ordering` | `write_ordering`, `NodeSet::write_ordering` |
 | [Matrix Market](#matrix-market) | `.mtx` | | `write_matrix_market`, `write_matrix_market_pattern` |
 | [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata`, `write_lbm_vtk_polydata` |
 
@@ -104,6 +106,35 @@ This resembles the Triangle `.node` format
 (<https://www.cs.cmu.edu/~quake/triangle.node.html>) but is not it: no
 header line, no vertex number column, no attributes, no comments, and the
 marker column is always present.
+
+## Ordering file
+
+A permutation of the nodes, in the format of the METIS ordering file
+(METIS manual 5.1.0, section 4.2.2; `ndmetis` writes it as
+`graphfile.iperm`). One integer per line, no header:
+
+```
+iperm0
+iperm1
+...
+```
+
+Line `i` holds the new index of node `i`, 0-based, so the file is the
+inverse permutation `iperm`: old index to new index. The values must be a
+permutation of `0 .. n-1`, which the reader checks.
+
+`NodeSet::write_ordering` writes the renumbering a NodeSet has applied
+since it was read, with `i` the position in the file it was read from.
+Per-node data kept in file order can then be brought into the same
+numbering elsewhere:
+
+```cpp
+auto p = rbf::Permutation<int>::from_inverse(rbf::io::read_ordering<int>("case.iperm"));
+p.permute(std::span{u});   // u: file order -> current numbering
+```
+
+`Permutation::inv()` is what `write_ordering` takes; `Permutation::map()`
+is the other direction and does not go in this file.
 
 ## Matrix Market
 

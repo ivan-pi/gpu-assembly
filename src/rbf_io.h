@@ -7,6 +7,7 @@
 //   read_nodeset, read_nodes_aos       node file (.nodes): count, then "x y" -> SoA or AoS
 //   read_graph_csr                   graph file (.graph): stencils -> (ia, ja)
 //   read_nodeset, write_nodeset      "x y flag" list, the file NodeSet reads and writes
+//   read_ordering, write_ordering    ordering file (.iperm): one new index per node
 //   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
 // Every reader checks that the file opened. Readers whose format carries a
@@ -274,6 +275,50 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
                                 + std::to_string(ja[p]) + ", outside [0, "
                                 + std::to_string(n) + "); indices are 0-based");
     return {std::move(ia), std::move(ja)};
+}
+
+// ---------------------------------------------------------------------------
+// Ordering file (.iperm)
+// ---------------------------------------------------------------------------
+
+// A permutation of the nodes in the METIS ordering-file format (manual
+// 5.1.0, section 4.2.2): one integer per line, no header, read to end of
+// file. Line i holds the new index of node i, so the file is the inverse
+// permutation iperm, old -> new, 0-based. Permutation<I>::from_inverse
+// turns it into a Permutation; Permutation::inv() is what to write.
+//
+// The values must form a permutation of 0 .. n-1: an index out of range or
+// listed twice is an error.
+template <class I = std::int32_t>
+std::vector<I> read_ordering(const std::string& fname)
+{
+    auto in = detail::open_in(fname);
+    std::vector<I> iperm;
+    for (I v; in >> v; ) iperm.push_back(v);
+    if (!in.eof())
+        detail::fail(fname, "line " + std::to_string(iperm.size() + 1) + ": not an integer");
+
+    const std::size_t n = iperm.size();
+    std::vector<char> seen(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const I v = iperm[i];
+        if (v < 0 || static_cast<std::size_t>(v) >= n)
+            detail::fail(fname, "line " + std::to_string(i + 1) + ": index "
+                                + std::to_string(v) + " outside [0, " + std::to_string(n) + ")");
+        if (seen[v])
+            detail::fail(fname, "line " + std::to_string(i + 1) + ": index "
+                                + std::to_string(v) + " appears twice");
+        seen[v] = 1;
+    }
+    return iperm;
+}
+
+// Inverse of read_ordering: iperm[i] is the new index of node i.
+template <class I>
+void write_ordering(const std::string& fname, std::size_t n, const I* iperm)
+{
+    auto out = detail::open_out(fname);
+    for (std::size_t i = 0; i < n; ++i) out << iperm[i] << '\n';
 }
 
 // ---------------------------------------------------------------------------

@@ -75,6 +75,15 @@ public:
         return Permutation(std::move(v));
     }
 
+    // From the old -> new map, the form an ordering file (.iperm) stores:
+    // from_inverse(p.inv()) == p.
+    static Permutation from_inverse(std::vector<I> old_to_new) {
+        Permutation p;
+        p.p_ = make_inverse(old_to_new);
+        p.ip_ = std::move(old_to_new);
+        return p;
+    }
+
     size_t size() const { return p_.size(); }
 
     std::span<const I> map() const { return p_; }  // new -> old
