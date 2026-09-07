@@ -50,6 +50,8 @@ from numba import njit
 
 from .periodic import wrap
 
+__all__ = ["PoissonDisk"]
+
 
 # ------------------------------------------------------------------- Numba
 # Numba compiles functions of plain arguments and cannot cache a jitclass,
@@ -67,9 +69,9 @@ Store = namedtuple("Store", "px py grid queue count")
 
 
 @njit(cache=True)
-def _wrapped(z, length):
-    """A coordinate brought into [0, length) through the periodic side; it
-    is never more than one length out."""
+def wrap_coordinate(z, length):
+    """One coordinate brought into [0, length) through the periodic side,
+    from at most one length out; `wrap` does the same for arrays."""
     if z < 0.0:
         z += length
     elif z >= length:
@@ -80,22 +82,22 @@ def _wrapped(z, length):
 
 
 @njit(cache=True)
-def _into_box(box, x, y):
+def into_box(box, x, y):
     """Whether (x, y) is in the box, and where: brought in through a
     periodic side, or out for good through a wall."""
     if box.perx:
-        x = _wrapped(x, box.lx)
+        x = wrap_coordinate(x, box.lx)
     elif x < 0.0 or x >= box.lx:
         return False, x, y
     if box.pery:
-        y = _wrapped(y, box.ly)
+        y = wrap_coordinate(y, box.ly)
     elif y < 0.0 or y >= box.ly:
         return False, x, y
     return True, x, y
 
 
 @njit(cache=True)
-def _nearer(d, length):
+def minimum_image(d, length):
     """A difference of coordinates through the nearer of the two sides."""
     if d > 0.5 * length:
         d -= length
@@ -105,18 +107,18 @@ def _nearer(d, length):
 
 
 @njit(cache=True)
-def _distance2(box, dx, dy):
+def squared_distance(box, dx, dy):
     """The squared distance for a difference of two points, through the
     periodic sides where that is shorter."""
     if box.perx:
-        dx = _nearer(dx, box.lx)
+        dx = minimum_image(dx, box.lx)
     if box.pery:
-        dy = _nearer(dy, box.ly)
+        dy = minimum_image(dy, box.ly)
     return dx * dx + dy * dy
 
 
 @njit(cache=True)
-def _cell(cells, x, y):
+def cell_of(cells, x, y):
     """The column and row of the cell (x, y) falls in; the last for a
     coordinate on the far side."""
     return (min(int(x / cells.sx), cells.nx - 1),
@@ -124,17 +126,17 @@ def _cell(cells, x, y):
 
 
 @njit(cache=True)
-def _taken(store, cells, x, y):
+def cell_taken(store, cells, x, y):
     """Whether the cell of (x, y) already holds a point."""
-    ci, cj = _cell(cells, x, y)
+    ci, cj = cell_of(cells, x, y)
     return store.grid[cj * cells.nx + ci] >= 0
 
 
 @njit(cache=True)
-def _too_close(store, cells, box, x, y, r2):
+def too_close(store, cells, box, x, y, r2):
     """Whether a point within r of (x, y) sits in the 5x5 cells around
     its own, through the periodic sides where there are any."""
-    ci, cj = _cell(cells, x, y)
+    ci, cj = cell_of(cells, x, y)
     for dj in range(-2, 3):
         jj = cj + dj
         if box.pery:
@@ -148,16 +150,16 @@ def _too_close(store, cells, box, x, y, r2):
             elif ii < 0 or ii >= cells.nx:
                 continue
             t = store.grid[jj * cells.nx + ii]
-            if t >= 0 and _distance2(box, store.px[t] - x, store.py[t] - y) < r2:
+            if t >= 0 and squared_distance(box, store.px[t] - x, store.py[t] - y) < r2:
                 return True
     return False
 
 
 @njit(cache=True)
-def _insert(store, cells, x, y):
+def insert_point(store, cells, x, y):
     """(x, y) stored, put in its cell and queued."""
     n, qn = store.count[0], store.count[1]
-    ci, cj = _cell(cells, x, y)
+    ci, cj = cell_of(cells, x, y)
     store.px[n] = x
     store.py[n] = y
     store.grid[cj * cells.nx + ci] = n
@@ -167,22 +169,22 @@ def _insert(store, cells, x, y):
 
 
 @njit(cache=True)
-def _add(store, cells, xs, ys):
+def insert_points(store, cells, xs, ys):
     """Points inserted as they are; False at the first whose cell is
     taken, which means it is closer than r to another."""
     for i in range(len(xs)):
-        if _taken(store, cells, xs[i], ys[i]):
+        if cell_taken(store, cells, xs[i], ys[i]):
             return False
-        _insert(store, cells, xs[i], ys[i])
+        insert_point(store, cells, xs[i], ys[i])
     return True
 
 
 @njit(cache=True)
-def _grow(store, cells, box, r, k, nmax, rng):
+def bridson(store, cells, box, r, k, nmax, rng):
     """Bridson's loop: points drawn until the queue is empty or there are
     nmax of them. A point comes off the queue after its k candidates."""
     if store.count[0] == 0 and nmax > 0:        # no seeds: start anywhere
-        _insert(store, cells, rng.random() * box.lx, rng.random() * box.ly)
+        insert_point(store, cells, rng.random() * box.lx, rng.random() * box.ly)
     r2 = r * r
     while store.count[1] > 0 and store.count[0] < nmax:
         qi = rng.integers(0, store.count[1])
@@ -190,13 +192,13 @@ def _grow(store, cells, box, r, k, nmax, rng):
         for _ in range(k):
             a = 2.0 * np.pi * rng.random()
             b = r * sqrt(1.0 + 3.0 * rng.random())   # uniform over the annulus
-            inside, x, y = _into_box(box, store.px[s] + b * np.cos(a),
+            inside, x, y = into_box(box, store.px[s] + b * np.cos(a),
                                      store.py[s] + b * np.sin(a))
-            if not inside or _taken(store, cells, x, y):
+            if not inside or cell_taken(store, cells, x, y):
                 continue
-            if _too_close(store, cells, box, x, y, r2):
+            if too_close(store, cells, box, x, y, r2):
                 continue
-            _insert(store, cells, x, y)
+            insert_point(store, cells, x, y)
             if store.count[0] >= nmax:
                 break
         else:                                    # all k thrown: retired
@@ -271,14 +273,14 @@ class PoissonDisk:
             raise ValueError("a point lies outside the rectangle")
         pts = pts.copy()
         pts[:, self.periodic] = wrap(pts[:, self.periodic], self.extent[self.periodic])
-        if not _add(self._store, self._cells, pts[:, 0], pts[:, 1]):
+        if not insert_points(self._store, self._cells, pts[:, 0], pts[:, 1]):
             raise ValueError("two of the points are closer than the radius")
 
     def random(self, n=1):
         """Draw up to n more points and return them; fewer when the space
         fills up first."""
         before = int(self._store.count[0])
-        _grow(self._store, self._cells, self._box, self.radius, self.ncandidates,
+        bridson(self._store, self._cells, self._box, self.radius, self.ncandidates,
               min(before + n, len(self._store.px)), self._rng)
         after = int(self._store.count[0])
         self.num_generated += after - before
@@ -297,7 +299,7 @@ class PoissonDisk:
 
 # ----------------------------------------------------------------- example
 
-def _demo():
+def demo():
     """The example of the original script: a sample of the unit square,
     Delaunay-triangulated, with a function interpolated over it."""
     import matplotlib.pyplot as plt
@@ -325,4 +327,4 @@ def _demo():
 
 
 if __name__ == "__main__":
-    _demo()
+    demo()
