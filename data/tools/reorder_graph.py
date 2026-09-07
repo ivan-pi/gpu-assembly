@@ -19,70 +19,75 @@ The methods:
         scikit-sparse: a fill-reducing ordering too, by greedy elimination
         rather than recursive bisection, cheaper and often as good.
 
-Both order the undirected graph of the stencils, the pattern of A + A^T
-with the diagonal dropped: neither cares which way an edge points, and
-METIS requires it so. The ordering file holds the new index of every
-node; `inspect_points.py case.graph case.iperm --spy` shows the effect.
-The report goes to standard error, so `-o -` leaves the file alone on
-standard output.
+All three order the undirected graph of the stencils, the pattern of
+A + A^T with the diagonal dropped: none of them cares which way an edge
+points, and METIS requires it so. The ordering file holds the new index
+of every node; `inspect_points.py case.graph case.iperm --spy` shows the
+effect.
 
-Needs numpy and scipy; nd needs pymetis and amd scikit-sparse too.
+The report, on standard error so that `-o -` leaves the file alone on
+standard output, gives the bandwidth before and after, the measure rcm
+works on, and the nonzeros of the Cholesky factor before and after, the
+measure nd and amd work on, when scikit-sparse is there to count them.
+
+Needs numpy and scipy; nd needs pymetis, amd and the factor count need
+scikit-sparse.
 """
 
 import argparse
-import bisect
+import functools
 import os
 import sys
 
 import numpy as np
+from scipy.sparse import csr_array, triu
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # data/, for pointclouds
-from pointclouds import Report, output_stem, read_graph, write_ordering
+from pointclouds.cli import output_stem
+from pointclouds.io import Report, read_graph, write_ordering
 
 
-def undirected(ia, ja):
+def adjacency_of(ia, ja):
     """The stencils as an undirected graph without self-loops, the pattern
     of A + A^T less the diagonal, as a CSR array with sorted indices."""
-    from scipy.sparse import csr_array
     n = len(ia) - 1
-    rows = np.repeat(np.arange(n), np.diff(ia))
-    r, c = np.concatenate([rows, ja]), np.concatenate([ja, rows])
-    off = r != c
-    s = csr_array((np.ones(np.count_nonzero(off)), (r[off], c[off])), shape=(n, n))
-    s.sum_duplicates()
-    s.sort_indices()
-    return s
+    a = csr_array((np.ones(len(ja)), ja, ia), shape=(n, n))
+    upper = triu(a + a.T, k=1)                  # every edge once, without the self-loops
+    adjacency = (upper + upper.T).tocsr()
+    adjacency.sort_indices()
+    return adjacency
 
 
-def rcm(s, seed):
-    """iperm by reverse Cuthill-McKee; the seed is not used."""
+def rcm(adjacency):
+    """iperm by reverse Cuthill-McKee."""
     from scipy.sparse.csgraph import reverse_cuthill_mckee
-    order = reverse_cuthill_mckee(s, symmetric_mode=True)   # the old index at every new position
-    return np.argsort(order)
+    perm = reverse_cuthill_mckee(adjacency, symmetric_mode=True)   # perm[new] = old
+    return np.argsort(perm)
 
 
-def nd(s, seed):
-    """iperm by METIS nested dissection, which returns both directions."""
+def nd(adjacency, seed=None):
+    """iperm by METIS nested dissection, with METIS's own default seed
+    unless one is given."""
     try:
         import pymetis
     except ImportError:
         sys.exit("--method nd needs pymetis (pip install pymetis)")
-    options = pymetis.Options() if seed is None else pymetis.Options(seed=seed)
-    _, iperm = pymetis.nested_dissection(pymetis.CSRAdjacency(s.indptr, s.indices), options=options)
-    return np.asarray(iperm, dtype=int)
+    options = pymetis.Options() if seed is None else pymetis.Options(seed=seed)   # METIS takes integers only
+    perm, iperm = pymetis.nested_dissection(pymetis.CSRAdjacency(adjacency.indptr, adjacency.indices),
+                                            options=options)
+    return np.asarray(iperm, dtype=int)         # perm is the other direction, argsort(iperm)
 
 
-def amd(s, seed):
-    """iperm by approximate minimum degree; the seed is not used."""
+def amd(adjacency):
+    """iperm by approximate minimum degree."""
     try:
         from sksparse.amd import amd as suitesparse_amd
     except ImportError:
         sys.exit("--method amd needs scikit-sparse (pip install scikit-sparse, built against SuiteSparse)")
-    order = suitesparse_amd(s.tocsc())   # the old index at every new position
-    return np.argsort(order)
+    perm = suitesparse_amd(adjacency.tocsc())   # perm[new] = old
+    return np.argsort(perm)
 
 
-METHODS = {"rcm": rcm, "nd": nd, "amd": amd}
+METHODS = ("rcm", "nd", "amd")
 
 
 def bandwidth(ia, ja, iperm):
@@ -91,98 +96,16 @@ def bandwidth(ia, ja, iperm):
     return int(np.abs(iperm[rows] - iperm[ja]).max())
 
 
-def factor_nonzeros(s, iperm):
+def factor_nonzeros(adjacency, iperm):
     """The nonzeros of the Cholesky factor of the undirected graph in the
-    new numbering, diagonal included: what a direct solver would store.
-    The column counts of Gilbert, Ng and Peyton (1994), as CSparse does
-    them: a leaf of the row subtree of node j in the elimination tree adds
-    the path from it to j to the count, and the ancestor structure finds
-    the leaves in one pass over the graph. Costs one Python step per
-    entry of the graph, whatever the fill."""
-    n = s.shape[0]
-    order = np.argsort(iperm)
-    sp = s[order][:, order]                                       # the graph in the new numbering
-    sp.sort_indices()
-    indptr, indices = sp.indptr.tolist(), sp.indices.tolist()
-    parent = elimination_tree(n, indptr, indices)
-    post = postorder(parent)
-
-    first = [-1] * n                       # first descendant in postorder
-    delta = [0] * n                        # the column counts, built up from leaves
-    for k in range(n):
-        j = post[k]
-        delta[j] = 1 if first[j] == -1 else 0
-        while j != -1 and first[j] == -1:
-            first[j] = k
-            j = parent[j]
-
-    maxfirst, prevleaf, ancestor = [-1] * n, [-1] * n, list(range(n))
-    for k in range(n):
-        j = post[k]
-        pj = parent[j]
-        if pj != -1:
-            delta[pj] -= 1
-        row = indices[indptr[j]:indptr[j + 1]]
-        for i in row[bisect.bisect_right(row, j):]:            # the later neighbours of j
-            if first[j] <= maxfirst[i]:
-                continue                                       # j is not a leaf of the subtree of i
-            maxfirst[i] = first[j]
-            jprev, prevleaf[i] = prevleaf[i], j
-            delta[j] += 1
-            if jprev != -1:                                    # not the first leaf: subtract the overlap
-                q = jprev
-                while q != ancestor[q]:
-                    q = ancestor[q]
-                while jprev != q:
-                    jprev, ancestor[jprev] = ancestor[jprev], q
-                delta[q] -= 1
-        if pj != -1:
-            ancestor[j] = pj
-
-    for j in range(n):                     # parent[j] > j, so a count is final before it is added
-        if parent[j] != -1:
-            delta[parent[j]] += delta[j]
-    return sum(delta)
-
-
-def elimination_tree(n, indptr, indices):
-    """The parent of every node in the elimination tree, by Liu's
-    algorithm with path compression over the earlier neighbours."""
-    parent, ancestor = [-1] * n, [-1] * n
-    for k in range(n):
-        row = indices[indptr[k]:indptr[k + 1]]
-        for i in row[:bisect.bisect_left(row, k)]:
-            while i != -1 and i < k:                           # up to the root of the subtree of i
-                inext = ancestor[i]
-                ancestor[i] = k
-                if inext == -1:
-                    parent[i] = k                              # a root, which k adopts
-                i = inext
-    return parent
-
-
-def postorder(parent):
-    """A postorder of the forest, children before parents, by a depth-first
-    search from every root."""
-    n = len(parent)
-    head, sibling = [-1] * n, [-1] * n
-    for j in range(n - 1, -1, -1):
-        if parent[j] != -1:
-            sibling[j], head[parent[j]] = head[parent[j]], j
-    post = []
-    for root in range(n):
-        if parent[root] != -1:
-            continue
-        stack = [root]
-        while stack:
-            p = stack[-1]
-            child = head[p]
-            if child == -1:
-                post.append(stack.pop())
-            else:
-                head[p] = sibling[child]
-                stack.append(child)
-    return post
+    new numbering, diagonal included, by cholmod's symbolic factorisation;
+    None without scikit-sparse."""
+    try:
+        from sksparse.cholmod import symbfact
+    except ImportError:
+        return None
+    perm = np.argsort(iperm)
+    return int(np.sum(symbfact(adjacency[perm][:, perm].tocsc()).count))
 
 
 def parse_args():
@@ -206,21 +129,27 @@ def parse_args():
 def main():
     args = parse_args()
     rep = Report(stream=sys.stderr)
-    got = read_graph(args.graph, rep)
+    graph = read_graph(args.graph, rep)
     rep.print_notes()
     rep.print_problems()
-    if got is None or rep.problems:
+    if graph is None or rep.problems:
         sys.exit(1)
-    ia, ja = got
-    s = undirected(ia, ja)
-    print(f"{args.graph}: {s.shape[0]} nodes, {len(ja)} entries, {s.nnz // 2} undirected edges",
+    ia, ja = graph
+    adjacency = adjacency_of(ia, ja)
+    n = adjacency.shape[0]
+    print(f"{args.graph}: {n} nodes, {len(ja)} entries, {adjacency.nnz // 2} undirected edges",
           file=sys.stderr)
 
-    iperm = METHODS[args.method](s, args.seed)
-    assert np.array_equal(np.sort(iperm), np.arange(len(iperm)))
-    same = np.arange(len(iperm))
-    print(f"{args.method}: bandwidth {bandwidth(ia, ja, same)} -> {bandwidth(ia, ja, iperm)}, "
-          f"factor nonzeros {factor_nonzeros(s, same)} -> {factor_nonzeros(s, iperm)}", file=sys.stderr)
+    methods = {"rcm": rcm, "nd": functools.partial(nd, seed=args.seed), "amd": amd}
+    iperm = methods[args.method](adjacency)
+    assert np.array_equal(np.sort(iperm), np.arange(n))
+
+    identity = np.arange(n)
+    report = f"{args.method}: bandwidth {bandwidth(ia, ja, identity)} -> {bandwidth(ia, ja, iperm)}"
+    before = factor_nonzeros(adjacency, identity)
+    if before is not None:
+        report += f", factor nonzeros {before} -> {factor_nonzeros(adjacency, iperm)}"
+    print(report, file=sys.stderr)
 
     stem, _ = output_stem(args.output, ".iperm", known=(".iperm",))
     write_ordering(stem, iperm)

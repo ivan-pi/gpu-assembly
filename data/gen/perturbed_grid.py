@@ -68,15 +68,14 @@ their own.
 """
 
 import argparse
-import os
 import sys
 
 import numpy as np
 from scipy.spatial import cKDTree
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # data/, for pointclouds
-from pointclouds import (INTERIOR, MARKER_STYLE, NORTH, SOUTH, number,
-                         output_stem, write_graph, write_node, write_points)
+from pointclouds.cli import number, output_stem
+from pointclouds.io import write_graph, write_node, write_points
+from pointclouds.markers import INTERIOR, MARKER_STYLE, NORTH, SOUTH
 
 
 def grid(n, periodic):

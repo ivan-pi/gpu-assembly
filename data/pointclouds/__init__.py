@@ -1,24 +1,10 @@
-"""What the Python under data/ shares: the formats it reads and writes
-and the command-line conventions it follows. The generators in data/gen
-write the files; the tools in data/tools read them, and one writes an
-ordering.
+"""What the Python under data/ shares, laid out like the C++ library:
 
-The scripts are standalone, run by hand from anywhere, and not installed,
-so each puts data/, the directory above its own, on the import path
-before importing this package:
+    pointclouds.io       readers and writers for the files of docs/file_formats.md
+    pointclouds.markers  the boundary-marker convention of the node files
+    pointclouds.cli      the command-line conventions of the scripts
 
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+The generators in data/gen and the tools in data/tools import it, so it
+has to be installed; from the repository root, `pip install -e data`
+does so in place.
 """
-
-from .cli import number, output_stem
-from .formats import (CORNER, EAST, INTERIOR, MARKER_STYLE, NORTH, SOUTH,
-                      WEST, open_out, write_graph, write_node, write_ordering,
-                      write_points)
-from .readers import (Report, plural, read_graph, read_node, read_nodes,
-                      read_ordering, read_points, stencils_to_csr)
-
-__all__ = ["INTERIOR", "SOUTH", "EAST", "NORTH", "WEST", "CORNER",
-           "MARKER_STYLE", "Report", "number", "open_out", "output_stem",
-           "plural", "read_graph", "read_node", "read_nodes", "read_ordering",
-           "read_points", "stencils_to_csr", "write_graph", "write_node",
-           "write_ordering", "write_points"]

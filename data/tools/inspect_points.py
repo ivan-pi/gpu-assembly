@@ -24,9 +24,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # data/, for pointclouds
-from pointclouds import (Report, plural, read_graph, read_nodes, read_ordering,
-                         stencils_to_csr)
+from pointclouds.io import (Report, plural, read_graph, read_nodes, read_ordering,
+                            stencils_to_csr)
 
 
 # --------------------------------------------------------------- geometry
