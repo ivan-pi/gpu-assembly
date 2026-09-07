@@ -24,8 +24,10 @@ Scripts that produced a case go in `gen/`.
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
-  markers for the four walls and the corners. Needs numpy; `--plot`
-  needs matplotlib.
+  markers for the four walls and the corners. In lattice units the
+  spacing is 1 at the wall, 1.5 and 2.5 further in, and `--steps N`
+  gives a cavity of `10 N`; `--size` scales it to other units. Needs
+  numpy; `--plot` needs matplotlib.
 - `gen/perturbed_grid.py`: an `N` by `N` box in lattice units, spacing
   `h = 1`, with every node of the Cartesian grid displaced by up to
   `sigma` spacings; periodic on both sides, or a channel with walls at

@@ -5,17 +5,26 @@ markers.
 
     python3 cavity_refined.py cavity.node
     python3 cavity_refined.py --steps 20 cavity_fine.node
-    python3 cavity_refined.py --distribution grid --size 1 1.3 cavity_tall.node
+    python3 cavity_refined.py --distribution grid --size 100 130 cavity_tall.node
 
-Three bands from each wall, 0.1, 0.15 and 0.25 wide, hold N spacings
-each. With the default N = 10 the spacing is h = 0.01 at the wall, 0.015
-in the second band and 0.025 in the middle, after the figure in Lin, Wu
-and Zhang (2019), "A mesh-free radial basis function-based
-semi-Lagrangian lattice Boltzmann method for incompressible flows", Int.
-J. Numer. Meth. Fluids 91, 198-211, which shows the point distribution
-without specifying it. `--steps N` refines or coarsens all three bands
-together; the bands keep their width. Two distributions realise the
-spacings and give different clouds:
+Everything is in lattice units: the spacing is h = 1 at the wall, 1.5 in
+the second band and 2.5 in the middle, so a band from each wall is N,
+1.5 N and 2.5 N wide and the three of them from both walls fill a cavity
+of 10 N, which is the size a bare `--steps N` gives. The proportions are
+those of the figure in Lin, Wu and Zhang (2019), "A mesh-free radial
+basis function-based semi-Lagrangian lattice Boltzmann method for
+incompressible flows", Int. J. Numer. Meth. Fluids 91, 198-211, which
+shows the point distribution without specifying it.
+
+`--size LX LY` scales the cavity to that size, which is what makes the
+spacing something other than 1: `--size 1 1` is the unit
+square of the figure, with h = 0.1/N at the wall. The shorter side is
+always the one the bands fill exactly; a longer one gets a middle at the
+coarsest spacing. `--steps N` refines or coarsens all three bands
+together: on its own it widens the cavity, since the wall spacing stays
+1, and with `--size` fixed it refines the same cavity.
+
+Two distributions realise the spacings and give different clouds:
 
   rings  Concentric rectangles inset from the walls, with the points h
          apart along a ring and consecutive rings h apart. The spacing is
@@ -28,9 +37,6 @@ spacings and give different clouds:
   grid   The tensor product of 1-d coordinates graded the same way. Rows
          and columns line up everywhere, but a point near the middle of
          a wall sits in a cell of h by 2.5 h.
-
-A cavity larger than the unit square gets its middle at the coarsest
-spacing; a smaller one has no room for the bands.
 
 Both put the wall nodes first in the file, then the interior: from the
 wall inwards for the rings, row by row for the grid.
@@ -52,22 +58,26 @@ Whoever assembles the boundary conditions decides what a corner gets.
 The output file is a node file. Its first line is a comment with the
 command that produced it, and every node carries its marker. A name
 ending in `.points` gives a points file instead. The points format has
-no comment line and no markers: only the coordinates are written.
+no comment line and no markers: only the coordinates are written. The
+name `-` writes the node file to standard output, `-- -.points` the
+points file, after the option separator since the name starts with a
+dash; the report then goes to standard error.
 """
 
 import argparse
+import contextlib
 import sys
 
 import numpy as np
 
-BANDS = (0.1, 0.15, 0.25)      # width of each band from the wall; they sum to 0.5
+SPACINGS = (1.0, 1.5, 2.5)     # at the wall, in the second band, in the middle
 
 INTERIOR, SOUTH, EAST, NORTH, WEST, CORNER = 0, 1, 2, 3, 4, 5
 
 TOL = 1e-9
 
 
-def levels(N, for_rings):
+def levels(N, scale, for_rings):
     """(spacing, count) per band for N spacings across each band: the number
     of rings, or of steps of the 1-d grid coordinate. Consecutive rings are
     one spacing of the outer ring apart, so a band holds N + 1 rings and
@@ -75,10 +85,8 @@ def levels(N, for_rings):
     its last. The last band holds N rings and ends in the centre point,
     which works out because the first two bands together are as wide as
     the third."""
-    h = [b / N for b in BANDS]
-    if for_rings:
-        return [(h[0], N + 1), (h[1], N + 1), (h[2], N)]
-    return [(h[0], N), (h[1], N), (h[2], N)]
+    counts = (N + 1, N + 1, N) if for_rings else (N, N, N)
+    return [(h * scale, count) for h, count in zip(SPACINGS, counts)]
 
 
 def side(a, b, h):
@@ -150,8 +158,13 @@ def markers(pts, Lx, Ly):
     return m
 
 
+def open_out(fname):
+    """The named file, or standard output for `-`, which stays open."""
+    return open(fname, "w") if fname != "-" else contextlib.nullcontext(sys.stdout)
+
+
 def write_node(fname, pts, m, provenance):
-    with open(fname, "w") as f:
+    with open_out(fname) as f:
         f.write(f"# {provenance}\n")
         f.write(f"{len(pts)} 2 0 1\n")
         for i, ((x, y), mi) in enumerate(zip(pts.tolist(), m.tolist())):
@@ -159,7 +172,7 @@ def write_node(fname, pts, m, provenance):
 
 
 def write_points(fname, pts):
-    with open(fname, "w") as f:
+    with open_out(fname) as f:
         f.write(f"{len(pts)}\n")
         for x, y in pts.tolist():
             f.write(f"{x!r} {y!r}\n")
@@ -167,49 +180,59 @@ def write_points(fname, pts):
 
 HELP = __doc__.split("\n\n")[0] + """
 
-Boundary markers: 0 interior, 1 south wall, 2 east, 3 north (the lid),
-4 west, 5 corner. The docstring at the top of the script describes the
-two point distributions and the three bands of refinement."""
+Lengths are in lattice units, in which the spacing is 1 at the wall and
+the cavity 10 N by 10 N. Boundary markers: 0 interior, 1 south wall,
+2 east, 3 north (the lid), 4 west, 5 corner. The docstring at the top of
+the script describes the two point distributions and the three bands of
+refinement."""
 
 
 def main():
     ap = argparse.ArgumentParser(description=HELP,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("output", help="output file: a node file with the markers, or a "
-                    "points file without them if the name ends in .points")
+                    "points file without them if the name ends in .points; "
+                    "`-` is standard output")
     ap.add_argument("--distribution", choices=("rings", "grid"), default="rings",
                     help="concentric rectangles, or a tensor-product grid (default: rings)")
-    ap.add_argument("--size", nargs=2, type=float, default=(1.0, 1.0),
-                    metavar=("LX", "LY"), help="side lengths (default: the unit square)")
-    ap.add_argument("--steps", type=int, default=10, metavar="N",
-                    help="spacings across each band; the wall spacing is 0.1/N (default: 10)")
+    ap.add_argument("--size", nargs=2, type=float, metavar=("LX", "LY"),
+                    help="sides of the cavity, in the same units as the coordinates "
+                         "(default: 10 N by 10 N, which makes the spacing at the "
+                         "wall h = 1)")
+    ap.add_argument("-n", "--steps", type=int, default=10, metavar="N",
+                    help="spacings across each band (default: 10)")
     ap.add_argument("--plot", action="store_true", help="show the cloud, coloured by marker")
     args = ap.parse_args()
-    Lx, Ly = args.size
     if args.steps < 1:
         sys.exit("--steps must be at least 1")
-    if min(Lx, Ly) < 2 * sum(BANDS) - TOL:
-        sys.exit(f"the cavity must be at least {2 * sum(BANDS):g} wide and high, "
-                 f"the width of the three bands from both walls")
+    span = 2 * args.steps * sum(SPACINGS)        # the bands from both walls
+    Lx, Ly = (float(span), float(span)) if args.size is None else args.size
+    if min(Lx, Ly) <= 0.0:
+        sys.exit("--size must be positive")
+    scale = min(Lx, Ly) / span                   # the shorter side holds the bands
+
+    piped = args.output in ("-", "-.node", "-.points")
+    report = sys.stderr if piped else sys.stdout
 
     if args.distribution == "rings":
-        pts = rings(Lx, Ly, levels(args.steps, for_rings=True))
+        pts = rings(Lx, Ly, levels(args.steps, scale, for_rings=True))
     else:
-        pts = grid(Lx, Ly, levels(args.steps, for_rings=False))
+        pts = grid(Lx, Ly, levels(args.steps, scale, for_rings=False))
     pts = np.round(pts, 12) + 0.0            # 0.1 + 0.2 style noise, and no -0.0
     m = markers(pts, Lx, Ly)
 
+    name = "-" if piped else args.output
     if args.output.endswith(".points"):
-        write_points(args.output, pts)           # the format has no comments or markers
+        write_points(name, pts)                  # the format has no comments or markers
     else:
-        write_node(args.output, pts, m,
+        write_node(name, pts, m,
                    f"produced by cavity_refined.py --distribution {args.distribution} "
                    f"--size {Lx:g} {Ly:g} --steps {args.steps}")
 
     counts = np.bincount(m, minlength=6)
-    print(f"{args.output}: {len(pts)} nodes, {counts[0]} interior, "
-          f"S {counts[1]} E {counts[2]} N {counts[3]} W {counts[4]}, "
-          f"{counts[5]} corners")
+    print(f"{'standard output' if piped else args.output}: {len(pts)} nodes, "
+          f"{counts[0]} interior, S {counts[1]} E {counts[2]} N {counts[3]} "
+          f"W {counts[4]}, {counts[5]} corners", file=report)
 
     if args.plot:
         import matplotlib.pyplot as plt
