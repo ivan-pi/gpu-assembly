@@ -52,8 +52,6 @@ Marker 0 is an interior node in all of them.
    `(1, 0)`.
 3. Shu, Ding and Zhao (2006), Comput. Math. Appl. 51, 1297-1310,
    [doi:10.1016/j.camwa.2006.04.015](https://doi.org/10.1016/j.camwa.2006.04.015).
-   One quasi-uniform cloud, with 67 nodes along each wall, spaced more
-   closely towards the corners.
 
 ## Generating
 
