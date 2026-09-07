@@ -21,9 +21,8 @@ in `rbf_io_gnuplot.h`; include the ones whose formats you use.
 
 The points file and the graph file go together: one gives the point cloud,
 the other the stencil of every node, in the same numbering. A case is
-typically a pair such as `poisson_32_21.points` and `poisson_32_21.graph`;
-the ones used by the tests are in [data/](../data/README.md), which also
-explains the naming.
+typically a pair such as `poisson_32_21.points` and `poisson_32_21.graph`.
+The ones used by the tests are in [data/](../data/README.md).
 
 Every reader exits with a message naming the file if it cannot be opened,
 and readers whose format announces a count check that they got that many.
