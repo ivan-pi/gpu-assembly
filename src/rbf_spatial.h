@@ -26,7 +26,6 @@
 #include <memory>
 #include <ranges>
 #include <span>
-#include <type_traits>
 #include <vector>
 
 namespace rbf::spatial {
@@ -168,22 +167,15 @@ public:
 
     // Fixed-k stencils as ja(k, nq) in Fortran order: the k nearest
     // neighbours of query s are contiguous at ja[s*k], sorted by
-    // distance. I is the index type of the result, int32_t or int64_t;
-    // the narrowing happens per block inside the parallel query, so
-    // there is no intptr_t copy of the result.
-    template<typename I = std::int32_t>
-    std::vector<I> knn_stencils(std::span<const double> q, int k) const {
-        std::vector<I> ja(q.size() / static_cast<std::size_t>(ndim())
-                          * static_cast<std::size_t>(k));
-        query_into<I>(q, k, ja);
-        return ja;
-    }
+    // distance, as int32_t. ckdtree produces intptr_t; the narrowing
+    // happens per block inside the parallel query, so the result never
+    // exists in the wider type. A caller who wants intptr_t has query().
+    std::vector<std::int32_t> knn_stencils(std::span<const double> q, int k) const;
 
     // Stencils centred on the cloud's own points, so ja[s*k] == s as
     // long as the cloud has no coincident points: a node is its own
     // nearest neighbour at distance zero, and a duplicate ties with it.
-    template<typename I = std::int32_t>
-    std::vector<I> knn_stencils(int k) const { return knn_stencils<I>(points(), k); }
+    std::vector<std::int32_t> knn_stencils(int k) const;
 
 private:
     // period is empty in the open plane, else one side length per axis.
@@ -192,9 +184,6 @@ private:
 
     std::span<const double> points() const;  // the cloud, as stored
 
-    template<typename I>
-    void query_into(std::span<const double> q, int k, std::span<I> ja) const;
-
     // The ckdtree struct lives behind this pointer for two reasons: its
     // header defines global names (struct ckdtree, ckdtree_fabs and
     // friends) that should not reach every includer, and it points into
@@ -202,11 +191,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
-
-extern template void KdTree::query_into<std::int32_t>(
-    std::span<const double>, int, std::span<std::int32_t>) const;
-extern template void KdTree::query_into<std::int64_t>(
-    std::span<const double>, int, std::span<std::int64_t>) const;
 
 } // namespace rbf::spatial
 

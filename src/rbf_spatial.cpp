@@ -177,7 +177,7 @@ std::size_t checked_query(const ckdtree& tree, std::span<const double> q,
 }
 
 // Runs query_knn over blocks of query points, one thread per block,
-// writing the indices as I. ckdtree writes intptr_t; for any other I
+// writing the indices as I. ckdtree writes intptr_t; for a narrower I
 // each block goes through a per-thread staging row and is narrowed
 // from there, so the result never exists as an intptr_t array.
 //
@@ -252,18 +252,19 @@ void KdTree::query(int k, std::span<std::intptr_t> idx, std::span<double> dist) 
     query(points(), k, idx, dist);
 }
 
-template<typename I>
-void KdTree::query_into(std::span<const double> q, int k, std::span<I> ja) const
+std::vector<std::int32_t> KdTree::knn_stencils(std::span<const double> q, int k) const
 {
     const auto& tree = impl_->tree;
-    const std::size_t nq = checked_query(tree, q, k, ja.size(), 0);
-    if (nq == 0) return;
-    query_many(tree, q.data(), nq, k, ja.data(), nullptr);
+    const std::size_t nq = q.size() / static_cast<std::size_t>(tree.m);
+    std::vector<std::int32_t> ja(nq * static_cast<std::size_t>(k));
+    checked_query(tree, q, k, ja.size(), 0);
+    if (nq > 0) query_many(tree, q.data(), nq, k, ja.data(), nullptr);
+    return ja;
 }
 
-template void KdTree::query_into<std::int32_t>(
-    std::span<const double>, int, std::span<std::int32_t>) const;
-template void KdTree::query_into<std::int64_t>(
-    std::span<const double>, int, std::span<std::int64_t>) const;
+std::vector<std::int32_t> KdTree::knn_stencils(int k) const
+{
+    return knn_stencils(points(), k);
+}
 
 } // namespace rbf::spatial

@@ -21,6 +21,7 @@
 #include <numeric>
 #include <optional>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 #include "rbf_spatial.h"
@@ -265,21 +266,52 @@ static void test_degenerate() {
     }
 }
 
-// The two index types give the same stencils, and the raw query gives
-// the same indices as either.
-static void test_index_types() {
+// knn_stencils narrows what query() returns, and nothing else.
+static void test_stencils_are_query() {
     Rng rng{12345};
     const Box<2> box = PeriodicBox<double, 2>{{1.0, 1.0}};
     const auto pts = cloud<2>(rng, 300, box);
     const KdTree tree(pts, *box);
 
-    const auto narrow = tree.knn_stencils<std::int32_t>(5);
-    const auto wide = tree.knn_stencils<std::int64_t>(5);
-    CHECK(std::equal(narrow.begin(), narrow.end(), wide.begin(), wide.end()));
-
+    const auto ja = tree.knn_stencils(5);
     std::vector<std::intptr_t> raw(300 * 5);
     tree.query(5, raw);
-    CHECK(std::equal(narrow.begin(), narrow.end(), raw.begin(), raw.end()));
+    CHECK(std::equal(ja.begin(), ja.end(), raw.begin(), raw.end()));
+}
+
+// The tree owns its cloud through a pointer that never moves, so it is
+// move-only, moving it is cheap and cannot throw, and the moved-to tree
+// answers exactly as the original did. The box is a plain aggregate.
+static_assert(!std::is_copy_constructible_v<KdTree>);
+static_assert(!std::is_copy_assignable_v<KdTree>);
+static_assert(std::is_nothrow_move_constructible_v<KdTree>);
+static_assert(std::is_nothrow_move_assignable_v<KdTree>);
+static_assert(std::is_trivially_copyable_v<PeriodicBox<double, 2>>);
+static_assert(std::is_aggregate_v<PeriodicBox<double, 3>>);
+
+static void test_move() {
+    Rng rng{777};
+    const Box<2> box = PeriodicBox<double, 2>{{1.0, 1.0}};
+    const auto pts = cloud<2>(rng, 200, box);
+
+    KdTree a(pts, *box);
+    const auto before = a.knn_stencils(6);
+
+    KdTree b(std::move(a));                 // move-construct
+    CHECK(b.size() == 200 && b.ndim() == 2 && b.periodic());
+    CHECK(b.knn_stencils(6) == before);
+
+    KdTree c(pts, 2);                       // a different tree, then assign over it
+    c = std::move(b);
+    CHECK(c.periodic());
+    CHECK(c.knn_stencils(6) == before);
+
+    // a fresh cloud queried through the moved-to tree, not just the
+    // cloud's own points
+    const auto q = cloud<2>(rng, 50, box);
+    const auto jq = c.knn_stencils(q, 6);
+    for (std::size_t s = 0; s < 50; ++s)
+        check_row<2>(box, pts, &q[s*2], &jq[s*6], 6);
 }
 
 int main() {
@@ -288,6 +320,7 @@ int main() {
     test_search();
     test_periodicity_matters();
     test_degenerate();
-    test_index_types();
+    test_stencils_are_query();
+    test_move();
     return report("spatial");
 }

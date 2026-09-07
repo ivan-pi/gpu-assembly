@@ -67,9 +67,8 @@ as in ckdtree, and `ndim()` returns it.
 
 `knn_stencils` returns `ja(k, nq)` in Fortran order: the `k` nearest
 neighbours of query `s` are contiguous at `ja[s*k]`, sorted by distance.
-Indices are 0-based and refer to the cloud in the order it was passed;
-their type is a template parameter, `int32_t` by default or `int64_t`.
-With no query points the stencils are centred on the cloud's own nodes,
+Indices are 0-based `int32_t` and refer to the cloud in the order it was
+passed. With no query points the stencils are centred on the cloud's own nodes,
 so `ja[s*k] == s` -- unless two nodes coincide, in which case they tie
 at distance zero and either may lead the row.
 
@@ -80,8 +79,8 @@ stencils need:
 auto ja = tree.knn_stencils(q, k);  // q interleaved, nq*ndim
 ```
 
-`query` is the same search with the distances kept, and carries SciPy's
-name:
+`query` is the same search in ckdtree's own terms, with the distances
+kept, and carries SciPy's name:
 
 ```cpp
 std::vector<std::intptr_t> idx(nq * k);
@@ -90,6 +89,8 @@ tree.query(q, k, idx, d);           // d may be left empty
 ```
 
 Distances are true Euclidean distances, minimum-image in a periodic box.
+Indices are `intptr_t`, the type ckdtree writes; `knn_stencils` is the
+same indices narrowed to `int32_t` on the way out.
 
 ## Relation to SciPy's cKDTree
 
