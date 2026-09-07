@@ -21,9 +21,7 @@ so that a cell holds one point at most, and a queue of the points that
 still have candidates to throw. A queued point throws `ncandidates`
 candidates into the annulus between r and 2r around it; a candidate that
 finds no point within r in the 5x5 cells around its own is kept and
-queued. A filled rectangle holds about 0.62 / r^2 points per unit area
-with 30 candidates, 0.56 with 10, 0.65 with 100 and 0.68 with 300, where
-it levels off; the time grows with the count.
+queued.
 
 Along a periodic axis the search wraps: the cell index is taken modulo
 the cell count, and a difference of coordinates through the nearer of

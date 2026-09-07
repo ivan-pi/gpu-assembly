@@ -10,12 +10,12 @@ expects (docs/file_formats.md), and the stencils come back in the CSR
 form the readers use: (ia, ja), with the stencil of node i at
 ja[ia[i]:ia[i + 1]].
 
-A generator offers the choice as one option, --stencil METHOD VALUE,
+A generator offers the choice as one option, --graph METHOD=VALUE,
 checks it against its box, and selects the stencils of the cloud:
 
-    add_option(parser, default=("knn", 15))
+    add_option(parser, default="knn=15")
     ...
-    method, value = args.stencil
+    method, value = args.graph
     problem = check(method, value, extent, periodic)
     if problem:
         parser.error(problem)
@@ -23,69 +23,75 @@ checks it against its box, and selects the stencils of the cloud:
     ia, ja = select_stencils(pts, extent, periodic, method, value)
 
 The module also fixes the boundary markers of the node files, the
-convention the generators share: MARKERS.interior is 0, the walls are
-numbered counter-clockwise from the bottom, then the corners of a
-cavity, then a hole in the interior, and MARKERS.style colours them the
-same in the --plot of every generator.
+convention the generators share, as the class Markers.
 """
 
 import argparse
-from collections import namedtuple
 
 import numpy as np
 
 METHODS = ("knn", "radius", "range")
 
-Markers = namedtuple("Markers", "interior south east north west corner hole style")
-MARKERS = Markers(0, 1, 2, 3, 4, 5, 6, style=dict(cmap="tab10", vmin=0, vmax=9))
+
+class Markers:
+    """The boundary markers of the node files: 0 for an interior node,
+    the walls numbered counter-clockwise from the bottom, then the
+    corners of a cavity, then a hole in the interior; and the style that
+    colours them the same in the --plot of every generator."""
+
+    interior = 0
+    south = 1
+    east = 2
+    north = 3
+    west = 4
+    corner = 5
+    hole = 6
+    style = dict(cmap="tab10", vmin=0, vmax=9)
 
 
 def add_option(ap, default):
-    """--stencil METHOD VALUE on the parser, `default` being the
-    (method, value) pair used when it is not given."""
+    """--graph METHOD=VALUE on the parser, `default` being the text used
+    when it is not given, "knn=21" say."""
     ap.add_argument(
-        "--stencil",
-        action=StencilOption,
-        nargs=2,
+        "--graph",
+        type=parse_graph,
         default=default,
-        metavar=("METHOD", "VALUE"),
-        help="how the stencil of a node is selected: knn K, its K nearest "
-        "nodes; radius R, the nodes within a distance R of it; range S, the "
-        "nodes within S of it along both axes, a square of side 2 S "
-        f"(default: {default[0]} {default[1]})",
+        metavar="METHOD=VALUE",
+        help="how the stencil graph is selected: knn=K, the K nearest nodes "
+        "of each; radius=R, the nodes within a distance R of it; range=S, "
+        "the nodes within S of it along both axes, a square of side 2 S "
+        f"(default: {default})",
     )
 
 
-class StencilOption(argparse.Action):
-    """--stencil METHOD VALUE as parsed: the pair (method, value), with
-    the value an int for knn and a float for the other methods, checked
-    the way argparse checks a type."""
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        method, text = values
-        try:
-            value = parse_value(method, text)
-        except ValueError as e:
-            raise argparse.ArgumentError(self, str(e))
-        setattr(namespace, self.dest, (method, value))
-
-
-def parse_value(method, text):
-    """The VALUE of --stencil for METHOD, or ValueError saying what is
-    wrong with either."""
+def parse_graph(text):
+    """--graph METHOD=VALUE as parsed: the pair (method, value), with the
+    value an int for knn and a distance for the other methods, or the
+    ArgumentTypeError argparse reports as a usage error."""
+    method, sep, value = text.partition("=")
+    if not sep:
+        raise argparse.ArgumentTypeError(
+            f"expected METHOD=VALUE, like knn=21, not '{text}'"
+        )
     if method not in METHODS:
-        raise ValueError(f"the method is one of {', '.join(METHODS)}, not '{method}'")
+        raise argparse.ArgumentTypeError(
+            f"{method} is not a valid method ({', '.join(METHODS)})"
+        )
     if method == "knn":
-        if not text.isdigit() or int(text) < 1:
-            raise ValueError(f"knn takes a number of nodes, at least 1, not '{text}'")
-        return int(text)
+        if not value.isdigit() or int(value) < 1:
+            raise argparse.ArgumentTypeError(
+                f"knn takes a number of nodes, at least 1, not '{value}'"
+            )
+        return method, int(value)
     try:
-        value = float(text)
+        distance = float(value)
     except ValueError:
-        raise ValueError(f"{method} takes a distance, not '{text}'") from None
-    if value <= 0:
-        raise ValueError(f"{method} takes a positive distance, not {text}")
-    return value
+        raise argparse.ArgumentTypeError(f"{method} takes a distance, not '{value}'")
+    if distance <= 0:
+        raise argparse.ArgumentTypeError(
+            f"{method} takes a positive distance, not {value}"
+        )
+    return method, distance
 
 
 def check(method, value, extent, periodic):
@@ -99,7 +105,7 @@ def check(method, value, extent, periodic):
     half = min((L for L, p in zip(extent, periodic) if p), default=np.inf) / 2
     if value > half:
         return (
-            f"--stencil {method} {value:g} reaches more than half way around "
+            f"--graph {method}={value:g} reaches more than half way around "
             f"the box, which is {2 * half:g} across: at most {half:g}"
         )
     return None
@@ -115,35 +121,23 @@ def select_stencils(pts, extent, periodic, method, value, order="distance"):
 
     if order not in ("distance", "index"):
         raise ValueError(f"order is 'distance' or 'index', not '{order}'")
+    n = len(pts)
     tree = cKDTree(pts, boxsize=[L if p else 0.0 for L, p in zip(extent, periodic)])
+
     if method == "knn":
-        return nearest(tree, value, order)
-    if method == "radius":
-        return within(tree, value, 2, order)
-    if method == "range":
-        return within(tree, value, np.inf, order)  # the max norm bounds a square
-    raise ValueError(f"the method is one of {', '.join(METHODS)}, not '{method}'")
+        assert value <= n, "a stencil larger than the cloud"
+        dist, adj = tree.query(pts, max(value, 2), workers=-1)  # two, to see a twin
+        refuse_twins(dist, adj)
+        adj = adj[:, :value]
+        if order == "index":
+            adj[:, 1:] = np.sort(adj[:, 1:], axis=1)
+        return np.arange(0, n * value + 1, value), adj.ravel()
 
-
-def nearest(tree, k, order):
-    """The k nearest nodes of every node of the tree, itself first."""
-    n = tree.n
-    assert k <= n, "a stencil larger than the cloud"
-    dist, adj = tree.query(tree.data, max(k, 2), workers=-1)  # two, to see a twin
-    refuse_twins(dist, adj)
-    adj = adj[:, :k]
-    if order == "index":
-        adj[:, 1:] = np.sort(adj[:, 1:], axis=1)
-    return np.arange(0, n * k + 1, k), adj.ravel()
-
-
-def within(tree, distance, p, order):
-    """The nodes within `distance` of every node of the tree in the
-    p-norm, itself first, from the sparse matrix of all pairs of nodes
-    that close."""
-    n = tree.n
-    refuse_twins(*tree.query(tree.data, 2, workers=-1))
-    pairs = tree.sparse_distance_matrix(tree, distance, p=p, output_type="coo_matrix")
+    # radius and range: all pairs closer than the distance, in the norm
+    # whose ball is the disk or the square
+    refuse_twins(*tree.query(pts, 2, workers=-1))
+    p_norm = {"radius": 2, "range": np.inf}[method]
+    pairs = tree.sparse_distance_matrix(tree, value, p=p_norm, output_type="coo_matrix")
     keep = pairs.row != pairs.col  # the node itself goes first instead
     row, col, dist = pairs.row[keep], pairs.col[keep], pairs.data[keep]
     if order == "distance":

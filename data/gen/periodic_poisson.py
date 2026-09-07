@@ -7,10 +7,10 @@ circular hole, with the stencil graph that goes with it.
     python3 periodic_poisson.py --size 32 32 --tile 4 4 tg_128
 
 Lengths are in lattice units: no two nodes are closer than the distance
-d, 1 by default, and how many fit is set by --candidates, about
-0.65 / d^2 per unit area at the default 100 (0.62 at 30, 0.68 at 300,
-where it levels off). The earlier poisson_32_21 case has its nodes 0.9
-apart, which --distance 0.9 reproduces.
+d, 1 by default, and how many fit is set by --candidates, about 0.65 / d^2
+per unit area at the default, more with more candidates up to a point.
+The earlier poisson_32_21 case has its nodes 0.9 apart, which
+--distance 0.9 reproduces.
 
 --hole R, or --solid-fraction PHI for the disk covering the fraction PHI
 of the box, cuts a disk out of the middle: the unit cell of a square
@@ -35,7 +35,7 @@ from pointclouds import stencils
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_graph, write_node, write_points
 from pointclouds.poisson import PoissonDisk, wrap
-from pointclouds.stencils import MARKERS
+from pointclouds.stencils import Markers
 
 
 def circle(radius, centre, d):
@@ -60,8 +60,8 @@ def sample(extent, d, candidates, hole, seed):
     inside = np.hypot(*(pts - centre).T) < (hole or 0.0)
     inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
     pts = pts[~inside]
-    m = np.full(len(pts), MARKERS.interior)
-    m[: len(seeds)] = MARKERS.hole
+    m = np.full(len(pts), Markers.interior)
+    m[: len(seeds)] = Markers.hole
     return pts, m
 
 
@@ -74,7 +74,7 @@ def tiled(pts, m, extent, tiles):
     pts = np.vstack([pts + extent * shift for shift in shifts])
     m = np.tile(m, len(shifts))
     order = np.concatenate(
-        (np.flatnonzero(m != MARKERS.interior), np.flatnonzero(m == MARKERS.interior))
+        (np.flatnonzero(m != Markers.interior), np.flatnonzero(m == Markers.interior))
     )
     return wrap(pts[order], extent * tiles), m[order]
 
@@ -82,7 +82,7 @@ def tiled(pts, m, extent, tiles):
 def plot(pts, m, graph, extent, tiles):
     import matplotlib.pyplot as plt
 
-    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKERS.style)
+    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **Markers.style)
     if graph:  # one stencil, to see it wrap
         ia, ja = graph
         middle = ja[ia[len(pts) // 2] : ia[len(pts) // 2 + 1]]
@@ -168,7 +168,7 @@ def main():
         "(default: 1 1, the sample alone)",
     )
 
-    stencils.add_option(ap, default=("knn", 21))
+    stencils.add_option(ap, default="knn=21")
     ap.add_argument(
         "--seed", type=int, help="seed of the sample (default: drawn and reported)"
     )
@@ -210,7 +210,7 @@ def main():
             f"the box is narrower than twice the distance {d:g}: no room for nodes"
         )
 
-    method, value = args.stencil
+    method, value = args.graph
     box = extent * tiles
     if not args.no_graph:
         problem = stencils.check(method, value, box, (True, True))
@@ -227,19 +227,18 @@ def main():
         graph = stencils.select_stencils(pts, box, (True, True), method, value)
 
     if ext == ".node":
-        geometry = f"--size {lx:g} {ly:g} --distance {d:g} --tile {tiles[0]} {tiles[1]}"
+        geometry = f"size={lx:g}x{ly:g}, distance={d:g}, tile={tiles[0]}x{tiles[1]}"
         if hole is not None:
-            geometry += f" --hole {hole:g}"
-        write_node(stem, pts, m, f"produced by periodic_poisson.py {geometry}")
+            geometry += f", hole={hole:g}"
+        write_node(stem, pts, m, f"periodic poisson, {geometry}")
     else:
         write_points(stem, pts)
     area = box.prod() - (0.0 if hole is None else tiles.prod() * np.pi * hole**2)
-    report = f"{stem}: {len(pts)} nodes"
-    if hole is not None:
-        report += f", {np.count_nonzero(m)} of them on the cylinder"
-        if tiles.prod() > 1:
-            report += "s"
-    report += f", {len(pts) / area:.3g} per unit area"
+    boundary = np.count_nonzero(m)
+    report = (
+        f"{stem}: {len(pts)} nodes ({len(pts) - boundary} interior, {boundary} boundary), "
+        f"{len(pts) / area:.3g} per unit area"
+    )
     if graph:
         ia, ja = graph
         write_graph(stem, ia, ja)

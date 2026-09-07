@@ -103,7 +103,7 @@ tools in the `pointclouds` package, laid out like the C++ library:
 `pointclouds.io` reads and writes the formats above, `pointclouds.cli`
 the command-line conventions, and `pointclouds.stencils` the selection
 of the stencils, by nearest neighbours, radius or range, as the one
-option `--stencil METHOD VALUE` offers it, with a search that wraps
+option `--graph METHOD=VALUE` offers it, with a search that wraps
 around the periodic sides of a box, and the boundary-marker convention
 of the node files. `pointclouds.poisson` fills a
 rectangle with points no two of which are closer than a radius, with
