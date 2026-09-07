@@ -50,8 +50,9 @@ struct VtkVector {
 // Point cloud with fields as legacy VTK POLYDATA. Coordinates are
 // (x[i * xy_stride], y[i * xy_stride]) with z = 0: xy_stride is the
 // spacing of consecutive coordinates, so interleaved {x0, y0, x1, y1, ...}
-// storage is written with x = p, y = p + 1, xy_stride = 2. Fields are the same length as the points and are given
-// as braced lists or containers of Column<T> and VtkVector<T>:
+// storage is written with x = p, y = p + 1, xy_stride = 2. Fields are the
+// same length as the points and are given as braced lists or containers of
+// Column<T> and VtkVector<T>:
 //
 //     write_vtk_polydata("u.vtk", n, x, y, {{"u", u}, {"residual", r}});
 //     write_vtk_polydata("flow.vtk", n, x, y, {{"p", p}}, {{"U", ux, uy}});
