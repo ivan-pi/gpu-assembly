@@ -46,22 +46,21 @@ T fold(T x, T L) {
 
 } // namespace detail
 
-// The box [origin[d], origin[d] + period[d]) along each of D axes, with
-// opposite faces identified. The Fortran type periodic_box in
-// src/rbf_periodic_box.f90 is the 2-d case with the origin at zero.
+// The box [0, period[d]) along each of D axes, with opposite faces
+// identified. Anchored at the origin, as SciPy's boxsize is and as the
+// Fortran type periodic_box in src/rbf_periodic_box.f90 is; a cloud
+// that lives somewhere else is translated by the caller, once, rather
+// than by the box on every wrap.
 template<typename T, std::size_t D>
 struct PeriodicBox {
     static_assert(D >= 1, "a box needs at least one axis");
 
-    std::array<T, D> origin{};  // lower corner
     std::array<T, D> period{};  // side lengths, all positive
 
     static constexpr std::size_t ndim = D;
 
     // The coordinate mapped into the box.
-    T wrap(std::size_t d, T x) const {
-        return origin[d] + detail::fold(x - origin[d], period[d]);
-    }
+    T wrap(std::size_t d, T x) const { return detail::fold(x, period[d]); }
 
     // The shortest of the displacement and its periodic images.
     //
@@ -118,17 +117,6 @@ struct KdTreeParams {
     bool compact = true;  // shrink each node's box onto its points
 };
 
-namespace detail {
-
-// How a box reaches the tree, whose dimension is a run-time value: two
-// ndim-long ranges, or empty for the open plane. Read in the
-// constructor and never held.
-struct BoxView {
-    std::span<const double> origin, period;
-};
-
-} // namespace detail
-
 // A k-d tree over a fixed point cloud, in any number of dimensions,
 // periodic or not.
 //
@@ -142,7 +130,7 @@ class KdTree {
 public:
     // In the open plane.
     KdTree(std::span<const double> points, int ndim, KdTreeParams params = {})
-        : KdTree(points, ndim, detail::BoxView{}, params) {}
+        : KdTree(points, ndim, std::span<const double>{}, params) {}
 
     // In a periodic box, which is also where the dimension comes from.
     // Points outside the box are wrapped into it, so the cloud need not
@@ -151,7 +139,7 @@ public:
     KdTree(std::span<const double> points, const PeriodicBox<double, D>& box,
            KdTreeParams params = {})
         : KdTree(points, static_cast<int>(D),
-                 detail::BoxView{box.origin, box.period}, params) {}
+                 std::span<const double>{box.period}, params) {}
 
     ~KdTree();
     KdTree(KdTree&&) noexcept;
@@ -200,8 +188,9 @@ public:
     }
 
 private:
-    KdTree(std::span<const double> points, int ndim, detail::BoxView box,
-           KdTreeParams params);
+    // period is empty in the open plane, else one side length per axis.
+    KdTree(std::span<const double> points, int ndim,
+           std::span<const double> period, KdTreeParams params);
 
     template<typename I>
     static std::vector<I> narrow(const std::vector<std::intptr_t>& idx) {

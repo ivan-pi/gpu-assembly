@@ -12,13 +12,16 @@ same namespace.
 
 ## The periodic box
 
-`rbf::spatial::PeriodicBox<T, D>` is the box
-`[origin[d], origin[d] + period[d])` along each of `D` axes, with
-opposite faces identified:
+`rbf::spatial::PeriodicBox<T, D>` is the box `[0, period[d])` along each
+of `D` axes, with opposite faces identified:
 
 ```cpp
-rbf::spatial::PeriodicBox<double, 2> box{{0.0, 0.0}, {64.0, 64.0}};
+rbf::spatial::PeriodicBox<double, 2> box{{64.0, 64.0}};
 ```
+
+It is anchored at the origin, as SciPy's `boxsize` is. A cloud that
+lives somewhere else is translated by the caller, once, rather than by
+the box on every wrap.
 
 Two operations, the two ways periodicity enters an RBF-FD run:
 
@@ -33,9 +36,12 @@ Two operations, the two ways periodicity enters an RBF-FD run:
 Both have whole-point forms taking and returning a `std::array<T, D>`.
 
 The Fortran type `periodic_box` in `src/rbf_periodic_box.f90` is the 2-d
-case with its origin at zero, and is what the
-[periodic benchmarks](periodic_benchmarks.md) use. The rounding matches:
-a displacement of exactly half a period maps to `-L/2` in both.
+case, and is what the [periodic benchmarks](periodic_benchmarks.md) use.
+The two agree except for a displacement of exactly half a period, where
+the images are equidistant: `minimum_image` uses `std::rint` and takes
+the even one, Fortran's `anint` the one away from zero. `rint` is an
+instruction where `std::round` is a libm call, which is worth more in an
+assembly inner loop than agreeing on an arbitrary tie.
 
 ## The k-d tree
 
@@ -119,11 +125,10 @@ Where the two line up:
 | `.query(x, k)` -> `(d, i)` | `.query(q, k, idx, dist)` |
 | `.n`, `.m` | `.size()`, `.ndim()` |
 
-Two deliberate differences. `boxsize` is lengths only, with the box
-implicitly at the origin and the data required to already lie in
-`[0, L)` -- SciPy raises otherwise; `PeriodicBox` carries an origin and
-wraps for you. And `boxsize` may zero out a single axis to leave it
-aperiodic, which `PeriodicBox` does not expose.
+Two deliberate differences. SciPy raises when the data does not already
+lie in `[0, L)`; `KdTree` wraps it in, which is what it must do to the
+query points anyway. And `boxsize` may zero out a single axis to leave
+it aperiodic, which `PeriodicBox` does not expose.
 
 `query`'s `eps`, `p` and `distance_upper_bound` are fixed here at the
 exact Euclidean search: `0`, `2` and infinity. `workers` has no
@@ -140,8 +145,3 @@ box part of the distance function, so the search runs on `n` points and
 the returned indices need no folding back. The cost of a periodic query
 is that of an ordinary one, and correctness does not depend on a stencil
 staying inside one tile.
-
-The tree works in box-relative coordinates internally, because ckdtree
-assumes a box anchored at the origin. That is a rigid translation:
-nothing but distances and indices leaves the tree, and both are
-invariant under it.

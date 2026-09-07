@@ -48,11 +48,8 @@ template<std::size_t D>
 static std::vector<double> cloud(Rng& rng, std::size_t n, const Box<D>& b) {
     std::vector<double> p(n * D);
     for (std::size_t i = 0; i < n; ++i)
-        for (std::size_t d = 0; d < D; ++d) {
-            const double o = b ? b->origin[d] : 0.0;
-            const double L = b ? b->period[d] : 1.0;
-            p[i*D + d] = o + L * rng.next();
-        }
+        for (std::size_t d = 0; d < D; ++d)
+            p[i*D + d] = (b ? b->period[d] : 1.0) * rng.next();
     return p;
 }
 
@@ -99,22 +96,20 @@ static void check_row(const Box<D>& b, std::span<const double> pts,
 }
 
 static void test_box() {
-    // an aggregate: nested braces, or designated initialisers
-    const PeriodicBox<double, 2> b{{-1.0, 2.0}, {4.0, 3.0}};
-    const PeriodicBox<double, 2> same{.origin = {-1.0, 2.0}, .period = {4.0, 3.0}};
-    CHECK(b.origin == same.origin && b.period == same.period);
-    // and the origin defaults to zero
-    const PeriodicBox<double, 2> at_zero{.period = {4.0, 3.0}};
-    CHECK(at_zero.origin == (std::array<double, 2>{0.0, 0.0}));
+    // an aggregate: braces, or a designated initialiser
+    const PeriodicBox<double, 2> b{{4.0, 3.0}};
+    const PeriodicBox<double, 2> same{.period = {4.0, 3.0}};
+    CHECK(b.period == same.period);
     CHECK(b.ndim == 2);
 
-    // wrap lands in [origin, origin+L), from either side and from far away
-    CHECK(std::abs(b.wrap(0, -1.0) - (-1.0)) < 1e-15);
-    CHECK(std::abs(b.wrap(0, 3.5) - (-0.5)) < 1e-15);
-    CHECK(std::abs(b.wrap(0, -1.25) - 2.75) < 1e-15);
-    CHECK(std::abs(b.wrap(0, -1.0 - 1000 * 4.0) - (-1.0)) < 1e-12);
-    CHECK(b.wrap(0, -1.0 - 1e-18) >= -1.0 && b.wrap(0, -1.0 - 1e-18) < 3.0);
-    CHECK(std::abs(b.wrap(1, 2.0 + 3.0) - 2.0) < 1e-15);
+    // wrap lands in [0, L), from either side and from far away
+    CHECK(std::abs(b.wrap(0, 0.0)) < 1e-15);
+    CHECK(std::abs(b.wrap(0, 4.5) - 0.5) < 1e-15);
+    CHECK(std::abs(b.wrap(0, -0.25) - 3.75) < 1e-15);
+    CHECK(std::abs(b.wrap(0, -1000 * 4.0)) < 1e-12);
+    // the case fold's guard is for: a hair below zero
+    CHECK(b.wrap(0, -1e-30) >= 0.0 && b.wrap(0, -1e-30) < 4.0);
+    CHECK(std::abs(b.wrap(1, 3.0)) < 1e-15);
 
     // minimum image is the shortest of the images
     CHECK(std::abs(b.minimum_image(0, 0.5) - 0.5) < 1e-15);
@@ -125,7 +120,7 @@ static void test_box() {
     CHECK(std::abs(std::abs(b.minimum_image(0, 2.0)) - 2.0) < 1e-15);
 
     // the whole-point forms agree with the per-axis ones
-    const std::array<double, 2> p{3.5, 5.0};
+    const std::array<double, 2> p{4.5, 5.0};
     const auto w = b.wrap(p);
     CHECK(std::abs(w[0] - b.wrap(0, p[0])) < 1e-15);
     CHECK(std::abs(w[1] - b.wrap(1, p[1])) < 1e-15);
@@ -134,7 +129,7 @@ static void test_box() {
     CHECK(std::abs(mi[1] - 1.0) < 1e-15);
 
     // nothing about it is 2-d
-    const PeriodicBox<double, 3> c{{0.0, 0.0, 0.0}, {1.0, 2.0, 4.0}};
+    const PeriodicBox<double, 3> c{{1.0, 2.0, 4.0}};
     CHECK(c.ndim == 3);
     CHECK(std::abs(c.wrap(2, 4.25) - 0.25) < 1e-15);
     CHECK(std::abs(c.minimum_image(2, 3.0) - (-1.0)) < 1e-15);
@@ -207,23 +202,23 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
 
 static void test_search() {
     search_on<1>("open line", std::nullopt, 200, 5);
-    search_on<1>("ring", PeriodicBox<double, 1>{{-2.0}, {5.0}}, 200, 5);
+    search_on<1>("ring", PeriodicBox<double, 1>{{5.0}}, 200, 5);
 
     search_on<2>("open plane", std::nullopt, 500, 8);
-    search_on<2>("unit box", PeriodicBox<double, 2>{{0.0, 0.0}, {1.0, 1.0}}, 500, 8);
-    search_on<2>("shifted, anisotropic box",
-                 PeriodicBox<double, 2>{{-3.0, 1.5}, {2.0, 5.0}}, 700, 12);
+    search_on<2>("unit box", PeriodicBox<double, 2>{{1.0, 1.0}}, 500, 8);
+    search_on<2>("anisotropic box",
+                 PeriodicBox<double, 2>{{2.0, 5.0}}, 700, 12);
     // k = n: the stencil is the whole cloud, the hardest case for the
     // pruning, and a thin box where a neighbour may be reached by more
     // than one image
     search_on<2>("k = n on a thin box",
-                 PeriodicBox<double, 2>{{0.0, 0.0}, {1.0, 0.05}}, 40, 40);
+                 PeriodicBox<double, 2>{{1.0, 0.05}}, 40, 40);
 
     search_on<3>("open space", std::nullopt, 600, 10);
     search_on<3>("unit cube",
-                 PeriodicBox<double, 3>{{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0}}, 600, 10);
-    search_on<3>("shifted, anisotropic cell",
-                 PeriodicBox<double, 3>{{-1.0, 0.5, 2.0}, {1.0, 3.0, 0.5}}, 600, 16);
+                 PeriodicBox<double, 3>{{1.0, 1.0, 1.0}}, 600, 10);
+    search_on<3>("anisotropic cell",
+                 PeriodicBox<double, 3>{{1.0, 3.0, 0.5}}, 600, 16);
 }
 
 // A cloud whose neighbours differ between the open plane and the box:
@@ -234,7 +229,7 @@ static void test_periodicity_matters() {
     const std::vector<double> x{0.02, 0.98, 0.02, 0.98, 0.5};
     const std::vector<double> y{0.02, 0.02, 0.98, 0.98, 0.5};
     const auto pts = interleave(x, y);
-    const Box<2> box = PeriodicBox<double, 2>{{0.0, 0.0}, {1.0, 1.0}};
+    const Box<2> box = PeriodicBox<double, 2>{{1.0, 1.0}};
 
     const auto open = KdTree(pts, 2).stencils(2);
     const auto wrapped = KdTree(pts, *box).stencils(2);
@@ -252,7 +247,7 @@ static void test_periodicity_matters() {
 // The small clouds, where the tree is a single leaf and the build's
 // degenerate paths are the ones taken.
 static void test_degenerate() {
-    const PeriodicBox<double, 2> box{{0.0, 0.0}, {1.0, 1.0}};
+    const PeriodicBox<double, 2> box{{1.0, 1.0}};
 
     const std::vector<double> one{0.25, 0.75};
     const KdTree tree(one, box);
@@ -283,7 +278,7 @@ static void test_degenerate() {
 // coordinates exactly; and a wider index type round-trips.
 static void test_index_and_coordinate_types() {
     Rng rng{12345};
-    const Box<2> box = PeriodicBox<double, 2>{{0.0, 0.0}, {1.0, 1.0}};
+    const Box<2> box = PeriodicBox<double, 2>{{1.0, 1.0}};
     const auto pts = cloud<2>(rng, 300, box);
 
     std::vector<float> xf(300), yf(300);
