@@ -13,7 +13,7 @@
 #define CUDA_ARCH_H
 
 #if __cplusplus < 201703L
-#error "cuda_arch.hpp requires C++17"
+#error "cuda_arch.h requires C++17"
 #endif
 
 #include <array>

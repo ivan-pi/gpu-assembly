@@ -7,7 +7,7 @@
 
 #include <cusolverdx.hpp>
 
-#include "cuda_arch.hpp"
+#include "cuda_arch.h"
 
 namespace rbf_operators {
 
