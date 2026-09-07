@@ -7,7 +7,6 @@ stencil graph that goes with them.
     python3 periodic_poisson.py --size 32 32 --knn 21 --seed 1234 tg_32
     python3 periodic_poisson.py --size 64 64 --hole 20 cylinder_64.node
     python3 periodic_poisson.py --size 32 32 --tile 4 4 tg_128
-    python3 periodic_poisson.py --size 32 32 --realizations 50 --seed 1234 tg_32
 
 The box is [0, Lx) x [0, Ly) with both sides periodic, and the nodes are
 a Poisson disk sample of it (pointclouds.poisson): no two closer than a
@@ -59,11 +58,9 @@ nearest neighbours by default, the nodes within a given distance with
 around both sides, so a stencil next to a side reaches around it, and
 every stencil starts with the node itself.
 
-Random clouds are meant to be averaged over, so a run generates one
-realization per --realizations and numbers the files. Realization i
-depends on the seed and on i alone: asking for more of them extends the
-series rather than replacing it, and a run without --seed reports the
-seed it drew so that it can be repeated.
+A run without --seed draws one and reports it, so that the cloud can be
+repeated; a set of independent clouds to average over is a set of runs
+with different seeds.
 
 The output is a points file and a graph file, in the numbering the two
 share. A name ending in `.node` writes a node file instead of the points
@@ -71,7 +68,7 @@ file, with a comment line naming the command and a marker per node
 (docs/file_formats.md). The name `-` writes to standard output, and
 `-- -.node` a node file there, after the option separator since the name
 starts with a dash. Only one file fits down a pipe, so both take
---no-graph and a single realization. The report goes to standard error,
+--no-graph. The report goes to standard error,
 so the stream carries the file alone. The markers are:
 
     0  interior
@@ -88,7 +85,7 @@ import sys
 import numpy as np
 
 from pointclouds import stencils
-from pointclouds.cli import add_series_options, number, series, stencil_report
+from pointclouds.cli import add_run_options, draw_seed, number, output, stencil_report
 from pointclouds.io import write_graph, write_nodes
 from pointclouds.markers import HOLE, INTERIOR, MARKER_STYLE
 from pointclouds.poisson import PoissonDisk, wrap
@@ -104,7 +101,7 @@ def circle(radius, centre, d):
 
 
 def sample(extent, d, candidates, hole, seed):
-    """The nodes of one realization and their markers: the circle nodes
+    """The nodes of one sample and their markers: the circle nodes
     first, if there is a hole, then the sample grown from them."""
     centre = 0.5 * extent
     seeds = circle(hole, centre, d) if hole else np.empty((0, 2))
@@ -163,7 +160,7 @@ HELP = __doc__.split("\n\n")[0] + """
 Lengths are in lattice units: the box is LX by LY and no two nodes are
 closer than the distance D, 1 by default. Markers are 0 interior, 6 the
 wall of the cylinder. The docstring at the top of the script describes
-the two geometries, the tiling and the series of realizations."""
+the two geometries and the tiling."""
 
 
 def main():
@@ -227,11 +224,11 @@ def main():
     )
 
     stencils.add_options(ap, knn=21, why="as in the poisson_32_21 case")
-    add_series_options(
+    add_run_options(
         ap,
-        "clouds",
-        plot="show the first cloud, coloured by marker, with one stencil "
-        "and the outline of the tiles",
+        "cloud",
+        plot="show the cloud, coloured by marker, with one stencil and the "
+        "outline of the tiles",
     )
     args = ap.parse_args()
 
@@ -265,7 +262,17 @@ def main():
         problem = stencils.check(stencil, box, True)
         if problem:
             ap.error(problem)
-    run = series(ap, args, default=".points")
+    stem, ext = output(ap, args, default=".points")
+    seed = draw_seed(args)
+
+    pts, m = tiled(*sample(extent, d, args.candidates, hole, seed), extent, tiles)
+    graph, report = None, ""
+    if not args.no_graph:
+        try:
+            graph = stencils.search(pts, box, True, stencil)
+        except ValueError as e:
+            sys.exit(str(e))
+        report = stencil_report(graph[0])
 
     # The comment of a node file is the command that reproduces it.
     lx, ly = extent.tolist()
@@ -273,36 +280,26 @@ def main():
         cut = f"--solid-fraction {args.solid_fraction!r} "
     else:
         cut = f"--hole {hole!r} " if hole is not None else ""
-    options = (
+    provenance = (
         f"produced by periodic_poisson.py --size {lx!r} {ly!r} --distance {d!r} "
         f"--candidates {args.candidates} {cut}--tile {tiles[0]} {tiles[1]} "
-        f"{'--no-graph' if args.no_graph else stencil}"
+        f"{'--no-graph' if args.no_graph else stencil} --seed {seed}"
     )
+    write_nodes(stem, ext, pts, m, provenance)
+    if graph:
+        write_graph(stem, *graph)
     area = box.prod() - (0.0 if hole is None else tiles.prod() * np.pi * hole**2)
+    nb = np.count_nonzero(m)
+    walls = f", {nb} of them on the cylinder{'s' if tiles.prod() > 1 else ''}"
+    written = "standard output" if stem == "-" else stem
+    print(
+        f"{written}: {len(pts)} nodes{walls if nb else ''}, "
+        f"{len(pts) / area:.3g} per unit area{report}",
+        file=sys.stderr,
+    )
 
-    for i, stream in enumerate(run.streams):
-        pts, m = tiled(*sample(extent, d, args.candidates, hole, stream), extent, tiles)
-        graph, report = None, ""
-        if not args.no_graph:
-            try:
-                graph = stencils.search(pts, box, True, stencil)
-            except ValueError as e:
-                sys.exit(str(e))
-            report = stencil_report(graph[0])
-
-        write_nodes(run.stems[i], run.ext, pts, m, run.provenance(options, i))
-        if graph:
-            write_graph(run.stems[i], *graph)
-        nb = np.count_nonzero(m)
-        walls = f", {nb} of them on the cylinder{'s' if tiles.prod() > 1 else ''}"
-        print(
-            f"{run.written(i)}: {len(pts)} nodes{walls if nb else ''}, "
-            f"{len(pts) / area:.3g} per unit area{report}",
-            file=sys.stderr,
-        )
-
-        if args.plot and i == 0:
-            plot(pts, m, graph, extent, tiles)
+    if args.plot:
+        plot(pts, m, graph, extent, tiles)
 
 
 if __name__ == "__main__":

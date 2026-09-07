@@ -12,15 +12,14 @@ extension the generator knows picks the format and is not doubled; the
 stem `-` writes to standard output, which is why a generator's report
 belongs on standard error.
 
-A generator of random clouds draws a series of them, one per realization,
-so that they can be averaged over: `add_series_options` adds the options
-of such a series and `series` reads them back, with the checks a pipe
-needs, as a `Series` that names the files and carries the random streams.
+A generator of random clouds takes a seed, and draws and reports one
+when none is given, so that any run can be repeated; `add_run_options`
+adds it with the options every such generator has, `draw_seed` reads it
+back, and `output` the name of the files with the check a pipe needs.
 """
 
 import argparse
 import sys
-from collections import namedtuple
 
 import numpy as np
 
@@ -49,21 +48,13 @@ def output_stem(name, default, known=(".node", ".points")):
     return name, default
 
 
-def add_series_options(ap, what, plot):
-    """--seed, --realizations, --no-graph and --plot on the parser, for a
-    generator that draws a series of `what` (say "grids"), with `plot` the
-    help of --plot."""
+def add_run_options(ap, what, plot):
+    """--seed, --no-graph and --plot on the parser, for a generator that
+    draws a random `what` (say "grid"), with `plot` the help of --plot."""
     ap.add_argument(
         "--seed",
         type=int,
         help=f"seed of the {what} (default: drawn and reported)",
-    )
-    ap.add_argument(
-        "--realizations",
-        type=number(int, least=1),
-        default=1,
-        metavar="R",
-        help=f"independent {what} to write, numbered from 0 (default: 1)",
     )
     ap.add_argument(
         "--no-graph",
@@ -73,60 +64,27 @@ def add_series_options(ap, what, plot):
     ap.add_argument("--plot", action="store_true", help=plot)
 
 
-class Series(namedtuple("Series", "seed streams stems ext piped")):
-    """What a run of a generator writes: the seed, one random stream per
-    realization, the stem of each realization's files and the extension
-    that picks their format, and whether they go to standard output.
-    Realization i depends on the seed and on i alone, so asking for more
-    of them extends the series rather than replacing it."""
-
-    __slots__ = ()
-
-    def provenance(self, options, i):
-        """The comment of a node file, the command that reproduces
-        realization i: `options` as the generator spells its own, then
-        the seed and the place in the series."""
-        tail = (
-            f" --realizations {len(self.stems)}, number {i}"
-            if len(self.stems) > 1
-            else ""
-        )
-        return f"{options} --seed {self.seed}{tail}"
-
-    def written(self, i):
-        """Where realization i went, for the report."""
-        return "standard output" if self.piped else self.stems[i]
+def draw_seed(args):
+    """The seed of the run: the one given, or one drawn and reported on
+    standard error, so that the run can be repeated."""
+    if args.seed is not None:
+        return args.seed
+    drawn = np.random.SeedSequence().entropy
+    print(f"seed {drawn}", file=sys.stderr)
+    return drawn
 
 
-def series(ap, args, default):
-    """The Series a parsed command line asks for, `default` being the
-    extension when the output names none. Only one file fits down a pipe,
-    so standard output takes --no-graph and a single realization; the
-    other cases are usage errors. A seed that was not given is drawn and
-    reported on standard error, so that the run can be repeated."""
-    base, ext = output_stem(args.output, default)
-    piped = base == "-"  # `-`, `-.points` or `-.node`
-    if piped and not args.no_graph:
+def output(ap, args, default):
+    """The stem and the extension the output names, `default` being the
+    extension when it names none, after the check a pipe needs: only one
+    file fits down it, so standard output takes --no-graph."""
+    stem, ext = output_stem(args.output, default)
+    if stem == "-" and not args.no_graph:
         ap.error(
             "only one file fits down a pipe: add --no-graph to write the "
             "coordinates to standard output, or name a file for the pair"
         )
-    if piped and args.realizations > 1:
-        ap.error(
-            "a series needs file names to go in: --realizations cannot "
-            "write to standard output"
-        )
-    seed = np.random.SeedSequence().entropy if args.seed is None else args.seed
-    if args.seed is None:
-        print(f"seed {seed}", file=sys.stderr)
-    streams = np.random.SeedSequence(seed).spawn(args.realizations)
-    width = len(str(args.realizations - 1))
-    stems = (
-        [base]
-        if args.realizations == 1
-        else [f"{base}_{i:0{width}d}" for i in range(args.realizations)]
-    )
-    return Series(seed, streams, stems, ext, piped)
+    return stem, ext
 
 
 def stencil_report(ia):

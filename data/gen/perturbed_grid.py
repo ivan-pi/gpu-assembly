@@ -5,7 +5,7 @@ random amount, with the periodic stencil graph that goes with them.
     python3 perturbed_grid.py -n 40 tg_40
     python3 perturbed_grid.py -n 40 --sigma 0.02 --knn 21 tg_40
     python3 perturbed_grid.py -n 40 --geometry channel poiseuille_40.node
-    python3 perturbed_grid.py -n 40 --realizations 50 --seed 1234 tg_40
+    python3 perturbed_grid.py -n 40 --seed 1234 tg_40
 
 The node layout of Strzelczyk and Matyka (2022), "How nodes layout,
 refinement and velocity discretization influence convergence of the
@@ -42,11 +42,9 @@ nearest neighbours by default, the nodes within a given distance with
 sides are periodic, so a stencil next to a periodic side reaches around
 it, and every stencil starts with the node itself.
 
-Random grids are meant to be averaged over, so a run generates one
-realization per --realizations and numbers the files. Realization i
-depends on the seed and on i alone: asking for more of them extends the
-series rather than replacing it, and a run without --seed reports the
-seed it drew so that it can be repeated.
+A run without --seed draws one and reports it, so that the grid can be
+repeated; a set of independent grids to average over is a set of runs
+with different seeds.
 
 The output is a points file and a graph file, in the numbering the two
 share. A name ending in `.node` writes a node file instead of the points
@@ -54,7 +52,7 @@ file, with a comment line naming the command and a marker per node
 (docs/file_formats.md). The name `-` writes to standard output, and
 `-- -.node` a node file there, after the option separator since the name
 starts with a dash. Only one file fits down a pipe, so both take
---no-graph and a single realization. The report goes to standard error,
+--no-graph. The report goes to standard error,
 so the stream carries the file alone. The markers are:
 
     0  interior
@@ -73,7 +71,7 @@ import sys
 import numpy as np
 
 from pointclouds import stencils
-from pointclouds.cli import add_series_options, number, series, stencil_report
+from pointclouds.cli import add_run_options, draw_seed, number, output, stencil_report
 from pointclouds.io import write_graph, write_nodes
 from pointclouds.markers import INTERIOR, MARKER_STYLE, NORTH, SOUTH
 from pointclouds.poisson import wrap
@@ -129,8 +127,7 @@ HELP = __doc__.split("\n\n")[0] + """
 
 Lengths are in lattice units: the box is N by N and the spacing is 1.
 Markers are 0 interior, 1 bottom wall, 3 top wall. The docstring at the
-top of the script describes the two geometries and the series of
-realizations."""
+top of the script describes the two geometries."""
 
 
 def main():
@@ -170,8 +167,8 @@ def main():
     )
 
     stencils.add_options(ap, knn=15, why="the stencil size of the reference")
-    add_series_options(
-        ap, "grids", plot="show the first grid, coloured by marker, with one stencil"
+    add_run_options(
+        ap, "grid", plot="show the grid, coloured by marker, with one stencil"
     )
     args = ap.parse_args()
 
@@ -190,33 +187,34 @@ def main():
         problem = stencils.check(stencil, extent, wraps)
         if problem:
             ap.error(problem)
-    run = series(ap, args, default=".points")
+    stem, ext = output(ap, args, default=".points")
+    seed = draw_seed(args)
 
     pts0, m = grid(n, periodic)
+    pts = perturb(pts0, m, sigma, box, periodic, np.random.default_rng(seed))
+    graph, report = None, ""
+    if not args.no_graph:
+        try:
+            graph = stencils.search(pts, extent, wraps, stencil)
+        except ValueError as e:
+            sys.exit(str(e))
+        report = stencil_report(graph[0])
+
     # The comment of a node file is the command that reproduces it.
-    options = (
+    provenance = (
         f"produced by perturbed_grid.py -n {n} --sigma {sigma!r} "
-        f"--geometry {args.geometry} {'--no-graph' if args.no_graph else stencil}"
+        f"--geometry {args.geometry} {'--no-graph' if args.no_graph else stencil} "
+        f"--seed {seed}"
     )
+    write_nodes(stem, ext, pts, m, provenance)
+    if graph:
+        write_graph(stem, *graph)
     walls = f", {np.count_nonzero(m)} of them on a wall" if not periodic else ""
+    written = "standard output" if stem == "-" else stem
+    print(f"{written}: {len(pts)} nodes{walls}{report}", file=sys.stderr)
 
-    for i, stream in enumerate(run.streams):
-        pts = perturb(pts0, m, sigma, box, periodic, np.random.default_rng(stream))
-        graph, report = None, ""
-        if not args.no_graph:
-            try:
-                graph = stencils.search(pts, extent, wraps, stencil)
-            except ValueError as e:
-                sys.exit(str(e))
-            report = stencil_report(graph[0])
-
-        write_nodes(run.stems[i], run.ext, pts, m, run.provenance(options, i))
-        if graph:
-            write_graph(run.stems[i], *graph)
-        print(f"{run.written(i)}: {len(pts)} nodes{walls}{report}", file=sys.stderr)
-
-        if args.plot and i == 0:
-            plot(pts, m, graph)
+    if args.plot:
+        plot(pts, m, graph)
 
 
 if __name__ == "__main__":
