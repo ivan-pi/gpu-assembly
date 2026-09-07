@@ -25,6 +25,20 @@ add_library(nanoflann INTERFACE)
 target_include_directories(nanoflann INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanoflann)
 
+# SciPy's ckdtree (vendored). Only rbf_spatial.cpp includes its headers,
+# and `rbf` links it PRIVATE, so ckdtree_decl.h stays out of the include
+# path of anything that links `rbf`.
+add_library(ckdtree STATIC
+    third_party/ckdtree/src/build.cxx
+    third_party/ckdtree/src/count_neighbors.cxx
+    third_party/ckdtree/src/query.cxx
+    third_party/ckdtree/src/query_ball_point.cxx
+    third_party/ckdtree/src/query_ball_tree.cxx
+    third_party/ckdtree/src/query_pairs.cxx
+    third_party/ckdtree/src/sparse_distances.cxx)
+target_include_directories(ckdtree PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ckdtree/src)
+
 # Host library: the Fortran curve-key, precision and periodic-box
 # modules plus the header-only C++ parts (rbf_reorder.h, rbf_nodeset.h,
 # rbf_io.h). Consumers get the include paths and the Fortran runtime by

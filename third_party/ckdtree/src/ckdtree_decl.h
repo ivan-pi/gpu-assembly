@@ -2,13 +2,17 @@
 #define CKDTREE_CPP_DECL
 
 /*
- * Use numpy to provide some platform independence.
+ * Upstream takes npy_intp from numpy; this copy has no numpy, and
+ * npy_intp is pointer-sized. <cassert> is for build.cxx, which numpy's
+ * header used to serve.
+ *
  * Define these functions for your platform
  * */
-#include <numpy/npy_common.h>
+#include <cassert>
 #include <cmath>
+#include <stdint.h>
 
-#define ckdtree_intp_t npy_intp
+#define ckdtree_intp_t intptr_t
 #define ckdtree_fmin(x, y)   fmin(x, y)
 #define ckdtree_fmax(x, y)   fmax(x, y)
 #define ckdtree_fabs(x)   fabs(x)
