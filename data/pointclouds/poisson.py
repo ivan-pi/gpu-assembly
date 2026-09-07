@@ -28,26 +28,12 @@ with 30 candidates, 0.56 with 10.
 
 Along a periodic axis the search wraps: the cell index is taken modulo
 the cell count, and a difference of coordinates through the nearer of
-the two sides. A candidate c in the first cell searches two cells either
-way, so across the seam (|) into the last two. The cells tile the extent
-exactly, n = ceil(L sqrt(2) / r) of them of side s = L / n, a little
-under r / sqrt(2) but well over r / 2, so the search reaches 2s > r
-beyond the seam:
-
-    ... |  n-2  |  n-1  | c 0   |   1   |   2   | ...
-        <----- 2s ----->|                             2s > r: all covered
-
-With cells of exactly r / sqrt(2) and a partial last one of width p, as
-a grid laid over the extent without regard to the seam has, the search
-reaches only s + p beyond it, less than r for a small p, and a point x
-just outside that reach, though closer than r to c, goes unseen:
-
-    ...  x  |  n-2  |n-1| c 0   |   1   |   2   | ...
-            <-- s + p -->|                            s + p < |x - c| < r
-
-That lets points closer than r face each other across the seam, which
-is why the search is periodic itself rather than a sample being wrapped
-afterwards.
+the two sides. The cells tile the extent exactly along such an axis,
+which makes them a little smaller than r / sqrt(2). With a partial last
+cell instead, the two cells beyond the seam would span less than r, the
+search would stop short of it, and points closer than r could face each
+other across the seam: the defect a sample that is wrapped afterwards
+shows, and the reason the sampler is periodic itself.
 
 The interface follows scipy.stats.qmc.PoissonDisk: `random` draws up to
 n more points, `fill_space` draws until nothing fits, `reset` goes back
