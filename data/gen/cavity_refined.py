@@ -16,13 +16,12 @@ basis function-based semi-Lagrangian lattice Boltzmann method for
 incompressible flows", Int. J. Numer. Meth. Fluids 91, 198-211, which
 shows the point distribution without specifying it.
 
-`--size LX LY` scales the cavity to that size, which is what makes the
-spacing something other than 1: `--size 1 1` is the unit square of the
-figure, with h = 0.1/N at the wall. The shorter side is always the one
-the bands fill exactly; a longer one gets a middle at the coarsest
-spacing. `--steps N` refines or coarsens all three bands together: on
-its own it widens the cavity, since the wall spacing stays 1, and with
-`--size` fixed it refines the same cavity.
+`--size LX LY` gives the cavity a size of its own, in lattice units and
+so at least the 10 N the bands need; a side longer than that gets its
+middle at the coarsest spacing. Scaling a case to other units is left to
+whoever needs it. `--steps N` refines or coarsens all three bands
+together, which widens the cavity, since the spacing at the wall stays
+1.
 
 Two distributions realise the spacings and give different clouds:
 
@@ -50,7 +49,8 @@ Boundary markers (docs/file_formats.md, node file):
     4  west wall,  x = 0
     5  corner, where two walls meet
 
-The walls are numbered counter-clockwise from the bottom. The corners get
+The walls are numbered counter-clockwise from the bottom, the numbering
+the generators share (pointclouds/formats.py). The corners get
 their own marker because a corner node belongs to two walls with, in the
 cavity, different boundary data: the lid velocity meets the wall's no-slip.
 Whoever assembles the boundary conditions decides what a corner gets.
@@ -66,33 +66,19 @@ goes to standard error, so the stream carries the file alone.
 """
 
 import argparse
-import contextlib
 import sys
 
 import numpy as np
 
+from pointclouds import (CORNER, EAST, INTERIOR, MARKER_STYLE, NORTH, SOUTH,
+                         WEST, number, output_stem, write_node, write_points)
+
 SPACINGS = (1.0, 1.5, 2.5)     # at the wall, in the second band, in the middle
-
-INTERIOR, SOUTH, EAST, NORTH, WEST, CORNER = 0, 1, 2, 3, 4, 5
-
-
-def number(kind, least=None, above=None):
-    """An argparse type that also carries a bound: argparse turns the
-    ArgumentTypeError into its own usage message, naming the option."""
-    def parse(text):
-        value = kind(text)                       # a ValueError here: "invalid int"
-        if least is not None and value < least:
-            raise argparse.ArgumentTypeError(f"must be at least {least:g}")
-        if above is not None and value <= above:
-            raise argparse.ArgumentTypeError(f"must be greater than {above:g}")
-        return value
-    parse.__name__ = kind.__name__               # the name argparse reports
-    return parse
 
 TOL = 1e-9
 
 
-def levels(N, scale, for_rings):
+def levels(N, for_rings):
     """(spacing, count) per band for N spacings across each band: the number
     of rings, or of steps of the 1-d grid coordinate. Consecutive rings are
     one spacing of the outer ring apart, so a band holds N + 1 rings and
@@ -101,7 +87,7 @@ def levels(N, scale, for_rings):
     which works out because the first two bands together are as wide as
     the third."""
     counts = (N + 1, N + 1, N) if for_rings else (N, N, N)
-    return [(h * scale, count) for h, count in zip(SPACINGS, counts)]
+    return list(zip(SPACINGS, counts))
 
 
 def side(a, b, h):
@@ -173,35 +159,13 @@ def markers(pts, Lx, Ly):
     return m
 
 
-def open_out(stem, ext):
-    """The file this stem and extension name, or standard output for `-`,
-    which stays open."""
-    return (contextlib.nullcontext(sys.stdout) if stem == "-"
-            else open(stem + ext, "w"))
-
-
-def write_node(stem, pts, m, provenance):
-    with open_out(stem, ".node") as f:
-        f.write(f"# {provenance}\n")
-        f.write(f"{len(pts)} 2 0 1\n")
-        for i, ((x, y), mi) in enumerate(zip(pts.tolist(), m.tolist())):
-            f.write(f"{i} {x!r} {y!r} {mi}\n")     # repr: shortest round-trip text
-
-
-def write_points(stem, pts):
-    with open_out(stem, ".points") as f:
-        f.write(f"{len(pts)}\n")
-        for x, y in pts.tolist():
-            f.write(f"{x!r} {y!r}\n")
-
-
 HELP = __doc__.split("\n\n")[0] + """
 
 Lengths are in lattice units, in which the spacing is 1 at the wall and
-the cavity 10 N by 10 N. Boundary markers: 0 interior, 1 south wall,
-2 east, 3 north (the lid), 4 west, 5 corner. The docstring at the top of
-the script describes the two point distributions and the three bands of
-refinement."""
+the cavity is 10 N by 10 N unless --size makes it bigger. Boundary
+markers: 0 interior, 1 south wall, 2 east, 3 north (the lid), 4 west,
+5 corner. The docstring at the top of the script describes the two point
+distributions and the three bands of refinement."""
 
 
 def main():
@@ -214,22 +178,23 @@ def main():
                     help="concentric rectangles, or a tensor-product grid (default: rings)")
     ap.add_argument("--size", nargs=2, type=number(float, above=0.0),
                     metavar=("LX", "LY"),
-                    help="sides of the cavity, in the same units as the coordinates "
-                         "(default: 10 N by 10 N, which makes the spacing at the "
-                         "wall h = 1)")
+                    help="sides of the cavity in lattice units, at least the "
+                         "10 N the bands need (default: 10 N by 10 N, the bands "
+                         "alone)")
     ap.add_argument("-n", "--steps", type=number(int, least=1), default=10, metavar="N",
                     help="spacings across each band (default: 10)")
     ap.add_argument("--plot", action="store_true", help="show the cloud, coloured by marker")
     args = ap.parse_args()
     span = 2 * args.steps * sum(SPACINGS)        # the bands from both walls
     Lx, Ly = (span, span) if args.size is None else args.size
-    scale = min(Lx, Ly) / span                   # the shorter side holds the bands
+    if min(Lx, Ly) < span - TOL:
+        ap.error(f"the cavity must be at least {span:g} by {span:g}, the width "
+                 f"of the three bands from both walls at --steps {args.steps}")
 
-    suffix = ".points" if args.output.endswith(".points") else ".node"
-    stem = args.output.removesuffix(suffix)
+    stem, suffix = output_stem(args.output, default=".node")
 
     for_rings = args.distribution == "rings"
-    lv = levels(args.steps, scale, for_rings)
+    lv = levels(args.steps, for_rings)
     pts = rings(Lx, Ly, lv) if for_rings else grid(Lx, Ly, lv)
     pts = np.round(pts, 12) + 0.0            # 0.1 + 0.2 style noise, and no -0.0
     m = markers(pts, Lx, Ly)
@@ -249,7 +214,7 @@ def main():
 
     if args.plot:
         import matplotlib.pyplot as plt
-        plt.scatter(pts[:, 0], pts[:, 1], c=m, s=4, cmap="tab10", vmin=0, vmax=9)
+        plt.scatter(pts[:, 0], pts[:, 1], c=m, s=4, **MARKER_STYLE)
         plt.axis("equal")
         plt.show()
 

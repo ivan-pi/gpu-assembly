@@ -20,7 +20,9 @@ below.
 
 ## Generating
 
-Scripts that produced a case go in `gen/`.
+Scripts that produced a case go in `gen/`, and what they share -- the
+writers for the formats above, the boundary-marker convention and the
+command-line conventions -- in the `gen/pointclouds` package beside them.
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
@@ -33,5 +35,5 @@ Scripts that produced a case go in `gen/`.
   sides. `--realizations` writes the numbered series such a random case
   is averaged over. Needs numpy and scipy; `--plot` needs matplotlib.
 
-Both work in lattice units, in which the spacing is 1, and take `--size`
-to scale a case to other units. `--help` describes the rest.
+Both work in lattice units, in which the spacing is 1; scaling a case to
+other units is left to whoever needs it. `--help` describes the rest.
