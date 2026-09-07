@@ -24,26 +24,25 @@ inline constexpr std::size_t KiB = 1024;
 // Non-owning view of a static carveout list (a C++17 stand-in for std::span).
 struct carveout_list {
     const unsigned* data = nullptr;
-    std::size_t     size = 0;
+    std::size_t size = 0;
 
     template <std::size_t N>
-    constexpr carveout_list(const std::array<unsigned, N>& a) noexcept
-        : data(a.data()), size(N) {}
+    constexpr carveout_list(const std::array<unsigned, N>& a) noexcept : data(a.data()), size(N) {}
 
     constexpr const unsigned* begin() const noexcept { return data; }
-    constexpr const unsigned* end()   const noexcept { return data + size; }
+    constexpr const unsigned* end() const noexcept { return data + size; }
     constexpr unsigned largest() const noexcept { return size ? data[size - 1] : 0u; }
 };
 
 struct smem_limits {
-    unsigned cc;                    // cuSolverDx code: 750, 800, ..., 1210
-    std::string_view arch;          // architecture family, as cuSolverDx names it
-    std::string_view sm;            // nvcc target, e.g. "sm_90" for -arch=sm_90
-    bool legacy;                    // dropped by cuSolverDx 0.4.0 (and CUDA 13)
-    unsigned unified_cache_kb;      // L1 + SMEM unified data cache  (Table 32)
-    unsigned max_per_sm_kb;         // configurable SMEM upper bound (Table 31)
-    unsigned max_per_block_kb;      // per-block ceiling, opt-in     (Table 31)
-    carveout_list carveouts_kb;     // legal SMEM capacities        (Table 32)
+    unsigned cc;                 // cuSolverDx code: 750, 800, ..., 1210
+    std::string_view arch;       // architecture family, as cuSolverDx names it
+    std::string_view sm;         // nvcc target, e.g. "sm_90" for -arch=sm_90
+    bool legacy;                 // dropped by cuSolverDx 0.4.0 (and CUDA 13)
+    unsigned unified_cache_kb;   // L1 + SMEM unified data cache  (Table 32)
+    unsigned max_per_sm_kb;      // configurable SMEM upper bound (Table 31)
+    unsigned max_per_block_kb;   // per-block ceiling, opt-in     (Table 31)
+    carveout_list carveouts_kb;  // legal SMEM capacities        (Table 32)
 
     // Static allocations are capped at 48 KB on every architecture. Above it,
     // the kernel must use dynamic shared memory *and* opt in via
@@ -51,7 +50,7 @@ struct smem_limits {
     static constexpr std::size_t static_smem_limit = 48 * KiB;
 
     constexpr std::size_t max_per_block() const noexcept { return max_per_block_kb * KiB; }
-    constexpr std::size_t max_per_sm()    const noexcept { return max_per_sm_kb    * KiB; }
+    constexpr std::size_t max_per_sm() const noexcept { return max_per_sm_kb * KiB; }
 
     // System reservation per block: 1 KB on sm_80 and later (Ampere/Ada/
     // Hopper/Blackwell tuning guides), 0 on Volta and Turing.
@@ -78,6 +77,7 @@ struct smem_limits {
 
 namespace detail {
 
+// clang-format off
 // Carveout lists, named by their largest entry. The largest carveout is
 // 28 KB below the unified cache size: that remainder is the minimum L1.
 inline constexpr std::array<unsigned,  6> cv_96     = {0, 8, 16, 32, 64, 96};
@@ -102,8 +102,9 @@ inline constexpr std::array table = {
     smem_limits{ 1200, "Blackwell", "sm_120", false,  128, 100,  99, cv_100    },  // RTX 50 series
     smem_limits{ 1210, "Blackwell", "sm_121", false,  128, 100,  99, cv_100    },  // GB10 (DGX Spark)
 };
+// clang-format on
 
-} // namespace detail
+}  // namespace detail
 
 // Runtime lookup, e.g. from cudaDeviceProp via cc_code(major, minor).
 constexpr std::optional<smem_limits> find(unsigned cc) noexcept {
@@ -136,16 +137,18 @@ static_assert(limits_v<1100>.sm == "sm_110" && limits_v<1100>.arch == "Blackwell
 static_assert(limits_v<900>.max_per_block_kb == 227);
 static_assert(limits_v<1200>.reserved_per_block() == KiB);
 static_assert(limits_v<800>.carveout_for(60 * KiB) == 64u);
-static_assert(limits_v<800>.carveout_for(64 * KiB) == 100u);   // 64 KB + 1 KB reserved
+static_assert(limits_v<800>.carveout_for(64 * KiB) == 100u);  // 64 KB + 1 KB reserved
 static_assert(!is_cusolverdx_sm(1010));
 static_assert(!is_cusolverdx_sm(700) && is_cusolverdx_sm(700, true));
 static_assert(limits_v<700>.reserved_per_block() == 0);
-static_assert([] {
-    for (const auto& e : detail::table)
-        if (e.carveouts_kb.largest() != e.max_per_sm_kb) return false;
-    return true;
-    }(), "largest carveout must equal the per-SM maximum");
+static_assert(
+    [] {
+        for (const auto& e : detail::table)
+            if (e.carveouts_kb.largest() != e.max_per_sm_kb) return false;
+        return true;
+    }(),
+    "largest carveout must equal the per-SM maximum");
 
-} // namespace cuda_arch
+}  // namespace cuda_arch
 
-#endif // CUDA_ARCH_H
+#endif  // CUDA_ARCH_H

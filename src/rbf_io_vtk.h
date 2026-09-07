@@ -30,11 +30,18 @@ inline bool vtk_name_ok(std::string_view name) {
 }
 
 // The scalar type label the legacy VTK format expects for T.
-template <class T> constexpr const char* vtk_type_name();
-template <> constexpr const char* vtk_type_name<float>()  { return "float"; }
-template <> constexpr const char* vtk_type_name<double>() { return "double"; }
+template <class T>
+constexpr const char* vtk_type_name();
+template <>
+constexpr const char* vtk_type_name<float>() {
+    return "float";
+}
+template <>
+constexpr const char* vtk_type_name<double>() {
+    return "double";
+}
 
-} // namespace detail
+}  // namespace detail
 
 // A named per-node 2-d vector: (x[i * stride], y[i * stride]) at node i; the
 // z component is written as 0. Interleaved {ux0, uy0, ux1, ...} storage is
@@ -63,13 +70,10 @@ struct VtkVector {
 // empty. The format caps it at 256 characters including the newline, so at
 // most 255 here, and it must not contain a line break.
 template <class T>
-void write_vtk_polydata(const std::string& fname, std::size_t n,
-                        const T* x, const T* y,
+void write_vtk_polydata(const std::string& fname, std::size_t n, const T* x, const T* y,
                         List<Column<std::type_identity_t<T>>> scalars,
                         List<VtkVector<std::type_identity_t<T>>> vectors = {},
-                        std::size_t xy_stride = 1,
-                        std::string_view title = "rbf point cloud")
-{
+                        std::size_t xy_stride = 1, std::string_view title = "rbf point cloud") {
     static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
                   "legacy VTK arrays are float or double");
     using detail::num;
@@ -86,7 +90,8 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
     auto out = detail::open_out(fname);
     const char* tn = detail::vtk_type_name<T>();
 
-    out << "# vtk DataFile Version 2.0\n" << title << '\n'
+    out << "# vtk DataFile Version 2.0\n"
+        << title << '\n'
         << "ASCII\n"
            "DATASET POLYDATA\n";
 
@@ -96,17 +101,16 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
 
     // one vertex cell per point, else the cloud has no renderable geometry
     out << "VERTICES " << n << ' ' << 2 * n << '\n';
-    for (std::size_t i = 0; i < n; ++i)
-        out << "1 " << i << '\n';
+    for (std::size_t i = 0; i < n; ++i) out << "1 " << i << '\n';
 
     if (scalars.empty() && vectors.empty()) return;
     out << "POINT_DATA " << n << '\n';
 
     for (const auto& s : scalars) {
-        out << "SCALARS " << s.name << ' ' << tn << " 1\n"
+        out << "SCALARS " << s.name << ' ' << tn
+            << " 1\n"
                "LOOKUP_TABLE default\n";
-        for (std::size_t i = 0; i < n; ++i)
-            out << num(s.v[i * s.stride]) << '\n';
+        for (std::size_t i = 0; i < n; ++i) out << num(s.v[i * s.stride]) << '\n';
     }
     for (const auto& v : vectors) {
         out << "VECTORS " << v.name << ' ' << tn << '\n';
@@ -115,6 +119,6 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
     }
 }
 
-} // namespace rbf::io
+}  // namespace rbf::io
 
-#endif // RBF_IO_VTK_H
+#endif  // RBF_IO_VTK_H

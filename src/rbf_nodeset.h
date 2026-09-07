@@ -41,9 +41,10 @@ struct TreeParams {
 //
 // The class is non-copyable.
 //
-template<typename T = double, typename I = int32_t>
+template <typename T = double, typename I = int32_t>
 class NodeSet {
     static_assert(std::is_integral_v<I>, "index type must be integral");
+
 public:
     using value_type = T;
     using index_type = I;
@@ -134,20 +135,18 @@ public:
     auto stencils(int k, const TreeParams& tp = {}) const {
         const auto n = static_cast<index_type>(num_points_);
         if (k < 1 || static_cast<size_t>(k) > num_points_) {
-            std::cerr << "error: NodeSet::stencils: k=" << k
-                      << " with " << n << " nodes\n";
+            std::cerr << "error: NodeSet::stencils: k=" << k << " with " << n << " nodes\n";
             std::exit(1);
         }
         ensure_tree(tp);
         std::vector<index_type> ja(num_points_ * k);
-        #pragma omp parallel
+#pragma omp parallel
         {
             std::vector<T> d2(k);
-            #pragma omp for schedule(static)
+#pragma omp for schedule(static)
             for (index_type s = 0; s < n; ++s) {
                 const T q[2] = {x[s], y[s]};
-                [[maybe_unused]] const auto found =
-                    tree_->knnSearch(q, k, &ja[s*k], d2.data());
+                [[maybe_unused]] const auto found = tree_->knnSearch(q, k, &ja[s * k], d2.data());
                 assert(found == static_cast<size_t>(k));
             }
         }
@@ -157,17 +156,20 @@ public:
     // nanoflann dataset-adaptor interface
     size_t kdtree_get_point_count() const { return num_points_; }
     T kdtree_get_pt(size_t i, size_t d) const { return d == 0 ? x[i] : y[i]; }
-    template <class BBOX> bool kdtree_get_bbox(BBOX& bb) const {
+    template <class BBOX>
+    bool kdtree_get_bbox(BBOX& bb) const {
         if (x.empty()) return false;
         const auto b = compute_bbox(std::span<const T>{x}, std::span<const T>{y});
-        bb[0].low = b.xmin; bb[0].high = b.xmax;
-        bb[1].low = b.ymin; bb[1].high = b.ymax;
+        bb[0].low = b.xmin;
+        bb[0].high = b.xmax;
+        bb[1].low = b.ymin;
+        bb[1].high = b.ymax;
         return true;
     }
 
 private:
-    using Tree = nanoflann::KDTreeSingleIndexAdaptor<
-        nanoflann::L2_Simple_Adaptor<T, NodeSet>, NodeSet, 2, I>;
+    using Tree = nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<T, NodeSet>,
+                                                     NodeSet, 2, I>;
 
     void rebuild_bnd() {
         bnd.clear();
@@ -186,10 +188,9 @@ private:
     void ensure_tree(const TreeParams& tp) const {
         if (!tree_) {
             tree_.emplace(2, *this,
-                nanoflann::KDTreeSingleIndexAdaptorParams(
-                    tp.leaf_max_size,
-                    nanoflann::KDTreeSingleIndexAdaptorFlags::None,
-                    tp.n_thread_build));
+                          nanoflann::KDTreeSingleIndexAdaptorParams(
+                              tp.leaf_max_size, nanoflann::KDTreeSingleIndexAdaptorFlags::None,
+                              tp.n_thread_build));
         }
     }
 
@@ -198,6 +199,6 @@ private:
     Permutation<I> file_order_;
 };
 
-} // namespace rbf
+}  // namespace rbf
 
-#endif // RBF_NODESET_H
+#endif  // RBF_NODESET_H

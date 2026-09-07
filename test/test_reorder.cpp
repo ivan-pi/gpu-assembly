@@ -18,13 +18,11 @@
 
 #include "check.h"
 
-
 // Reference Morton key: interleave the ndiv low bits of the cell
 // coordinates, x in the even (low) positions.
 static std::int64_t interleave(int ix, int iy, int ndiv) {
     std::int64_t z = 0;
-    for (int b = ndiv - 1; b >= 0; --b)
-        z = (z << 2) | (((iy >> b) & 1) << 1) | ((ix >> b) & 1);
+    for (int b = ndiv - 1; b >= 0; --b) z = (z << 2) | (((iy >> b) & 1) << 1) | ((ix >> b) & 1);
     return z;
 }
 
@@ -44,8 +42,7 @@ static void test_permutation() {
     CHECK(a == (std::vector<double>{10, 11, 12, 13}));
 
     // inv() is the old -> new map
-    for (int i = 0; i < 4; ++i)
-        CHECK(p.inv()[p.map()[i]] == i);
+    for (int i = 0; i < 4; ++i) CHECK(p.inv()[p.map()[i]] == i);
 
     // then(): applying p then q in sequence equals applying p.then(q)
     Permutation<int> q(std::vector<int>{1, 3, 0, 2});
@@ -61,7 +58,8 @@ static void test_permutation() {
 
 // 4x4 grid of cell centres in bbox [0,4]x[0,4], row-major node order.
 static void grid4(std::vector<double>& x, std::vector<double>& y) {
-    x.clear(); y.clear();
+    x.clear();
+    y.clear();
     for (int j = 0; j < 4; ++j)
         for (int i = 0; i < 4; ++i) {
             x.push_back(i + 0.5);
@@ -75,8 +73,7 @@ static void test_morton_keys() {
     const rbf::BBox2<double> bbox{0, 0, 4, 4};
     const auto keys = rbf::morton_keys(x, y, 2, bbox);
     for (int j = 0; j < 4; ++j)
-        for (int i = 0; i < 4; ++i)
-            CHECK(keys[j*4 + i] == interleave(i, j, 2));
+        for (int i = 0; i < 4; ++i) CHECK(keys[j * 4 + i] == interleave(i, j, 2));
 }
 
 static void test_hilbert_keys() {
@@ -94,7 +91,7 @@ static void test_hilbert_keys() {
         cell_of_key[keys[s]] = s;
     }
     for (int k = 1; k < 16; ++k) {
-        const int a = cell_of_key[k-1], b = cell_of_key[k];
+        const int a = cell_of_key[k - 1], b = cell_of_key[k];
         const int dx = std::abs(a % 4 - b % 4);
         const int dy = std::abs(a / 4 - b / 4);
         CHECK(dx + dy == 1);
@@ -118,21 +115,19 @@ static void test_boundary_last() {
 
 static void test_renumber_stencils() {
     // 4 nodes, k = 2, self first
-    std::vector<int> ja{0, 1,  1, 2,  2, 3,  3, 0};
+    std::vector<int> ja{0, 1, 1, 2, 2, 3, 3, 0};
     const rbf::Permutation<int> p(std::vector<int>{2, 0, 3, 1});
 
     rbf::renumber_stencils(std::span{ja}, 2, p);
 
     // self-first invariant survives
-    for (int s = 0; s < 4; ++s)
-        CHECK(ja[s*2] == s);
+    for (int s = 0; s < 4; ++s) CHECK(ja[s * 2] == s);
     // new node s (old p[s]) keeps its old neighbour, relabelled:
     // old rows were {i, (i+1)%4}; new second entry is inv[(p[s]+1)%4]
-    for (int s = 0; s < 4; ++s)
-        CHECK(ja[s*2 + 1] == p.inv()[(p.map()[s] + 1) % 4]);
+    for (int s = 0; s < 4; ++s) CHECK(ja[s * 2 + 1] == p.inv()[(p.map()[s] + 1) % 4]);
 
     // general CSR path gives the same answer for the same graph
-    std::vector<int> ja2{0, 1,  1, 2,  2, 3,  3, 0};
+    std::vector<int> ja2{0, 1, 1, 2, 2, 3, 3, 0};
     auto ia = rbf::make_row_ptr<int>(4, 2);
     rbf::renumber_csr(std::span{ia}, std::span{ja2}, p);
     CHECK(ja2 == ja);
@@ -146,8 +141,7 @@ static void test_nodeset() {
         grid4(x, y);
         std::vector<int> flag(16);
         for (int j = 0; j < 4; ++j)
-            for (int i = 0; i < 4; ++i)
-                flag[j * 4 + i] = (i == 0 || i == 3 || j == 0 || j == 3);
+            for (int i = 0; i < 4; ++i) flag[j * 4 + i] = (i == 0 || i == 3 || j == 0 || j == 3);
         rbf::io::write_nodes("grid.node", 16, x.data(), y.data(), flag.data());
     }
 
@@ -156,17 +150,15 @@ static void test_nodeset() {
     CHECK(ns.num_boundary() == 12);
     CHECK(ns.num_interior() == 4);
 
-    const auto fx = ns.x, fy = ns.y; // file-order copies
+    const auto fx = ns.x, fy = ns.y;  // file-order copies
     const auto fflag = ns.flag;
 
     ns.renumber(rbf::morton_order(ns.x, ns.y, 2, rbf::BBox2<double>{0, 0, 4, 4}))
-      .renumber(rbf::boundary_last_by_flag(ns.flag));
+        .renumber(rbf::boundary_last_by_flag(ns.flag));
 
     // boundary block sits at the end, bnd was rebuilt to match
-    for (size_t i = 0; i < ns.num_interior(); ++i)
-        CHECK(ns.flag[i] == 0);
-    for (size_t i = ns.num_interior(); i < ns.num_points(); ++i)
-        CHECK(ns.flag[i] != 0);
+    for (size_t i = 0; i < ns.num_interior(); ++i) CHECK(ns.flag[i] == 0);
+    for (size_t i = ns.num_interior(); i < ns.num_points(); ++i) CHECK(ns.flag[i] != 0);
     CHECK(ns.bnd.size() == 12);
     CHECK(ns.bnd.front() == static_cast<int>(ns.num_interior()));
 
@@ -187,8 +179,7 @@ static void test_nodeset() {
 
     // tree is built here, once, in the final numbering
     const auto ja = ns.stencils(4);
-    for (size_t s = 0; s < ns.num_points(); ++s)
-        CHECK(ja[s*4] == static_cast<int>(s));
+    for (size_t s = 0; s < ns.num_points(); ++s) CHECK(ja[s * 4] == static_cast<int>(s));
 
     std::remove("grid.node");
 }

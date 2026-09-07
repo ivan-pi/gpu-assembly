@@ -53,15 +53,15 @@ void link_nodes(std::vector<ckdtreenode>& nodes) {
             n.less = nullptr;
             n.greater = nullptr;
         } else {
-            assert(n._less >= 0 && n._less < count && n._greater >= 0 &&
-                   n._greater < count && "child index outside the node buffer");
+            assert(n._less >= 0 && n._less < count && n._greater >= 0 && n._greater < count &&
+                   "child index outside the node buffer");
             n.less = root + n._less;
             n.greater = root + n._greater;
         }
     }
 }
 
-} // namespace
+}  // namespace
 
 struct KdTree::Impl {
     std::vector<double> data;            // n*m, interleaved, inside the box
@@ -69,18 +69,16 @@ struct KdTree::Impl {
     std::vector<double> mins, maxes;     // the root node's bounding box
     std::vector<double> boxsize;         // 2m; empty in the open plane
     std::vector<ckdtreenode> nodes;
-    ckdtree tree{};                      // n, m and the pointers into the above
+    ckdtree tree{};  // n, m and the pointers into the above
 };
 
-KdTree::KdTree(std::span<const double> points, int ndim,
-               std::span<const double> period, KdTreeParams params)
-    : impl_(std::make_unique<Impl>())
-{
+KdTree::KdTree(std::span<const double> points, int ndim, std::span<const double> period,
+               KdTreeParams params)
+    : impl_(std::make_unique<Impl>()) {
     if (ndim < 1) fail("KdTree: ndim must be positive");
     const auto m = static_cast<std::size_t>(ndim);
     if (points.empty()) fail("KdTree: empty point cloud");
-    if (points.size() % m != 0)
-        fail("KdTree: points is not a whole number of ndim-vectors");
+    if (points.size() % m != 0) fail("KdTree: points is not a whole number of ndim-vectors");
     if (params.leafsize < 1) fail("KdTree: leafsize must be positive");
     // As SciPy does, and for a sharper reason than tidiness: a NaN makes
     // the build's split comparator inconsistent, which is undefined
@@ -89,8 +87,7 @@ KdTree::KdTree(std::span<const double> points, int ndim,
         if (!std::isfinite(v)) fail("KdTree: coordinates must be finite");
 
     const bool periodic = !period.empty();
-    if (periodic && period.size() != m)
-        fail("KdTree: box and points have different dimensions");
+    if (periodic && period.size() != m) fail("KdTree: box and points have different dimensions");
 
     const std::size_t n = points.size() / m;
     auto& im = *impl_;
@@ -102,7 +99,7 @@ KdTree::KdTree(std::span<const double> points, int ndim,
 
         for (std::size_t i = 0; i < n; ++i)
             for (std::size_t d = 0; d < m; ++d)
-                im.data[i*m + d] = detail::fold(im.data[i*m + d], period[d]);
+                im.data[i * m + d] = detail::fold(im.data[i * m + d], period[d]);
 
         im.boxsize.resize(2 * m);
         for (std::size_t d = 0; d < m; ++d) {
@@ -118,8 +115,8 @@ KdTree::KdTree(std::span<const double> points, int ndim,
     im.maxes = im.mins;
     for (std::size_t i = 1; i < n; ++i)
         for (std::size_t d = 0; d < m; ++d) {
-            im.mins[d] = std::min(im.mins[d], im.data[i*m + d]);
-            im.maxes[d] = std::max(im.maxes[d], im.data[i*m + d]);
+            im.mins[d] = std::min(im.mins[d], im.data[i * m + d]);
+            im.maxes[d] = std::max(im.maxes[d], im.data[i * m + d]);
         }
 
     auto& t = im.tree;
@@ -134,8 +131,8 @@ KdTree::KdTree(std::span<const double> points, int ndim,
     t.raw_boxsize_data = im.boxsize.empty() ? nullptr : im.boxsize.data();
 
     std::vector<double> build_maxes = im.maxes, build_mins = im.mins;
-    build_ckdtree(&t, 0, t.n, build_maxes.data(), build_mins.data(),
-                  params.balanced, params.compact);
+    build_ckdtree(&t, 0, t.n, build_maxes.data(), build_mins.data(), params.balanced,
+                  params.compact);
 
     link_nodes(im.nodes);
     t.ctree = im.nodes.data();
@@ -146,9 +143,7 @@ KdTree::~KdTree() = default;
 KdTree::KdTree(KdTree&&) noexcept = default;
 KdTree& KdTree::operator=(KdTree&&) noexcept = default;
 
-std::size_t KdTree::size() const {
-    return static_cast<std::size_t>(impl_->tree.n);
-}
+std::size_t KdTree::size() const { return static_cast<std::size_t>(impl_->tree.n); }
 
 int KdTree::ndim() const { return static_cast<int>(impl_->tree.m); }
 
@@ -160,12 +155,10 @@ namespace {
 
 // The checks shared by every query entry point; returns the number of
 // query points.
-std::size_t checked_query(const ckdtree& tree, std::span<const double> q,
-                          int k, std::size_t idx_size, std::size_t dist_size)
-{
+std::size_t checked_query(const ckdtree& tree, std::span<const double> q, int k,
+                          std::size_t idx_size, std::size_t dist_size) {
     const auto m = static_cast<std::size_t>(tree.m);
-    if (q.size() % m != 0)
-        fail("KdTree::query: q is not a whole number of ndim-vectors");
+    if (q.size() % m != 0) fail("KdTree::query: q is not a whole number of ndim-vectors");
     if (k < 1 || static_cast<std::size_t>(k) > static_cast<std::size_t>(tree.n))
         fail("KdTree::query: k outside [1, number of points]");
     const std::size_t nq = q.size() / m;
@@ -192,10 +185,8 @@ std::size_t checked_query(const ckdtree& tree, std::span<const double> q,
 // The block is scheduling granularity, nothing more: query_single_point
 // allocates its own scratch per point whatever we do, so blocking
 // amortises only query_knn's own row buffer and the loop overhead.
-template<typename I>
-void query_many(const ckdtree& tree, const double* q, std::size_t nq, int k,
-                I* out, double* dist)
-{
+template <typename I>
+void query_many(const ckdtree& tree, const double* q, std::size_t nq, int k, I* out, double* dist) {
     // query_knn selects ranks out of the sorted neighbours; the k
     // nearest are ranks 1..k.
     std::vector<std::intptr_t> ranks(static_cast<std::size_t>(k));
@@ -208,52 +199,49 @@ void query_many(const ckdtree& tree, const double* q, std::size_t nq, int k,
     const auto nblocks = static_cast<std::ptrdiff_t>((nq + block - 1) / block);
     constexpr bool direct = std::is_same_v<I, std::intptr_t>;
 
-    #pragma omp parallel
+#pragma omp parallel
     {
         // Per-thread staging: distances the caller did not ask for, and
         // indices in ckdtree's type when the caller's is narrower.
         std::vector<double> scratch(dist ? 0 : block * kk);
         std::vector<std::intptr_t> stage(direct ? 0 : block * kk);
-        #pragma omp for schedule(static)
+#pragma omp for schedule(static)
         for (std::ptrdiff_t b = 0; b < nblocks; ++b) {
             const std::size_t s0 = static_cast<std::size_t>(b) * block;
             const std::size_t cnt = std::min(block, nq - s0);
             std::intptr_t* idx;
-            if constexpr (direct) idx = out + s0*kk;
-            else idx = stage.data();
-            query_knn(&tree, dist ? dist + s0*kk : scratch.data(), idx,
-                      q + s0*m, static_cast<std::intptr_t>(cnt),
-                      ranks.data(), k, k, /*eps=*/0.0, /*p=*/2.0,
+            if constexpr (direct)
+                idx = out + s0 * kk;
+            else
+                idx = stage.data();
+            query_knn(&tree, dist ? dist + s0 * kk : scratch.data(), idx, q + s0 * m,
+                      static_cast<std::intptr_t>(cnt), ranks.data(), k, k, /*eps=*/0.0, /*p=*/2.0,
                       /*distance_upper_bound=*/inf);
             if constexpr (!direct)
                 for (std::size_t i = 0; i < cnt * kk; ++i) {
                     assert(static_cast<std::intptr_t>(static_cast<I>(stage[i])) == stage[i] &&
                            "stencil index does not fit the requested index type");
-                    out[s0*kk + i] = static_cast<I>(stage[i]);
+                    out[s0 * kk + i] = static_cast<I>(stage[i]);
                 }
         }
     }
 }
 
-} // namespace
+}  // namespace
 
-void KdTree::query(std::span<const double> q, int k,
-                   std::span<std::intptr_t> idx, std::span<double> dist) const
-{
+void KdTree::query(std::span<const double> q, int k, std::span<std::intptr_t> idx,
+                   std::span<double> dist) const {
     const auto& tree = impl_->tree;
     const std::size_t nq = checked_query(tree, q, k, idx.size(), dist.size());
     if (nq == 0) return;
-    query_many(tree, q.data(), nq, k, idx.data(),
-               dist.empty() ? nullptr : dist.data());
+    query_many(tree, q.data(), nq, k, idx.data(), dist.empty() ? nullptr : dist.data());
 }
 
-void KdTree::query(int k, std::span<std::intptr_t> idx, std::span<double> dist) const
-{
+void KdTree::query(int k, std::span<std::intptr_t> idx, std::span<double> dist) const {
     query(points(), k, idx, dist);
 }
 
-std::vector<std::int32_t> KdTree::knn_stencils(std::span<const double> q, int k) const
-{
+std::vector<std::int32_t> KdTree::knn_stencils(std::span<const double> q, int k) const {
     const auto& tree = impl_->tree;
     const std::size_t nq = q.size() / static_cast<std::size_t>(tree.m);
     std::vector<std::int32_t> ja(nq * static_cast<std::size_t>(k));
@@ -262,9 +250,6 @@ std::vector<std::int32_t> KdTree::knn_stencils(std::span<const double> q, int k)
     return ja;
 }
 
-std::vector<std::int32_t> KdTree::knn_stencils(int k) const
-{
-    return knn_stencils(points(), k);
-}
+std::vector<std::int32_t> KdTree::knn_stencils(int k) const { return knn_stencils(points(), k); }
 
-} // namespace rbf::spatial
+}  // namespace rbf::spatial

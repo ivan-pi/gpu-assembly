@@ -29,10 +29,9 @@
 #include "check.h"
 
 // Values that do not survive the stream default of six digits.
-static const std::vector<double> awkward{
-    0.1, 1.0 / 3.0, 2.0 / 3.0, 1e-300, 123456.789012345, -9.87654321e-7};
-static const std::vector<float> awkward_f{
-    0.1f, 1.0f / 3.0f, 1e-30f, 123456.79f, -9.8765e-7f, 2.0f};
+static const std::vector<double> awkward{0.1,    1.0 / 3.0,        2.0 / 3.0,
+                                         1e-300, 123456.789012345, -9.87654321e-7};
+static const std::vector<float> awkward_f{0.1f, 1.0f / 3.0f, 1e-30f, 123456.79f, -9.8765e-7f, 2.0f};
 
 static void write_text(const std::string& fname, const std::string& text) {
     std::ofstream f(fname);
@@ -46,8 +45,12 @@ static std::string first_line(const std::string& fname) {
     return line;
 }
 
-struct Point { double x, y; };
-struct PointF { float x, y; };
+struct Point {
+    double x, y;
+};
+struct PointF {
+    float x, y;
+};
 
 static void test_read_points() {
     write_text("pts.points", "3\n0.1 0.2\n1.5 -2.5\n1e-300 3\n");
@@ -82,11 +85,12 @@ static void test_node_file() {
     std::vector<double> x = awkward, y = awkward;
     for (auto& v : y) v = -v;
     const std::vector<int> marker{0, 1, 0, 2, 0, 1};
-    const std::vector<double> attr{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};   // 6 x 2
+    const std::vector<double> attr{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};  // 6 x 2
 
     // markers and two attributes round-trip at full precision
     rbf::io::write_nodes("a.node", x.size(), x.data(), y.data(), marker.data(), 2, attr.data());
-    std::vector<double> rx, ry, rattr; std::vector<int> rm;
+    std::vector<double> rx, ry, rattr;
+    std::vector<int> rm;
     CHECK(rbf::io::read_nodes("a.node", rx, ry, rm, &rattr) == x.size());
     CHECK(rx == x && ry == y && rm == marker && rattr == attr);
 
@@ -101,8 +105,8 @@ static void test_node_file() {
 
     // Triangle conventions: comments, blank lines, 1-based numbering, CRLF
     write_text("b.node",
-        "# node file\r\n\r\n3 2 0 1   # header\r\n"
-        "1 0.5 1.5 1\r\n\r\n2 2.5 3.5 0 # interior\r\n3 4.5 5.5 7\r\n\r\n# end\r\n");
+               "# node file\r\n\r\n3 2 0 1   # header\r\n"
+               "1 0.5 1.5 1\r\n\r\n2 2.5 3.5 0 # interior\r\n3 4.5 5.5 7\r\n\r\n# end\r\n");
     CHECK(rbf::io::read_nodes("b.node", rx, ry, rm) == 3);
     CHECK(rx == (std::vector<double>{0.5, 2.5, 4.5}));
     CHECK(ry == (std::vector<double>{1.5, 3.5, 5.5}));
@@ -123,7 +127,8 @@ static void test_node_file() {
 
     // float coordinates round-trip too
     rbf::io::write_nodes("f.node", awkward_f.size(), awkward_f.data(), awkward_f.data());
-    std::vector<float> fx, fy; std::vector<int> fm;
+    std::vector<float> fx, fy;
+    std::vector<int> fm;
     CHECK(rbf::io::read_nodes("f.node", fx, fy, fm) == awkward_f.size());
     CHECK(fx == awkward_f && fy == awkward_f);
 
@@ -165,7 +170,8 @@ static void test_ordering() {
 
     // the raw functions and a 64-bit read of the same file
     rbf::io::write_ordering("o.iperm", p.size(), p.inv().data());
-    CHECK(rbf::io::read_ordering<std::int64_t>("o.iperm") == (std::vector<std::int64_t>{1, 3, 0, 2}));
+    CHECK(rbf::io::read_ordering<std::int64_t>("o.iperm") ==
+          (std::vector<std::int64_t>{1, 3, 0, 2}));
 
     // NodeSet: the file maps file order to the current numbering
     write_text("d.node", "4 2 0 1\n0 0 0 1\n1 1 0 0\n2 2 0 1\n3 3 0 0\n");
@@ -173,7 +179,7 @@ static void test_ordering() {
     ns.renumber(rbf::boundary_last_by_flag(ns.flag));
     ns.file_order().write("d.iperm");
     const auto fo = Permutation<int>::read("d.iperm");
-    std::vector<double> u{0, 1, 2, 3};   // per-node data in file order: x
+    std::vector<double> u{0, 1, 2, 3};  // per-node data in file order: x
     fo.permute(std::span{u});
     CHECK(u == ns.x);
 
@@ -199,10 +205,13 @@ static MtxFile<V> read_mtx(const std::string& fname) {
     m.pattern = m.banner.find("pattern") != std::string::npos;
     f >> m.rows >> m.cols >> m.nnz;
     for (long k = 0; k < m.nnz; ++k) {
-        long i, j; V v = 0;
+        long i, j;
+        V v = 0;
         f >> i >> j;
         if (!m.pattern) f >> v;
-        m.i.push_back(i); m.j.push_back(j); m.v.push_back(v);
+        m.i.push_back(i);
+        m.j.push_back(j);
+        m.v.push_back(v);
     }
     return m;
 }
@@ -219,7 +228,7 @@ static void test_matrix_market() {
     CHECK(m.rows == 3 && m.cols == 4 && m.nnz == 6);
     CHECK(m.i == (std::vector<long>{1, 1, 2, 3, 3, 3}));
     CHECK(m.j == (std::vector<long>{1, 4, 2, 1, 3, 4}));
-    CHECK(m.v == a);   // exact: full precision was written
+    CHECK(m.v == a);  // exact: full precision was written
 
     // same matrix with 1-based ia/ja gives the same file
     std::vector<int> ia1 = ia, ja1 = ja;
@@ -250,13 +259,19 @@ static void test_matrix_market() {
     rbf::io::write_matrix_market("f.mtx", 3, 4, ia.data(), ja.data(), awkward_f.data());
     CHECK(read_mtx<float>("f.mtx").v == awkward_f);
 
-    std::remove("a.mtx"); std::remove("b.mtx"); std::remove("c.mtx");
-    std::remove("p.mtx"); std::remove("f.mtx");
+    std::remove("a.mtx");
+    std::remove("b.mtx");
+    std::remove("c.mtx");
+    std::remove("p.mtx");
+    std::remove("f.mtx");
 }
 
 // Read a legacy POLYDATA file back: point count, vertex count, and the
 // POINT_DATA blocks in order as (kind, name, values flattened).
-struct VtkBlock { std::string kind, name, type; std::vector<double> v; };
+struct VtkBlock {
+    std::string kind, name, type;
+    std::vector<double> v;
+};
 struct VtkFile {
     std::size_t npoints = 0, nverts = 0;
     std::string type;
@@ -274,12 +289,16 @@ static VtkFile read_vtk(const std::string& fname) {
             f.xyz.resize(3 * f.npoints);
             for (auto& v : f.xyz) in >> v;
         } else if (tok == "VERTICES") {
-            std::size_t size; in >> f.nverts >> size;
+            std::size_t size;
+            in >> f.nverts >> size;
             for (std::size_t i = 0; i < size; ++i) in >> tok;
         } else if (tok == "SCALARS" || tok == "VECTORS") {
-            VtkBlock b; b.kind = tok;
+            VtkBlock b;
+            b.kind = tok;
             in >> b.name >> b.type;
-            if (b.kind == "SCALARS") { in >> tok >> tok >> tok; }   // "1", LOOKUP_TABLE, default
+            if (b.kind == "SCALARS") {
+                in >> tok >> tok >> tok;
+            }  // "1", LOOKUP_TABLE, default
             b.v.resize((b.kind == "SCALARS" ? 1 : 3) * f.npoints);
             for (auto& v : b.v) in >> v;
             f.blocks.push_back(std::move(b));
@@ -290,7 +309,8 @@ static VtkFile read_vtk(const std::string& fname) {
 
 static bool same_file(const std::string& a, const std::string& b) {
     std::ifstream fa(a), fb(b);
-    std::string sa((std::istreambuf_iterator<char>(fa)), {}), sb((std::istreambuf_iterator<char>(fb)), {});
+    std::string sa((std::istreambuf_iterator<char>(fa)), {}),
+        sb((std::istreambuf_iterator<char>(fb)), {});
     return !sa.empty() && sa == sb;
 }
 
@@ -307,17 +327,18 @@ static void test_vtk_polydata() {
     auto f = read_vtk("f.vtk");
     CHECK(f.npoints == n && f.nverts == n);
     for (std::size_t i = 0; i < n; ++i)
-        CHECK(f.xyz[3*i] == x[i] && f.xyz[3*i + 1] == y[i] && f.xyz[3*i + 2] == 0);
+        CHECK(f.xyz[3 * i] == x[i] && f.xyz[3 * i + 1] == y[i] && f.xyz[3 * i + 2] == 0);
     CHECK(f.blocks.size() == 3);
     CHECK(f.blocks[0].kind == "SCALARS" && f.blocks[0].name == "u" && f.blocks[0].v == u);
     CHECK(f.blocks[1].kind == "SCALARS" && f.blocks[1].name == "residual" && f.blocks[1].v == r);
     CHECK(f.blocks[2].kind == "VECTORS" && f.blocks[2].name == "U");
     for (std::size_t i = 0; i < n; ++i)
-        CHECK(f.blocks[2].v[3*i] == ux[i] && f.blocks[2].v[3*i + 1] == uy[i]);
+        CHECK(f.blocks[2].v[3 * i] == ux[i] && f.blocks[2].v[3 * i + 1] == uy[i]);
 
     // scalars from a runtime-built list, vectors listed in place
     std::vector<rbf::io::Column<double>> fields{{"u", u.data()}, {"r", r.data()}};
-    rbf::io::write_vtk_polydata("g.vtk", n, x.data(), y.data(), fields, {{"U", ux.data(), uy.data()}});
+    rbf::io::write_vtk_polydata("g.vtk", n, x.data(), y.data(), fields,
+                                {{"U", ux.data(), uy.data()}});
     auto g = read_vtk("g.vtk");
     CHECK(g.blocks.size() == 3 && g.blocks[1].name == "r" && g.blocks[1].v == r);
     CHECK(g.blocks[2].kind == "VECTORS");
@@ -332,10 +353,13 @@ static void test_vtk_polydata() {
     // interleaved points and vectors through the strides give the same file
     std::vector<double> p(2 * n), vel(2 * n);
     for (std::size_t i = 0; i < n; ++i) {
-        p[2*i] = x[i]; p[2*i + 1] = y[i];
-        vel[2*i] = ux[i]; vel[2*i + 1] = uy[i];
+        p[2 * i] = x[i];
+        p[2 * i + 1] = y[i];
+        vel[2 * i] = ux[i];
+        vel[2 * i + 1] = uy[i];
     }
-    rbf::io::write_vtk_polydata("s1.vtk", n, x.data(), y.data(), {{"u", u.data()}}, {{"U", ux.data(), uy.data()}});
+    rbf::io::write_vtk_polydata("s1.vtk", n, x.data(), y.data(), {{"u", u.data()}},
+                                {{"U", ux.data(), uy.data()}});
     rbf::io::write_vtk_polydata("s2.vtk", n, p.data(), p.data() + 1, {{"u", u.data()}},
                                 {{"U", vel.data(), vel.data() + 1, 2}}, 2);
     CHECK(same_file("s1.vtk", "s2.vtk"));
@@ -343,14 +367,20 @@ static void test_vtk_polydata() {
     // the title line is the second line; it may be given, or empty
     rbf::io::write_vtk_polydata("t.vtk", n, x.data(), y.data(), {}, {}, 1, "case 7, step 100");
     {
-        std::ifstream in("t.vtk"); std::string l1, l2, l3;
-        std::getline(in, l1); std::getline(in, l2); std::getline(in, l3);
+        std::ifstream in("t.vtk");
+        std::string l1, l2, l3;
+        std::getline(in, l1);
+        std::getline(in, l2);
+        std::getline(in, l3);
         CHECK(l2 == "case 7, step 100" && l3 == "ASCII");
     }
     rbf::io::write_vtk_polydata("t.vtk", n, x.data(), y.data(), {}, {}, 1, "");
     {
-        std::ifstream in("t.vtk"); std::string l1, l2, l3;
-        std::getline(in, l1); std::getline(in, l2); std::getline(in, l3);
+        std::ifstream in("t.vtk");
+        std::string l1, l2, l3;
+        std::getline(in, l1);
+        std::getline(in, l2);
+        std::getline(in, l3);
         CHECK(l2.empty() && l3 == "ASCII");
     }
     CHECK(read_vtk("t.vtk").npoints == n);
@@ -363,32 +393,40 @@ static void test_vtk_polydata() {
     for (std::size_t q = 0; q < awkward_f.size(); ++q)
         CHECK(static_cast<float>(k.blocks[0].v[q]) == awkward_f[q]);
 
-    for (const char* fn : {"f.vtk", "g.vtk", "h.vtk", "i.vtk", "s1.vtk", "s2.vtk", "t.vtk", "k.vtk"})
+    for (const char* fn :
+         {"f.vtk", "g.vtk", "h.vtk", "i.vtk", "s1.vtk", "s2.vtk", "t.vtk", "k.vtk"})
         std::remove(fn);
 }
 
 static void test_gnuplot_columns() {
     const std::vector<double> x = awkward, y{1, 2, 3, 4, 5, 6};
-    const std::vector<double> rho{10, 11, 12, 13, 14, 15}, rc{0.5, 0.25, 0.125, 1.0 / 3.0, 1e-300, 0};
+    const std::vector<double> rho{10, 11, 12, 13, 14, 15},
+        rc{0.5, 0.25, 0.125, 1.0 / 3.0, 1e-300, 0};
     const std::size_t n = x.size();
 
-    rbf::io::write_columns("m.dat", n, x.data(), y.data(), {{"rho", rho.data()}, {"rcond", rc.data()}});
+    rbf::io::write_columns("m.dat", n, x.data(), y.data(),
+                           {{"rho", rho.data()}, {"rcond", rc.data()}});
     CHECK(first_line("m.dat") == "# x y rho rcond");
     {
         std::ifstream in("m.dat");
-        std::string header; std::getline(in, header);
+        std::string header;
+        std::getline(in, header);
         for (std::size_t i = 0; i < n; ++i) {
             double a, b, c, d;
             in >> a >> b >> c >> d;
             CHECK(a == x[i] && b == y[i] && c == rho[i] && d == rc[i]);
         }
-        std::string rest; in >> rest;
+        std::string rest;
+        in >> rest;
         CHECK(rest.empty() && in.eof());
     }
 
     // no columns beyond the coordinates; interleaved points through the stride
     std::vector<double> p(2 * n);
-    for (std::size_t i = 0; i < n; ++i) { p[2*i] = x[i]; p[2*i + 1] = y[i]; }
+    for (std::size_t i = 0; i < n; ++i) {
+        p[2 * i] = x[i];
+        p[2 * i + 1] = y[i];
+    }
     rbf::io::write_columns("a.dat", n, x.data(), y.data(), {});
     rbf::io::write_columns("b.dat", n, p.data(), p.data() + 1, {}, 2);
     CHECK(same_file("a.dat", "b.dat"));
