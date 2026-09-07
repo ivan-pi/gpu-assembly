@@ -3,7 +3,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <fstream>
 #include <iostream>
 #include <optional>
 #include <span>
@@ -13,6 +12,7 @@
 
 #include <nanoflann.hpp>
 
+#include "rbf_io.h"
 #include "rbf_reorder.h"
 
 namespace rbf {
@@ -52,24 +52,27 @@ public:
     std::vector<int> flag;        // per-node tag; 0 = interior, nonzero = boundary
     std::vector<index_type> bnd;  // indices of nonzero-flag nodes (boundary)
 
+    // Reads a node file (.node, the Triangle format; see rbf::io::read_nodes).
+    // The boundary marker becomes the flag; a file without markers gives
+    // all-interior nodes. Attributes are skipped: read them with
+    // rbf::io::read_nodes directly and permute with file_order() if needed.
     explicit NodeSet(const std::string& fname) {
-        std::ifstream in{fname};
-        if (!in) { std::cerr << "cannot open " << fname << '\n'; std::exit(1); }
-        T px, py; int f;
-        size_t n = 0;
-        while (in >> px >> py >> f) {
-            x.push_back(px);
-            y.push_back(py);
-            flag.push_back(f);
-            ++n;
-        }
-        num_points_ = n;
+        num_points_ = io::read_nodes(fname, x, y, flag);
         rebuild_bnd();
         file_order_ = Permutation<I>::identity(num_points_);
     }
 
     NodeSet(const NodeSet&) = delete;
     NodeSet& operator=(const NodeSet&) = delete;
+
+    // Writes the nodes in the current numbering as a node file with the
+    // flag as boundary marker, so a renumbered set can be saved and read
+    // back as is. Only x, y and flag go to the file: file_order() and the
+    // k-d tree are not part of it, so the re-read set starts from the
+    // identity order.
+    void write(const std::string& fname) const {
+        io::write_nodes(fname, num_points_, x.data(), y.data(), flag.data());
+    }
 
     size_t num_points() const { return num_points_; }
     size_t num_boundary() const { return bnd.size(); }
@@ -102,10 +105,12 @@ public:
 
     // Current numbering -> original file order; identity if renumber()
     // was never called. Use it to permute per-node data loaded in file
-    // order, or to unpermute results for output:
+    // order, to unpermute results for output, or to save the renumbering
+    // as an ordering file:
     //
     //     file_order().permute(std::span{u});    // file order -> current
     //     file_order().unpermute(std::span{u});  // current -> file order
+    //     file_order().write("case.iperm");      // Permutation::read gets it back
     const Permutation<I>& file_order() const { return file_order_; }
 
     // Indices of nodes with a particular flag value
