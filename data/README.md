@@ -15,8 +15,8 @@ below. Node sets, which are a single `.node` file and carry no graph, are
 listed under [Extracted](#extracted).
 
 The Python here -- the generators in `gen/`, the tools in `tools/` -- may
-use numpy, scipy and matplotlib; the nested dissection of the reordering
-tool needs pymetis as well. What the scripts share is the `pointclouds`
+use numpy, scipy and matplotlib; the reordering tool needs pymetis for
+its nested dissection and scikit-sparse for its minimum degree. What the scripts share is the `pointclouds`
 package beside them.
 
 ## Cases
@@ -111,25 +111,27 @@ options:
 `tools/reorder_graph.py` computes a renumbering of the nodes of a graph
 file and writes it as an [ordering file](../docs/file_formats.md#ordering-file),
 by reverse Cuthill-McKee from scipy, which reduces the bandwidth, or by
-the nested dissection of METIS through pymetis, which reduces the fill of
-a direct factorisation. It reports the bandwidth and the nonzeros of the
+one of two that reduce the fill of a direct factorisation: the nested
+dissection of METIS through pymetis, and the approximate minimum degree
+of SuiteSparse through scikit-sparse. It reports the bandwidth and the nonzeros of the
 Cholesky factor before and after, on standard error; `inspect_points.py
 case.graph case.iperm --spy` draws the two patterns.
 
 ```
-usage: reorder_graph.py [-h] [-m {rcm,nd}] [-o FILE] [--seed SEED] GRAPH
+usage: reorder_graph.py [-h] [-m {rcm,nd,amd}] [-o FILE] [--seed SEED] GRAPH
 
-Renumber the nodes of a graph file to reduce bandwidth (rcm) or fill (nd) and
-write the ordering file (docs/file_formats.md).
+Renumber the nodes of a graph file to reduce bandwidth (rcm) or fill (nd, amd)
+and write the ordering file (docs/file_formats.md).
 
 positional arguments:
   GRAPH                 the .graph file to order
 
 options:
   -h, --help            show this help message and exit
-  -m {rcm,nd}, --method {rcm,nd}
+  -m {rcm,nd,amd}, --method {rcm,nd,amd}
                         rcm: reverse Cuthill-McKee (default); nd: METIS nested
-                        dissection
+                        dissection; amd: SuiteSparse approximate minimum
+                        degree
   -o FILE, --output FILE
                         the ordering file, default GRAPH with the extension
                         .iperm; - writes to standard output

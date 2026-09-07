@@ -4,6 +4,7 @@ ordering file, both of docs/file_formats.md.
 
     tools/reorder_graph.py case.graph                # case.iperm, by rcm
     tools/reorder_graph.py case.graph --method nd    # nested dissection
+    tools/reorder_graph.py case.graph --method amd   # minimum degree
     tools/reorder_graph.py case.graph -o other.iperm
     tools/reorder_graph.py case.graph -o -           # to standard output
 
@@ -14,6 +15,9 @@ The methods:
         each other and so keeps the entries of a row near the diagonal.
   nd    multilevel nested dissection, from METIS through pymetis: a
         fill-reducing ordering, the one for a sparse direct factorisation.
+  amd   approximate minimum degree, SuiteSparse's AMD through
+        scikit-sparse: a fill-reducing ordering too, by greedy elimination
+        rather than recursive bisection, cheaper and often as good.
 
 Both order the undirected graph of the stencils, the pattern of A + A^T
 with the diagonal dropped: neither cares which way an edge points, and
@@ -22,7 +26,7 @@ node; `inspect_points.py case.graph case.iperm --spy` shows the effect.
 The report goes to standard error, so `-o -` leaves the file alone on
 standard output.
 
-Needs numpy and scipy; nd needs pymetis too.
+Needs numpy and scipy; nd needs pymetis and amd scikit-sparse too.
 """
 
 import argparse
@@ -67,7 +71,17 @@ def nd(s, seed):
     return np.asarray(iperm, dtype=int)
 
 
-METHODS = {"rcm": rcm, "nd": nd}
+def amd(s, seed):
+    """iperm by approximate minimum degree; the seed is not used."""
+    try:
+        from sksparse.amd import amd as suitesparse_amd
+    except ImportError:
+        sys.exit("--method amd needs scikit-sparse (pip install scikit-sparse, built against SuiteSparse)")
+    order = suitesparse_amd(s.tocsc())   # the old index at every new position
+    return np.argsort(order)
+
+
+METHODS = {"rcm": rcm, "nd": nd, "amd": amd}
 
 
 def bandwidth(ia, ja, iperm):
@@ -104,10 +118,11 @@ def factor_nonzeros(s, iperm):
 def parse_args():
     ap = argparse.ArgumentParser(
         description="Renumber the nodes of a graph file to reduce bandwidth (rcm) or "
-                    "fill (nd) and write the ordering file (docs/file_formats.md).")
+                    "fill (nd, amd) and write the ordering file (docs/file_formats.md).")
     ap.add_argument("graph", metavar="GRAPH", help="the .graph file to order")
     ap.add_argument("-m", "--method", choices=METHODS, default="rcm",
-                    help="rcm: reverse Cuthill-McKee (default); nd: METIS nested dissection")
+                    help="rcm: reverse Cuthill-McKee (default); nd: METIS nested dissection; "
+                         "amd: SuiteSparse approximate minimum degree")
     ap.add_argument("-o", "--output", metavar="FILE",
                     help="the ordering file, default GRAPH with the extension .iperm; "
                          "- writes to standard output")

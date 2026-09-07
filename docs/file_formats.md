@@ -145,7 +145,7 @@ inverse permutation `iperm`: old index to new index. The values must be a
 permutation of `0 .. n-1`, which the reader checks.
 
 `data/tools/reorder_graph.py` computes one for a graph file, by reverse
-Cuthill-McKee or by METIS nested dissection.
+Cuthill-McKee, METIS nested dissection or approximate minimum degree.
 
 `Permutation::write` stores a permutation this way and `Permutation::read`
 gets it back. `NodeSet::file_order()` is the renumbering a NodeSet has
