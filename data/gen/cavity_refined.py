@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
-"""Point clouds for the lid-driven cavity [0, Lx] x [0, Ly], refined towards
-the walls in three levels, written as a node file with boundary markers.
+"""Point clouds for the lid-driven cavity [0, Lx] x [0, Ly], refined
+towards the walls in three levels, written as a node file with boundary
+markers.
 
-    python3 cavity_refined.py cavity_refined.node
-    python3 cavity_refined.py --layout grid cavity_grid.node
-    python3 cavity_refined.py --size 1 1.3 --plot cavity_tall.node
+    python3 cavity_refined.py cavity.node
+    python3 cavity_refined.py --distribution grid --size 1 1.3 cavity_tall.node
 
-Two layouts share the wall spacings h = 0.01, 0.015, 0.025:
+The spacing is h = 0.01 within 0.1 of a wall, 0.015 from there to 0.25,
+and 0.025 beyond, after the figure in Lin, Wu and Zhang (2019), "A
+mesh-free radial basis function-based semi-Lagrangian lattice Boltzmann
+method for incompressible flows", Int. J. Numer. Meth. Fluids 91,
+198-211, which shows the point distribution without specifying it. Two
+distributions realise those spacings and give different clouds:
 
-  rings  Concentric rectangles inset from the walls, each with its points
-         h apart. The layout of Lin, Wu and Zhang (2019), "A mesh-free
-         radial basis function-based semi-Lagrangian lattice Boltzmann
-         method for incompressible flows", Int. J. Numer. Meth. Fluids 91,
-         198-211. Each ring is one spacing of its own level inside the
-         previous ring, so the first ring of a level sits one spacing of
-         the previous level inside that level's last ring. The rings end
-         in the centre point of a square; a rectangle keeps going at the
-         coarsest spacing until the rings degenerate to a segment.
-  grid   The tensor product of 1-d coordinates graded the same way:
-         h = 0.01 on [0, 0.1], 0.015 on [0.1, 0.25], 0.025 on [0.25, 0.5],
-         mirrored from the far wall, with the middle at 0.025 when the
-         side is longer than 1.
+  rings  Concentric rectangles inset from the walls, with the points h
+         apart along a ring and consecutive rings h apart. The spacing is
+         the same along and across a ring, but where it changes the
+         points of neighbouring rings do not line up. The rings end in
+         the centre point of a square; in a rectangle they go on at the
+         coarsest spacing until they degenerate to a segment.
+  grid   The tensor product of 1-d coordinates graded the same way. Rows
+         and columns line up everywhere, but a point near the middle of
+         a wall sits in a cell of 0.01 by 0.025.
 
-On the unit square the two give 6169 and 3721 nodes. Both list the wall
-nodes first, then the interior from the wall inwards (rings) or row by
-row (grid).
+Both put the wall nodes first in the file, then the interior: from the
+wall inwards for the rings, row by row for the grid.
 
 Boundary markers (docs/file_formats.md, node file):
 
@@ -41,8 +41,8 @@ cavity, different boundary data: the lid velocity meets the wall's no-slip.
 Whoever assembles the boundary conditions decides what a corner gets;
 `NodeSet::indices_with(5)` picks them out.
 
-The output name selects the format: `.node` writes Triangle's node file
-with the markers, `.points` writes the points file, which has none.
+The output is Triangle's node file with the markers, unless the name ends
+in `.points`, which gives the points file, without them.
 """
 
 import argparse
@@ -87,7 +87,7 @@ def ring(x0, x1, y0, y1, h):
     return np.vstack((south, east, north, west))
 
 
-def rings_layout(Lx, Ly, levels):
+def rings(Lx, Ly, levels):
     spacings = [h for h, count in levels for _ in range(count)]
     pts = []
     r = 0.0
@@ -118,7 +118,7 @@ def graded_coordinate(L, levels):
     return np.concatenate((z, middle, L - z[-2::-1]))
 
 
-def grid_layout(Lx, Ly, levels):
+def grid(Lx, Ly, levels):
     x, y = np.meshgrid(graded_coordinate(Lx, levels), graded_coordinate(Ly, levels))
     pts = np.column_stack((x.ravel(), y.ravel()))
     on_wall = markers(pts, Lx, Ly) != INTERIOR
@@ -149,19 +149,22 @@ def write_points(fname, pts):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("output", help="output file, .node (with markers) or .points")
-    ap.add_argument("--layout", choices=("rings", "grid"), default="rings")
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("output", help="output file: a node file with the markers, or a "
+                    "points file without them if the name ends in .points")
+    ap.add_argument("--distribution", choices=("rings", "grid"), default="rings",
+                    help="point distribution, see above (default: rings)")
     ap.add_argument("--size", nargs=2, type=float, default=(1.0, 1.0),
                     metavar=("LX", "LY"), help="side lengths (default: the unit square)")
     ap.add_argument("--plot", action="store_true", help="show the cloud, coloured by marker")
     args = ap.parse_args()
     Lx, Ly = args.size
 
-    if args.layout == "rings":
-        pts = rings_layout(Lx, Ly, RING_LEVELS)
+    if args.distribution == "rings":
+        pts = rings(Lx, Ly, RING_LEVELS)
     else:
-        pts = grid_layout(Lx, Ly, GRID_LEVELS)
+        pts = grid(Lx, Ly, GRID_LEVELS)
     pts = np.round(pts, 12) + 0.0            # 0.1 + 0.2 style noise, and no -0.0
     m = markers(pts, Lx, Ly)
 

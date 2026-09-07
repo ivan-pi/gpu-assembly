@@ -24,20 +24,5 @@ Scripts that produced a case go in `gen/`.
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
-  boundary markers or a `.points` file without. Needs numpy;
-  `--plot` needs matplotlib.
-
-## Boundary markers
-
-Node files written here mark the walls of a rectangle counter-clockwise
-from the bottom, and give the corners a marker of their own, since a
-corner belongs to two walls whose boundary data may differ:
-
-| Marker | Nodes |
-|---|---|
-| 0 | interior |
-| 1 | south wall, `y = 0` |
-| 2 | east wall, `x = Lx` |
-| 3 | north wall, `y = Ly` |
-| 4 | west wall, `x = 0` |
-| 5 | corners |
+  markers for the four walls and the corners. Needs numpy; `--plot`
+  needs matplotlib.
