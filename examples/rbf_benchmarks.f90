@@ -46,6 +46,8 @@ type :: shear_modes
     type(mode), allocatable :: modes(:)
     real(wp) :: nu
     real(wp) :: drift(2) = 0.0_wp   ! uniform velocity carrying the pattern
+    ! per mode: wave number and amplitude times e_m, set by the constructor
+    real(wp), allocatable, private :: kx(:), ky(:), ex(:), ey(:)
 contains
     procedure :: fields => shear_modes_fields
     procedure :: stress_tensor => shear_modes_stress_tensor
@@ -59,6 +61,12 @@ end type
 interface shear_modes
     module procedure :: shear_modes_constructor
 end interface
+
+! Undecayed sums over the modes at one point, without the drift:
+! velocity, c = sum_m a_m cos(theta_m), and the strain rate
+type :: mode_sums
+    real(wp) :: ux, uy, c, sxx, sxy
+end type
 
 !
 ! ACOUSTIC WAVE: standing sound wave released from rest, in linear
@@ -134,7 +142,7 @@ contains
         type(shear_modes) :: case
 
         integer :: m, n
-        real(wp) :: ksqr
+        real(wp) :: ksqr, knorm, k(2)
 
         if (nu <= 0) error stop "shear_modes: viscosity must be positive"
         if (size(modes) == 0) error stop "shear_modes: at least one mode"
@@ -145,6 +153,8 @@ contains
         if (present(drift)) case%drift = drift
 
         ksqr = case%ksqr()
+        knorm = sqrt(ksqr)
+        allocate(case%kx(size(modes)), case%ky(size(modes)), case%ex(size(modes)), case%ey(size(modes)))
         do m = 1, size(modes)
             if (modes(m)%nx == 0 .and. modes(m)%ny == 0) &
                 error stop "shear_modes: mode numbers must not both be zero"
@@ -155,6 +165,11 @@ contains
             end do
             if (abs(ksqr_of(box,modes(m)) - ksqr) > 8*epsilon(ksqr)*ksqr) &
                 error stop "shear_modes: all modes must share the same |k|^2"
+            k = box%wavenumber(modes(m)%nx,modes(m)%ny)
+            case%kx(m) = k(1)
+            case%ky(m) = k(2)
+            case%ex(m) = -modes(m)%amplitude*k(2)/knorm
+            case%ey(m) =  modes(m)%amplitude*k(1)/knorm
         end do
     end function
 
@@ -226,57 +241,42 @@ contains
         t = -case%time_constant()*log(frac)
     end function
 
-    ! Undecayed sums over the modes, without the drift, followed along
-    ! it: velocity (ux, uy), c = sum_m a_m cos(theta_m), and the strain
-    ! rate (sxx, sxy); each output only when asked for
-    pure subroutine shear_modes_evaluate(case,x,y,time,ux,uy,c,sxx,sxy)
+    ! The mode sums at the point (x, y), followed along the drift
+    pure function shear_modes_evaluate(case,x,y,time) result(s)
         class(shear_modes), intent(in) :: case
-        real(wp), intent(in) :: x(:), y(:), time
-        real(wp), intent(out), optional :: ux(:), uy(:), c(:), sxx(:), sxy(:)
-
-        integer :: i, m, nm
-        real(wp) :: knorm, k(2), th, sn, cs, s1, s2, s3, s4, s5
-        real(wp), dimension(size(case%modes)) :: kx, ky, ex, ey, a, ph
-
-        nm = size(case%modes)
-        knorm = sqrt(case%ksqr())
-        do m = 1, nm
-            k = case%box%wavenumber(case%modes(m)%nx,case%modes(m)%ny)
-            kx(m) = k(1); ky(m) = k(2)
-            a(m) = case%modes(m)%amplitude
-            ph(m) = case%modes(m)%phase
-            ex(m) = -a(m)*ky(m)/knorm
-            ey(m) =  a(m)*kx(m)/knorm
-        end do
-
-        do i = 1, size(x)
-            s1 = 0; s2 = 0; s3 = 0; s4 = 0; s5 = 0
-            do m = 1, nm
-                th = kx(m)*(x(i) - case%drift(1)*time) + ky(m)*(y(i) - case%drift(2)*time) + ph(m)
+        real(wp), intent(in) :: x, y, time
+        type(mode_sums) :: s
+        integer :: m
+        real(wp) :: th, sn, cs
+        s = mode_sums(0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp)
+        associate(xs => x - case%drift(1)*time, ys => y - case%drift(2)*time, knorm => sqrt(case%ksqr()))
+            do m = 1, size(case%modes)
+                th = case%kx(m)*xs + case%ky(m)*ys + case%modes(m)%phase
                 sn = sin(th); cs = cos(th)
-                s1 = s1 + sn*ex(m)
-                s2 = s2 + sn*ey(m)
-                s3 = s3 + cs*a(m)
-                s4 = s4 - cs*a(m)*kx(m)*ky(m)/knorm
-                s5 = s5 + cs*a(m)*(kx(m)**2 - ky(m)**2)/(2*knorm)
+                s%ux = s%ux + sn*case%ex(m)
+                s%uy = s%uy + sn*case%ey(m)
+                associate(a => cs*case%modes(m)%amplitude)
+                    s%c   = s%c   + a
+                    s%sxx = s%sxx - a*case%kx(m)*case%ky(m)/knorm
+                    s%sxy = s%sxy + a*(case%kx(m)**2 - case%ky(m)**2)/(2*knorm)
+                end associate
             end do
-            if (present(ux)) ux(i) = s1
-            if (present(uy)) uy(i) = s2
-            if (present(c)) c(i) = s3
-            if (present(sxx)) sxx(i) = s4
-            if (present(sxy)) sxy(i) = s5
-        end do
-    end subroutine
+        end associate
+    end function
 
     subroutine shear_modes_fields(case,x,y,time,p,ux,uy)
         class(shear_modes), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: p(:), ux(:), uy(:)
-        call shear_modes_evaluate(case,x,y,time,ux=ux,uy=uy,c=p)
+        type(mode_sums) :: s
+        integer :: i
         associate(d => case%decay(time), mean => sum(case%modes%amplitude**2)/2)
-            p  = d*d*(-(ux**2 + uy**2 + p**2)/2 + mean)
-            ux = case%drift(1) + d*ux
-            uy = case%drift(2) + d*uy
+            do i = 1, size(x)
+                s = shear_modes_evaluate(case,x(i),y(i),time)
+                p(i)  = d*d*(-(s%ux**2 + s%uy**2 + s%c**2)/2 + mean)
+                ux(i) = case%drift(1) + d*s%ux
+                uy(i) = case%drift(2) + d*s%uy
+            end do
         end associate
     end subroutine
 
@@ -285,12 +285,16 @@ contains
         class(shear_modes), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: sxx(:), sxy(:), syy(:)
-        call shear_modes_evaluate(case,x,y,time,sxx=sxx,sxy=sxy)
+        type(mode_sums) :: s
+        integer :: i
         associate(d => case%decay(time))
-            sxx = d*sxx
-            sxy = d*sxy
+            do i = 1, size(x)
+                s = shear_modes_evaluate(case,x(i),y(i),time)
+                sxx(i) =  d*s%sxx
+                sxy(i) =  d*s%sxy
+                syy(i) = -d*s%sxx
+            end do
         end associate
-        syy = -sxx
     end subroutine
 
     ! Body force holding the time-zero field steady in the drifting
@@ -299,10 +303,14 @@ contains
         class(shear_modes), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: fx(:), fy(:)
-        call shear_modes_evaluate(case,x,y,time,ux=fx,uy=fy)
+        type(mode_sums) :: s
+        integer :: i
         associate(f => case%nu*case%ksqr())
-            fx = f*fx
-            fy = f*fy
+            do i = 1, size(x)
+                s = shear_modes_evaluate(case,x(i),y(i),time)
+                fx(i) = f*s%ux
+                fy(i) = f*s%uy
+            end do
         end associate
     end subroutine
 
