@@ -1,30 +1,30 @@
 # File formats
 
 The formats read and written by `rbf::io` (`src/rbf_io.h`, `src/rbf_io_vtk.h`).
-Three of them are our own plain-text formats, one is borrowed from METIS,
-and the last two are standards of which only the parts we use are
-described here.
+Two of them are our own plain-text formats, two are borrowed from Triangle
+and METIS, and the last two are standards of which only the parts we use
+are described here.
 
 | Format | Extension | Read | Write |
 |---|---|---|---|
-| [Node file](#node-file) | `.nodes` | `read_nodes`, `read_nodes_aos` | |
+| [Points file](#points-file) | `.points` | `read_points`, `read_points_aos` | |
 | [Graph file](#graph-file) | `.graph` | `read_graph_csr` | |
-| [NodeSet file](#nodeset-file) | | `read_nodeset`, `NodeSet(fname)` | `write_nodeset`, `NodeSet::write` |
+| [Node file](#node-file) | `.node` | `read_nodes`, `NodeSet(fname)` | `write_nodes`, `NodeSet::write` |
 | [Ordering file](#ordering-file) | `.iperm` | `Permutation::read`, `read_ordering` | `Permutation::write`, `write_ordering` |
 | [Matrix Market](#matrix-market) | `.mtx` | | `write_matrix_market`, `write_matrix_market_pattern` |
 | [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata`, `write_lbm_vtk_polydata` |
 
-The node file and the graph file go together: one gives the point cloud, the
-other the stencil of every node, in the same numbering. A case is typically
-a pair such as `poisson_32_21.nodes` and `poisson_32_21.graph`.
+The points file and the graph file go together: one gives the point cloud,
+the other the stencil of every node, in the same numbering. A case is
+typically a pair such as `poisson_32_21.points` and `poisson_32_21.graph`.
 
 Every reader exits with a message naming the file if it cannot be opened,
 and readers whose format announces a count check that they got that many.
 Every writer emits floating point with enough digits to round-trip exactly.
 
-## Node file
+## Points file
 
-The node count, then one coordinate pair per line:
+The point count, then one coordinate pair per line:
 
 ```
 n
@@ -34,8 +34,8 @@ x1 y1
 ```
 
 The order of the lines is the node numbering, which the graph file refers
-to. `read_nodes` returns separate `x` and `y` arrays (SoA, the layout the
-assembly kernels take); `read_nodes_aos` fills a container of two-element
+to. `read_points` returns separate `x` and `y` arrays (SoA, the layout the
+assembly kernels take); `read_points_aos` fills a container of two-element
 structs or arrays. Anything after the `n`-th pair is ignored. A short file
 is an error.
 
@@ -82,30 +82,41 @@ To hand a stencil graph to METIS or KaHIP it has to be symmetrised, which
 amounts to forming the pattern of `A + A^T`, with the diagonal dropped and
 the indices shifted by one.
 
-## NodeSet file
+## Node file
 
-The file `NodeSet` is constructed from and that `NodeSet::write` produces.
-One node per line, no header, read to end of file:
+Nodes with a boundary marker, in the format of Triangle's `.node` file
+(<https://www.cs.cmu.edu/~quake/triangle.node.html>). A header line, then
+one vertex per line:
 
 ```
-x0 y0 flag0
-x1 y1 flag1
+n 2 nattr nmark
+i x y a0 ... a(nattr-1) [marker]
 ...
 ```
 
-`flag` is an integer per node: 0 marks an interior node, any nonzero value a
+The header gives the vertex count, the dimension (always 2), the number of
+per-vertex attributes, and whether a boundary-marker column is present
+(`nmark` is 0 or 1). `#` starts a comment and blank lines may appear
+anywhere. Vertices are numbered consecutively from 0 or from 1; both are
+accepted, and the line order is the node numbering. We write from 0, to
+match the graph file.
+
+The marker is an integer: 0 marks an interior node, any nonzero value a
 boundary node. Distinct nonzero values can tag distinct boundary segments;
 `NodeSet::indices_with(value)` selects by them. A bitmask encoding several
-properties works too, since only zero versus nonzero matters to the library.
+properties works too, since only zero versus nonzero matters to the
+library. Without a marker column every node is interior.
 
-The order of the lines is the node numbering. Renumbering (`NodeSet::renumber`)
-permutes the arrays in memory, and `NodeSet::write` saves the result in the
-new order, so a reordered file can be read back as is.
+Attributes are per-vertex reals, such as physical quantities attached to the
+nodes. `read_nodes` returns them row-major when asked for and skips them
+otherwise; `write_nodes` takes them the same way. The library itself does
+not use them.
 
-This resembles the Triangle `.node` format
-(<https://www.cs.cmu.edu/~quake/triangle.node.html>) but is not it: no
-header line, no vertex number column, no attributes, no comments, and the
-marker column is always present.
+This is the file `NodeSet` is constructed from, with the marker as its
+flag, and the file `NodeSet::write` produces. Renumbering
+(`NodeSet::renumber`) permutes the arrays in memory, and `NodeSet::write`
+saves the result in the new order, so a reordered file can be read back as
+is.
 
 ## Ordering file
 

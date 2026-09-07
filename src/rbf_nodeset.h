@@ -52,9 +52,11 @@ public:
     std::vector<int> flag;        // per-node tag; 0 = interior, nonzero = boundary
     std::vector<index_type> bnd;  // indices of nonzero-flag nodes (boundary)
 
-    // Reads the "x y flag" NodeSet file; see rbf::io::read_nodeset.
+    // Reads a node file (.node, the Triangle format; see rbf::io::read_nodes).
+    // The boundary marker becomes the flag; a file without markers gives
+    // all-interior nodes.
     explicit NodeSet(const std::string& fname) {
-        num_points_ = io::read_nodeset(fname, x, y, flag);
+        num_points_ = io::read_nodes(fname, x, y, flag);
         rebuild_bnd();
         file_order_ = Permutation<I>::identity(num_points_);
     }
@@ -62,13 +64,13 @@ public:
     NodeSet(const NodeSet&) = delete;
     NodeSet& operator=(const NodeSet&) = delete;
 
-    // Writes the nodes in the current numbering, in the format the
-    // constructor reads, so a renumbered set can be saved and read back
-    // as is. Only x, y and flag go to the file: file_order() and the
+    // Writes the nodes in the current numbering as a node file with the
+    // flag as boundary marker, so a renumbered set can be saved and read
+    // back as is. Only x, y and flag go to the file: file_order() and the
     // k-d tree are not part of it, so the re-read set starts from the
     // identity order.
     void write(const std::string& fname) const {
-        io::write_nodeset(fname, num_points_, x.data(), y.data(), flag.data());
+        io::write_nodes(fname, num_points_, x.data(), y.data(), flag.data());
     }
 
     size_t num_points() const { return num_points_; }

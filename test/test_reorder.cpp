@@ -147,15 +147,16 @@ static void test_renumber_stencils() {
 static void test_nodeset() {
     // 4x4 grid, edge nodes flagged as boundary
     {
-        std::ofstream f("grid.nodeset");
+        std::ofstream f("grid.node");
+        f << "16 2 0 1\n";
         for (int j = 0; j < 4; ++j)
             for (int i = 0; i < 4; ++i) {
                 const int b = (i == 0 || i == 3 || j == 0 || j == 3);
-                f << i + 0.5 << ' ' << j + 0.5 << ' ' << b << '\n';
+                f << j * 4 + i << ' ' << i + 0.5 << ' ' << j + 0.5 << ' ' << b << '\n';
             }
     }
 
-    rbf::NodeSet<double> ns("grid.nodeset");
+    rbf::NodeSet<double> ns("grid.node");
     CHECK(ns.num_points() == 16);
     CHECK(ns.num_boundary() == 12);
     CHECK(ns.num_interior() == 4);
@@ -194,7 +195,7 @@ static void test_nodeset() {
     for (size_t s = 0; s < ns.num_points(); ++s)
         CHECK(ja[s*4] == static_cast<int>(s));
 
-    std::remove("grid.nodeset");
+    std::remove("grid.node");
 }
 
 int main() {

@@ -4,9 +4,9 @@
 // ASCII input and output for RBF-FD drivers. The formats are described in
 // docs/file_formats.md.
 //
-//   read_nodeset, read_nodes_aos       node file (.nodes): count, then "x y" -> SoA or AoS
+//   read_points, read_points_aos     points file (.points): count, then "x y" -> SoA or AoS
 //   read_graph_csr                   graph file (.graph): stencils -> (ia, ja)
-//   read_nodeset, write_nodeset      "x y flag" list, the file NodeSet reads and writes
+//   read_nodes, write_nodes          node file (.node), Triangle's format; what NodeSet reads and writes
 //   read_ordering, write_ordering    ordering file (.iperm): one new index per node
 //   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
@@ -81,22 +81,22 @@ inline void expect_end(std::istream& in, const std::string& fname,
 } // namespace detail
 
 // ---------------------------------------------------------------------------
-// Node file (.nodes)
+// Points file (.points)
 // ---------------------------------------------------------------------------
 
-// Coordinates as separate arrays (SoA), from a node file: the node count on
-// the first line, then one coordinate pair per line:
+// Coordinates as separate arrays (SoA), from a points file: the point count
+// on the first line, then one coordinate pair per line:
 //
 //     n
 //     x0 y0
 //     x1 y1
 //     ...
 //
-// Returns {x, y}, the layout the assembly kernels take. The node file is the
-// companion of the graph file (read_graph_csr): one gives the point cloud,
-// the other the stencils, in the same numbering.
+// Returns {x, y}, the layout the assembly kernels take. The points file is
+// the companion of the graph file (read_graph_csr): one gives the point
+// cloud, the other the stencils, in the same numbering.
 template <class T = double>
-std::pair<std::vector<T>, std::vector<T>> read_nodes(const std::string& fname)
+std::pair<std::vector<T>, std::vector<T>> read_points(const std::string& fname)
 {
     auto in = detail::open_in(fname);
     std::size_t n = 0;
@@ -120,7 +120,7 @@ std::pair<std::vector<T>, std::vector<T>> read_nodes(const std::string& fname)
 // is brace-constructible from two T. Preferred where a point is passed
 // around as a unit; the SoA form suits device upload.
 template <class ArrayOfStructs, class T = double>
-ArrayOfStructs read_nodes_aos(const std::string& fname)
+ArrayOfStructs read_points_aos(const std::string& fname)
 {
     using Struct = typename ArrayOfStructs::value_type;
     auto in = detail::open_in(fname);
@@ -139,44 +139,141 @@ ArrayOfStructs read_nodes_aos(const std::string& fname)
 }
 
 // ---------------------------------------------------------------------------
-// NodeSet file: coordinates plus a per-node flag
+// Node file (.node), the Triangle format
 // ---------------------------------------------------------------------------
 
-// The file NodeSet reads and writes. One node per line, no header, read to
-// end of file:
-//
-//     x0 y0 flag0
-//     x1 y1 flag1
-//     ...
-//
-// x, y and flag are cleared and filled, and the node count is returned. The
-// flag is 0 for interior nodes and nonzero for boundary nodes. The file is
-// taken to be complete: reading stops at the first record that does not
-// parse as three numbers, whether that is the end of the file or not.
-template <class T>
-std::size_t read_nodeset(const std::string& fname,
-                       std::vector<T>& x, std::vector<T>& y, std::vector<int>& flag)
-{
-    auto in = detail::open_in(fname);
-    x.clear(); y.clear(); flag.clear();
-    T px, py; int f;
-    while (in >> px >> py >> f) {
-        x.push_back(px);
-        y.push_back(py);
-        flag.push_back(f);
+namespace detail {
+
+// Tokens of one line, parsed with strtod/strtoll so that a line is one
+// null-terminated buffer and no stream is built per line.
+struct LineCursor {
+    const char* p;
+
+    void skip_ws() { while (*p == ' ' || *p == '\t' || *p == '\r') ++p; }
+    bool at_end() { skip_ws(); return *p == '\0'; }
+
+    bool real(double& v) {
+        char* e;
+        v = std::strtod(p, &e);
+        if (e == p) return false;
+        p = e;
+        return true;
     }
-    return x.size();
+    // An integer must end at whitespace or end of line, so "1.5" is not 1.
+    bool integer(long long& v) {
+        char* e;
+        v = std::strtoll(p, &e, 10);
+        if (e == p || (*e != '\0' && *e != ' ' && *e != '\t' && *e != '\r')) return false;
+        p = e;
+        return true;
+    }
+};
+
+// Next line with content: '#' starts a comment, blank lines are skipped.
+// The line is truncated at the comment so the cursor sees data only.
+inline bool next_data_line(std::istream& in, std::string& line, std::size_t& lineno) {
+    while (std::getline(in, line)) {
+        ++lineno;
+        if (const auto hash = line.find('#'); hash != std::string::npos) line.resize(hash);
+        if (line.find_first_not_of(" \t\r") != std::string::npos) return true;
+    }
+    return false;
 }
 
-// Inverse of read_nodeset. A null flag writes 0 (interior) for every node.
+} // namespace detail
+
+// Node file in the format of Triangle's .node file
+// (https://www.cs.cmu.edu/~quake/triangle.node.html):
+//
+//     n 2 nattr nmark            # vertices, dimension, attributes, marker column (0 or 1)
+//     i x y a0 ... a(nattr-1) [marker]
+//     ...
+//
+// '#' starts a comment and blank lines are allowed anywhere. Vertices are
+// numbered consecutively from 0 or from 1; either is accepted and the line
+// order is the node numbering. The marker is 0 for an interior node and
+// nonzero for a boundary node, which is NodeSet's flag; without a marker
+// column every node is interior. Attributes are per-node reals, returned
+// row-major, n x nattr, when a vector is passed for them, and skipped
+// otherwise. Returns n.
 template <class T>
-void write_nodeset(const std::string& fname, std::size_t n,
-                 const T* x, const T* y, const int* flag = nullptr)
+std::size_t read_nodes(const std::string& fname,
+                       std::vector<T>& x, std::vector<T>& y, std::vector<int>& marker,
+                       std::vector<T>* attributes = nullptr)
 {
+    auto in = detail::open_in(fname);
+    x.clear(); y.clear(); marker.clear();
+    if (attributes) attributes->clear();
+
+    std::string line;
+    std::size_t lineno = 0;
+    const auto where = [&] { return "line " + std::to_string(lineno) + ": "; };
+
+    if (!detail::next_data_line(in, line, lineno)) detail::fail(fname, "empty file");
+    long long n, dim, nattr, nmark;
+    {
+        detail::LineCursor c{line.c_str()};
+        if (!(c.integer(n) && c.integer(dim) && c.integer(nattr) && c.integer(nmark)) || !c.at_end())
+            detail::fail(fname, where() + "expected header \"n dim nattr nmark\"");
+        if (dim != 2) detail::fail(fname, where() + "dimension " + std::to_string(dim) + ", expected 2");
+        if (n < 0 || nattr < 0 || nmark < 0 || nmark > 1)
+            detail::fail(fname, where() + "bad header values");
+    }
+    x.reserve(n); y.reserve(n); marker.reserve(n);
+    if (attributes) attributes->reserve(n * nattr);
+
+    long long first = 0;
+    for (long long i = 0; i < n; ++i) {
+        if (!detail::next_data_line(in, line, lineno))
+            detail::fail(fname, "header says " + std::to_string(n) + " vertices, found "
+                                + std::to_string(i));
+        detail::LineCursor c{line.c_str()};
+        long long idx;
+        double px, py;
+        if (!(c.integer(idx) && c.real(px) && c.real(py)))
+            detail::fail(fname, where() + "expected \"index x y ...\"");
+        if (i == 0) {
+            if (idx != 0 && idx != 1)
+                detail::fail(fname, where() + "vertex numbering must start at 0 or 1");
+            first = idx;
+        } else if (idx != first + i) {
+            detail::fail(fname, where() + "vertex number " + std::to_string(idx)
+                                + ", expected " + std::to_string(first + i));
+        }
+        for (long long a = 0; a < nattr; ++a) {
+            double v;
+            if (!c.real(v)) detail::fail(fname, where() + "expected " + std::to_string(nattr) + " attributes");
+            if (attributes) attributes->push_back(static_cast<T>(v));
+        }
+        long long m = 0;
+        if (nmark && !c.integer(m)) detail::fail(fname, where() + "expected a boundary marker");
+        if (!c.at_end()) detail::fail(fname, where() + "unexpected data after the record");
+        x.push_back(static_cast<T>(px));
+        y.push_back(static_cast<T>(py));
+        marker.push_back(static_cast<int>(m));
+    }
+    if (detail::next_data_line(in, line, lineno))
+        detail::fail(fname, where() + "unexpected data after vertex " + std::to_string(n - 1));
+    return static_cast<std::size_t>(n);
+}
+
+// Inverse of read_nodes, numbered from 0. A null marker leaves the marker
+// column out (nmark = 0); attributes, if given, are row-major n x nattr.
+template <class T>
+void write_nodes(const std::string& fname, std::size_t n,
+                 const T* x, const T* y, const int* marker = nullptr,
+                 std::size_t nattr = 0, const T* attributes = nullptr)
+{
+    assert(nattr == 0 || attributes);
     auto out = detail::open_out(fname);
     detail::full_precision<T>(out);
-    for (std::size_t i = 0; i < n; ++i)
-        out << x[i] << ' ' << y[i] << ' ' << (flag ? flag[i] : 0) << '\n';
+    out << n << " 2 " << nattr << ' ' << (marker ? 1 : 0) << '\n';
+    for (std::size_t i = 0; i < n; ++i) {
+        out << i << ' ' << x[i] << ' ' << y[i];
+        for (std::size_t a = 0; a < nattr; ++a) out << ' ' << attributes[i * nattr + a];
+        if (marker) out << ' ' << marker[i];
+        out << '\n';
+    }
 }
 
 // ---------------------------------------------------------------------------

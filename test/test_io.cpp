@@ -46,77 +46,86 @@ static void write_text(const std::string& fname, const std::string& text) {
 struct Point { double x, y; };
 struct PointF { float x, y; };
 
-static void test_read_nodes() {
-    write_text("pts.nodes", "3\n0.1 0.2\n1.5 -2.5\n1e-300 3\n");
+static void test_read_points() {
+    write_text("pts.points", "3\n0.1 0.2\n1.5 -2.5\n1e-300 3\n");
 
-    auto [x, y] = rbf::io::read_nodes("pts.nodes");
+    auto [x, y] = rbf::io::read_points("pts.points");
     CHECK(x == (std::vector<double>{0.1, 1.5, 1e-300}));
     CHECK(y == (std::vector<double>{0.2, -2.5, 3.0}));
 
     // AoS into std::array, a struct of doubles, and a struct of floats
-    auto a = rbf::io::read_nodes_aos<std::vector<std::array<double, 2>>>("pts.nodes");
+    auto a = rbf::io::read_points_aos<std::vector<std::array<double, 2>>>("pts.points");
     CHECK(a.size() == 3);
     CHECK(a[1][0] == 1.5 && a[1][1] == -2.5);
 
-    auto p = rbf::io::read_nodes_aos<std::vector<Point>>("pts.nodes");
+    auto p = rbf::io::read_points_aos<std::vector<Point>>("pts.points");
     CHECK(p.size() == 3);
     CHECK(p[2].x == 1e-300 && p[2].y == 3.0);
 
-    auto pf = rbf::io::read_nodes_aos<std::vector<PointF>, float>("pts.nodes");
+    auto pf = rbf::io::read_points_aos<std::vector<PointF>, float>("pts.points");
     CHECK(pf.size() == 3);
     CHECK(pf[1].x == 1.5f && pf[1].y == -2.5f);
 
     // the count header bounds the read: extra lines are ignored
-    write_text("pts.nodes", "1\n7 8\n9 10\n");
-    auto [x1, y1] = rbf::io::read_nodes("pts.nodes");
+    write_text("pts.points", "1\n7 8\n9 10\n");
+    auto [x1, y1] = rbf::io::read_points("pts.points");
     CHECK(x1.size() == 1 && y1.size() == 1);
     CHECK(x1[0] == 7 && y1[0] == 8);
 
-    std::remove("pts.nodes");
+    std::remove("pts.points");
 }
 
-static void test_nodeset_roundtrip() {
+static void test_node_file() {
     std::vector<double> x = awkward, y = awkward;
     for (auto& v : y) v = -v;
-    const std::vector<int> flag{0, 1, 0, 2, 0, 1};
+    const std::vector<int> marker{0, 1, 0, 2, 0, 1};
+    const std::vector<double> attr{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};   // 6 x 2
 
-    rbf::io::write_nodeset("a.nodeset", x.size(), x.data(), y.data(), flag.data());
-    std::vector<double> rx, ry; std::vector<int> rflag;
-    CHECK(rbf::io::read_nodeset("a.nodeset", rx, ry, rflag) == x.size());
-    CHECK(rx == x);
-    CHECK(ry == y);
-    CHECK(rflag == flag);
+    // markers and two attributes round-trip at full precision
+    rbf::io::write_nodes("a.node", x.size(), x.data(), y.data(), marker.data(), 2, attr.data());
+    std::vector<double> rx, ry, rattr; std::vector<int> rm;
+    CHECK(rbf::io::read_nodes("a.node", rx, ry, rm, &rattr) == x.size());
+    CHECK(rx == x && ry == y && rm == marker && rattr == attr);
 
-    // the output buffers are replaced, not appended to
-    CHECK(rbf::io::read_nodeset("a.nodeset", rx, ry, rflag) == x.size());
-    CHECK(rx.size() == x.size());
+    // attributes are skipped when not asked for; buffers are replaced, not appended
+    CHECK(rbf::io::read_nodes("a.node", rx, ry, rm) == x.size());
+    CHECK(rx == x && rm == marker);
 
-    // NodeSet reads the same file and agrees on the tags
-    rbf::NodeSet<double> ns("a.nodeset");
-    CHECK(ns.num_points() == 6);
-    CHECK(ns.num_boundary() == 3);
+    // no marker column: every node interior
+    rbf::io::write_nodes("a.node", x.size(), x.data(), y.data());
+    CHECK(rbf::io::read_nodes("a.node", rx, ry, rm) == x.size());
+    CHECK(rm == std::vector<int>(x.size(), 0) && rx == x);
+
+    // Triangle conventions: comments, blank lines, 1-based numbering, CRLF
+    write_text("b.node",
+        "# node file\r\n\r\n3 2 0 1   # header\r\n"
+        "1 0.5 1.5 1\r\n\r\n2 2.5 3.5 0 # interior\r\n3 4.5 5.5 7\r\n\r\n# end\r\n");
+    CHECK(rbf::io::read_nodes("b.node", rx, ry, rm) == 3);
+    CHECK(rx == (std::vector<double>{0.5, 2.5, 4.5}));
+    CHECK(ry == (std::vector<double>{1.5, 3.5, 5.5}));
+    CHECK(rm == (std::vector<int>{1, 0, 7}));
+
+    // NodeSet reads it, renumbers, writes, and reads itself back
+    rbf::io::write_nodes("a.node", x.size(), x.data(), y.data(), marker.data());
+    rbf::NodeSet<double> ns("a.node");
+    CHECK(ns.num_points() == 6 && ns.num_boundary() == 3);
     CHECK(ns.indices_with(2) == (std::vector<std::int32_t>{3}));
     CHECK(ns.x == x);
-
-    // renumber, write, read back: the file carries the new numbering
     ns.renumber(rbf::boundary_last_by_flag(ns.flag));
-    ns.write("c.nodeset");
-    rbf::NodeSet<double> ns2("c.nodeset");
+    ns.write("c.node");
+    rbf::NodeSet<double> ns2("c.node");
     CHECK(ns2.x == ns.x && ns2.y == ns.y && ns2.flag == ns.flag);
     CHECK(ns2.num_boundary() == 3 && ns2.bnd == ns.bnd);
     CHECK(ns2.flag[0] == 0 && ns2.flag[5] != 0);
-    std::remove("c.nodeset");
 
-    // null flag writes interior everywhere; a missing final newline is fine
-    rbf::io::write_nodeset("a.nodeset", x.size(), x.data(), y.data());
-    write_text("b.nodeset", "1 2 0\n3 4 1");
-    CHECK(rbf::io::read_nodeset("a.nodeset", rx, ry, rflag) == x.size());
-    CHECK(rflag == std::vector<int>(x.size(), 0));
-    CHECK(rbf::io::read_nodeset("b.nodeset", rx, ry, rflag) == 2);
-    CHECK(rx == (std::vector<double>{1, 3}) && rflag == (std::vector<int>{0, 1}));
+    // float coordinates round-trip too
+    const std::vector<float> xf{0.1f, 1.0f / 3.0f}, yf{1e-30f, 2.0f};
+    rbf::io::write_nodes("f.node", 2, xf.data(), yf.data());
+    std::vector<float> fx, fy; std::vector<int> fm;
+    CHECK(rbf::io::read_nodes("f.node", fx, fy, fm) == 2);
+    CHECK(fx == xf && fy == yf);
 
-    std::remove("a.nodeset");
-    std::remove("b.nodeset");
+    for (const char* fn : {"a.node", "b.node", "c.node", "f.node"}) std::remove(fn);
 }
 
 static void test_read_graph_csr() {
@@ -157,8 +166,8 @@ static void test_ordering() {
     CHECK(rbf::io::read_ordering<std::int64_t>("o.iperm") == (std::vector<std::int64_t>{1, 3, 0, 2}));
 
     // NodeSet: the file maps file order to the current numbering
-    write_text("d.nodeset", "0 0 1\n1 0 0\n2 0 1\n3 0 0\n");
-    rbf::NodeSet<double> ns("d.nodeset");
+    write_text("d.node", "4 2 0 1\n0 0 0 1\n1 1 0 0\n2 2 0 1\n3 3 0 0\n");
+    rbf::NodeSet<double> ns("d.node");
     ns.renumber(rbf::boundary_last_by_flag(ns.flag));
     ns.file_order().write("d.iperm");
     const auto fo = Permutation<int>::read("d.iperm");
@@ -166,7 +175,7 @@ static void test_ordering() {
     fo.permute(std::span{u});
     CHECK(u == ns.x);
 
-    for (const char* fn : {"o.iperm", "d.nodeset", "d.iperm"}) std::remove(fn);
+    for (const char* fn : {"o.iperm", "d.node", "d.iperm"}) std::remove(fn);
 }
 
 // Parse a Matrix Market coordinate file back into header + triplets.
@@ -346,8 +355,8 @@ static void test_vtk_polydata() {
 }
 
 int main() {
-    test_read_nodes();
-    test_nodeset_roundtrip();
+    test_read_points();
+    test_node_file();
     test_read_graph_csr();
     test_ordering();
     test_matrix_market();
