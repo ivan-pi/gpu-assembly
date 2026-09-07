@@ -8,8 +8,8 @@
 
 #include "d2q9_kernels.h"
 
-// Equilibrium populations for the given rho, ux, uy. Same arithmetic as
-// bgk_kernel_split with omega = 1, so the two agree bit for bit.
+// Equilibrium populations for the given rho, ux, uy; the same arithmetic
+// as bgk_kernel_split with omega = 1.
 template <typename T>
 __global__ void feq_kernel(const int n, const T *rho, const T *ux, const T *uy, T *pdf)
 {

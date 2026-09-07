@@ -50,8 +50,8 @@ module d2q9_kernels
 
 contains
 
-    ! Equilibrium populations for the given rho, ux, uy. Same arithmetic
-    ! as bgk_kernel with omega = 1, so the two agree bit for bit.
+    ! Equilibrium populations for the given rho, ux, uy; the same
+    ! arithmetic as bgk_kernel with omega = 1.
     attributes(global) subroutine feq_kernel(n, rho, ux, uy, pdf)
         integer, value :: n
         real(wp), intent(in) :: rho(n), ux(n), uy(n)
