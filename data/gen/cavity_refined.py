@@ -163,13 +163,20 @@ def write_points(fname, pts):
             f.write(f"{x!r} {y!r}\n")
 
 
+HELP = __doc__.split("\n\n")[0] + """
+
+Boundary markers: 0 interior, 1 south wall, 2 east, 3 north (the lid),
+4 west, 5 corner. The docstring at the top of the script describes the
+two point distributions and the three bands of refinement."""
+
+
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
+    ap = argparse.ArgumentParser(description=HELP,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("output", help="output file: a node file with the markers, or a "
                     "points file without them if the name ends in .points")
     ap.add_argument("--distribution", choices=("rings", "grid"), default="rings",
-                    help="point distribution, see above (default: rings)")
+                    help="concentric rectangles, or a tensor-product grid (default: rings)")
     ap.add_argument("--size", nargs=2, type=float, default=(1.0, 1.0),
                     metavar=("LX", "LY"), help="side lengths (default: the unit square)")
     ap.add_argument("--steps", type=int, default=10, metavar="N",
