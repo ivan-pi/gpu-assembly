@@ -106,5 +106,29 @@ if [ "$status" -ne 0 ]; then
     exit 1
 fi
 
+# The Python side: the pointclouds package under data/ with the
+# libraries its tools need (numpy, scipy, matplotlib; the `tools` extra
+# in data/pyproject.toml), and the formatting and linting tools that
+# .claude/hooks/format.sh runs after every edit. pre-commit builds one
+# environment per hook of .pre-commit-config.yaml on first use, which
+# takes a minute; done here so the first edit does not pay for it.
+#
+# The `reorder` extra (pymetis, scikit-sparse) compiles against
+# SuiteSparse and is left to whoever needs it.
+#
+# None of this is fatal: the compilers above are what a session cannot
+# do without, the Python it can ask for by hand.
+echo "session-start: installing the Python tools (pointclouds[tools], pre-commit, black, ruff)"
+if python3 -m pip install --quiet -e "data[tools]" pre-commit black ruff; then
+    if pre-commit install-hooks >/dev/null 2>&1; then
+        echo "session-start: pre-commit hook environments ready"
+    else
+        echo "session-start: pre-commit install-hooks failed; format.sh will fall back to black/ruff/clang-format"
+    fi
+else
+    echo "session-start: pip install failed; the data/ scripts and the format hook will complain"
+fi
+
 echo "session-start: build with 'cmake -B build && cmake --build build && ctest --test-dir build'"
 echo "session-start: for the LLVM toolchain, 'CXX=clang++-20 FC=flang-20 cmake -B build-llvm'"
+echo "session-start: 'pre-commit run --all-files' checks the style; see README.md, \"Formatting and linting\""

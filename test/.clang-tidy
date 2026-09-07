@@ -1,0 +1,5 @@
+# The tests let an exception out of main on purpose: the message it
+# carries is the failure report.
+---
+InheritParentConfig: true
+Checks: '-bugprone-exception-escape'

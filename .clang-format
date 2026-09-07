@@ -1,0 +1,24 @@
+# C++ and CUDA formatting, applied by pre-commit and by the Claude Code
+# PostToolUse hook (.claude/hooks/format.sh); see "Formatting and
+# linting" in README.md.
+#
+# Google style, as Kokkos and most CUDA libraries use, with the two
+# settings scientific codes most often change: a 4-space indent and a
+# 100-column limit, which templated signatures and comments with
+# formulas need.
+#
+# Hand-aligned tables (cuda_arch.h, the lattice constants) sit between
+# `// clang-format off` and `// clang-format on`.
+---
+BasedOnStyle: Google
+IndentWidth: 4
+AccessModifierOffset: -4
+ColumnLimit: 100
+
+# Google derives pointer alignment per file; fix it instead.
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+# Sort includes within a block but keep the blank-line grouping
+# (standard library, third party, project) the author chose.
+IncludeBlocks: Preserve

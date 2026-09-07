@@ -64,6 +64,42 @@ Export the MathDx path:
 export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
 ```
 
+## Formatting and linting
+
+The C++ and CUDA are formatted with [clang-format](https://clang.llvm.org/docs/ClangFormat.html)
+in the style of `.clang-format` (Google's, with a 4-space indent and
+100 columns) and linted with [clang-tidy](https://clang.llvm.org/extra/clang-tidy/)
+per `.clang-tidy`; the Python under `data/` with
+[Black](https://black.readthedocs.io/) and [Ruff](https://docs.astral.sh/ruff/),
+with the settings in `data/pyproject.toml`. All of it runs through
+[pre-commit](https://pre-commit.com/), whose `.pre-commit-config.yaml`
+pins the tool versions that CI checks with (`.github/workflows/style.yml`):
+
+```
+pip install pre-commit
+pre-commit install                 # format on every commit from now on
+pre-commit run --all-files         # or by hand, over the whole tree
+```
+
+clang-tidy wants the compile database of a configured build tree and
+is a manual stage:
+
+```
+cmake -B build
+pre-commit run --hook-stage manual clang-tidy --all-files
+```
+
+A block the formatter must leave alone, such as the tables in
+`src/cuda_arch.h`, sits between `// clang-format off` and
+`// clang-format on`.
+
+Claude Code runs the same hooks after each of its edits
+(`.claude/hooks/format.sh`, a `PostToolUse` hook in `.claude/settings.json`);
+its session-start hook installs the tools in a fresh remote session. The
+reformatting commit is listed in `.git-blame-ignore-revs`, which
+`git config blame.ignoreRevsFile .git-blame-ignore-revs` makes blame
+skip.
+
 Documentation:
 - [docs/nodeset.md](docs/nodeset.md): the `NodeSet` class, its
   renumbering and the stencil search
