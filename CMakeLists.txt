@@ -11,6 +11,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(GPU_ASSEMBLY_ENABLE_CUDA
     "Build the CUDA assembly kernels (requires the CUDA toolkit and MathDx)" OFF)
 
+# The analytic flow benchmarks in examples/ (Fortran module rbf_benchmarks
+# and the header rbf_flow_benchmarks.h) only need the host library.
+option(GPU_ASSEMBLY_BUILD_EXAMPLES
+    "Build the flow benchmark examples (examples/)" ON)
+
 include(CTest)
 
 find_package(OpenMP COMPONENTS CXX Fortran)
@@ -28,7 +33,12 @@ add_library(rbf STATIC
     src/rbf_ordering.F90
     src/rbf_precision.f90
     src/rbf_periodic_box.f90)
-target_include_directories(rbf PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# Fortran consumers (examples/) find the .mod files through the include path
+set_target_properties(rbf PROPERTIES
+    Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod)
+target_include_directories(rbf PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR}/mod)
 target_link_libraries(rbf PUBLIC nanoflann)
 if(OpenMP_Fortran_FOUND)
     target_link_libraries(rbf PRIVATE OpenMP::OpenMP_Fortran)
@@ -89,6 +99,10 @@ if(GPU_ASSEMBLY_ENABLE_CUDA)
 
     # NOTE: src/main.cpp is an API sketch, not yet a compiling
     # translation unit; add it here once completed.
+endif()
+
+if(GPU_ASSEMBLY_BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif()
 
 if(BUILD_TESTING)
