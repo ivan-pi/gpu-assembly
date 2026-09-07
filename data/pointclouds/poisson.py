@@ -2,17 +2,21 @@
 axis: no two points closer than a radius r, and no room left for another
 one, drawn by Bridson's algorithm with the inner loop compiled by Numba.
 
-    engine = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=True)   # periodic box
-    pts = engine.fill_space()
-
-    engine = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=(True, False),
-                         seeds=walls, seed=1234)                  # channel
-    pts = engine.fill_space()                       # walls, then the rest
-
 The rectangle is [0, Lx) x [0, Ly), and `periodic` says of each axis
 whether its two sides are one: neither for a box with walls, both for a
-periodic box, one for a channel. It is the generator's business to scale
-the result to lattice units.
+periodic box, one for a channel. A periodic box, filled:
+
+    pts = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=True).fill_space()
+
+A channel, periodic in x, grown from its wall nodes, which then come
+first in the result:
+
+    engine = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=(True, False))
+    engine.add_points(walls)
+    engine.fill_space()
+    pts = engine.points
+
+It is the generator's business to scale the result to lattice units.
 
 The algorithm (Bridson, 2007, "Fast Poisson disk sampling in arbitrary
 dimensions", SIGGRAPH sketches): a grid of cells of side r / sqrt(2), so
@@ -48,9 +52,15 @@ from math import ceil, sqrt
 import numpy as np
 from numba import njit
 
-from .periodic import wrap
-
 __all__ = ["PoissonDisk"]
+
+
+def wrap(z, box):
+    """Coordinates z brought into [0, box) through the periodic side, for
+    arrays, with box a scalar or one length per column."""
+    z = np.mod(z, box)
+    z[z >= box] = 0.0  # np.mod rounds up to the side
+    return z
 
 
 # ------------------------------------------------------------------- Numba
