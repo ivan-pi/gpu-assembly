@@ -53,7 +53,7 @@ class NodeSet:
     as scipy's k-d tree takes it."""
 
     def __init__(
-        self, points, markers=None, extent=None, periodic=(False, False), title=""
+        self, points, markers=None, *, extent=None, periodic=(False, False), title=""
     ):
         self.points = np.array(points, float).reshape(-1, 2)
         n = len(self.points)
@@ -76,7 +76,9 @@ class NodeSet:
     @classmethod
     def read(cls, fname, extent=None, periodic=(False, False)):
         """The cloud of a points or node file, told apart by extension."""
-        return cls(*read_nodes(fname), extent, periodic, title=f"from {fname}")
+        return cls(
+            *read_nodes(fname), extent=extent, periodic=periodic, title=f"from {fname}"
+        )
 
     def stencils(self, method, value):
         """The stencil graph in CSR form, (ia, ja), with the stencil of
@@ -205,15 +207,15 @@ class TiledNodeSet(NodeSet):
         super().__init__(
             pts[first],
             m[first],
-            extent * tiles,
-            (True, True),
-            f"{cloud.title}, tile={mx}x{my}",
+            extent=extent * tiles,
+            periodic=(True, True),
+            title=f"{cloud.title}, tile={mx}x{my}",
         )
         self.tile, self.tiles = cloud.extent, (mx, my)
 
-    def plot(self, ax, labels=False, stencils=()):
+    def plot(self, ax, **kwargs):
         """The cloud, with the outline of the tiles."""
-        super().plot(ax, labels, stencils)
+        super().plot(ax, **kwargs)
         (lx, ly), (mx, my) = self.tile, self.tiles
         ax.vlines(lx * np.arange(mx + 1), 0, my * ly, color="0.7", lw=0.8)
         ax.hlines(ly * np.arange(my + 1), 0, mx * lx, color="0.7", lw=0.8)

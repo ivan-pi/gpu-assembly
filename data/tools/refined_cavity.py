@@ -55,7 +55,7 @@ def main():
     args = ap.parse_args()
 
     stem, ext = cli.output_stem(args.output, default=".node")
-    cloud = RefinedCavity(args.steps, args.size, args.distribution)
+    cloud = RefinedCavity(args.steps, size=args.size, distribution=args.distribution)
     cloud.write(stem, ext)
     print(f"{stem}{ext}: {cloud.summary()}")
     if args.plot:

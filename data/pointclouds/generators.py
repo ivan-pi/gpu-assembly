@@ -32,7 +32,7 @@ class PerturbedGrid(NodeSet):
     row from y = 0, x fastest, so the wall nodes are the first N and the
     last N."""
 
-    def __init__(self, n, sigma=0.2, geometry="periodic", seed=None):
+    def __init__(self, n, sigma=0.2, *, geometry="periodic", seed=None):
         periodic = geometry == "periodic"
         x = np.arange(float(n))
         y = np.arange(float(n if periodic else n + 1))
@@ -50,9 +50,9 @@ class PerturbedGrid(NodeSet):
         super().__init__(
             pts,
             m,
-            (box, box),
-            (True, periodic),
-            f"perturbed grid, size={n}x{n}, n={n}, sigma={sigma:g}, {geometry}",
+            extent=(box, box),
+            periodic=(True, periodic),
+            title=f"perturbed grid, size={n}x{n}, n={n}, sigma={sigma:g}, {geometry}",
         )
 
 
@@ -71,7 +71,7 @@ class PoissonBox(NodeSet):
     cylinders. The hole is at least `distance` in radius and leaves that
     much to its image across the periodic sides."""
 
-    def __init__(self, extent, distance=1.0, candidates=100, hole=None, seed=None):
+    def __init__(self, extent, distance=1.0, *, candidates=100, hole=None, seed=None):
         from .poisson import PoissonDisk  # compiled by numba, only when needed
 
         extent = np.asarray(extent, float)
@@ -116,7 +116,7 @@ class PoissonBox(NodeSet):
             title += f", hole={hole:g}"
         m = np.full(len(pts), MARKERS.interior)
         m[: len(seeds)] = MARKERS.hole
-        super().__init__(pts, m, extent, (True, True), title)
+        super().__init__(pts, m, extent=extent, periodic=(True, True), title=title)
 
 
 class RefinedCavity(NodeSet):
@@ -148,7 +148,7 @@ class RefinedCavity(NodeSet):
 
     SPACINGS = (1.0, 1.5, 2.5)  # at the wall, in the second band, in the middle
 
-    def __init__(self, steps=10, size=None, distribution="rings"):
+    def __init__(self, steps=10, *, size=None, distribution="rings"):
         N = steps
         span = 2 * N * sum(self.SPACINGS)  # the bands from both walls
         Lx, Ly = (span, span) if size is None else size
@@ -192,7 +192,7 @@ class RefinedCavity(NodeSet):
         super().__init__(
             pts[first],
             m[first],
-            (Lx, Ly),
+            extent=(Lx, Ly),
             title=f"refined cavity, size={Lx:g}x{Ly:g}, {distribution}, steps={steps}",
         )
 

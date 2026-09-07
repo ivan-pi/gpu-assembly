@@ -226,6 +226,7 @@ class PoissonDisk:
         self,
         radius,
         extent=(1.0, 1.0),
+        *,
         periodic=False,
         ncandidates=30,
         seed=None,

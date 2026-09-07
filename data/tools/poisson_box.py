@@ -96,7 +96,9 @@ def main():
         print(f"seed {args.seed}")
     stem, ext = cli.output_stem(args.output, default=".points")
 
-    cloud = PoissonBox(args.size, args.distance, args.candidates, hole, args.seed)
+    cloud = PoissonBox(
+        args.size, args.distance, candidates=args.candidates, hole=hole, seed=args.seed
+    )
     if tuple(args.tile) != (1, 1):
         cloud = TiledNodeSet(cloud, args.tile)
     graph = cloud.stencils(*args.graph) if args.graph else None

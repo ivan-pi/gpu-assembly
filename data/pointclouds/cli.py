@@ -15,7 +15,7 @@ the same in every generator, so they are here too.
 import argparse
 
 
-def number(kind, least=None, above=None):
+def number(kind, *, least=None, above=None):
     """An argparse type that also carries a bound."""
 
     def parse(text):
@@ -53,11 +53,11 @@ def add_graph_options(ap):
     for NodeSet.stencils, or None for --no-graph. The 18 nearest nodes
     unless given: the 6 terms of a second-order polynomial plus 12."""
     group = ap.add_mutually_exclusive_group()
+    pair = dict(dest="graph", action=Pair)
     group.add_argument(
         "-K",
         "--knn-graph",
-        dest="graph",
-        action=Pair,
+        **pair,
         const="knn",
         type=number(int, least=2),
         metavar="K",
@@ -66,8 +66,7 @@ def add_graph_options(ap):
     group.add_argument(
         "-R",
         "--radius-graph",
-        dest="graph",
-        action=Pair,
+        **pair,
         const="radius",
         type=number(float, above=0.0),
         metavar="R",
@@ -75,8 +74,7 @@ def add_graph_options(ap):
     )
     group.add_argument(
         "--range-graph",
-        dest="graph",
-        action=Pair,
+        **pair,
         const="range",
         type=number(float, above=0.0),
         metavar="S",

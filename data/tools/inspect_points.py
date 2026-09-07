@@ -253,7 +253,10 @@ def draw(args, loaded):
         order = np.argsort(iperm)
         if cloud is not None:
             cloud = NodeSet(
-                cloud.points[order], cloud.markers[order], cloud.extent, cloud.periodic
+                cloud.points[order],
+                cloud.markers[order],
+                extent=cloud.extent,
+                periodic=cloud.periodic,
             )
         if graph is not None:
             file_graph, graph = graph, graph.renumbered(iperm)
@@ -301,13 +304,13 @@ def main():
     logging.basicConfig(
         level=logging.INFO, format="  note: %(message)s", stream=sys.stdout
     )
-    box = (args.periodic, (True, True)) if args.periodic else (None, (False, False))
+    box = dict(extent=args.periodic, periodic=(True, True)) if args.periodic else {}
     problems, sizes, loaded = [], {}, {}
     for kind, fname in args.files.items():
         try:
             if kind == "nodes":
                 xy, m = read_nodes(fname)
-                loaded[kind] = cloud = NodeSet(xy, m, *box)
+                loaded[kind] = cloud = NodeSet(xy, m, **box)
                 problems += describe_nodes(fname, xy, cloud)
             elif kind == "graph":
                 loaded[kind] = graph = Graph(*read_graph(fname))

@@ -78,7 +78,9 @@ def main():
         print(f"seed {args.seed}")
     stem, ext = cli.output_stem(args.output, default=".points")
 
-    cloud = PerturbedGrid(args.nodes, args.sigma, args.geometry, args.seed)
+    cloud = PerturbedGrid(
+        args.nodes, args.sigma, geometry=args.geometry, seed=args.seed
+    )
     graph = cloud.stencils(*args.graph) if args.graph else None
     cloud.write(stem, ext, graph)
     print(f"{stem}: {cloud.summary(graph)}")
