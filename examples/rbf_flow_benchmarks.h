@@ -19,10 +19,12 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <limits>
 #include <numbers>
 #include <optional>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace flow_benchmarks {
