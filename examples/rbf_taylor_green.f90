@@ -1,8 +1,12 @@
+! Taylor-Green vortex on a lattice grid: nx by ny cells with the field
+! sampled at the cell centres (i - 1/2, j - 1/2), i.e. in lattice units.
+! Arrays are laid out as (y, x). The formulas come from the point-based
+! taylor_green case of rbf_benchmarks; this module only adds the grid.
 module rbf_taylor_green
 
    use rbf_precision, only: wp
-   use lattice, only: lattice_grid
-   
+   use rbf_benchmarks, only: taylor_green, pi
+
    implicit none
    private
 
@@ -11,16 +15,12 @@ module rbf_taylor_green
 
    type :: taylor_green_t
       integer :: nx, ny
-      real(wp) :: kx, ky
-      real(wp) :: umax, nu
-      real(wp) :: td
+      type(taylor_green) :: point   ! the point-based case on this grid
    contains
       procedure :: eval => taylor_green_eval
+      procedure :: time_constant => taylor_green_time_constant
       procedure :: decay_time => taylor_green_decay_time
    end type
-
-   real(wp), parameter :: pi = 4._wp*atan(1._wp)
-
 
    interface taylor_green_t
       module procedure :: taylor_green_t_constructor
@@ -35,17 +35,22 @@ contains
 
       this%nx = nx
       this%ny = ny
-      this%kx = kx
-      this%ky = ky
-      this%umax = umax
-      this%nu = nu
-      this%td = 1._wp/(nu*(kx**2 + ky**2))
+      this%point = taylor_green(kx=kx, ky=ky, nu=nu, u0=umax)
    end function
 
-   function taylor_green_decay_time(self) result(tc)
+   ! Time constant 1/(nu*(kx^2 + ky^2)) of the velocity decay
+   function taylor_green_time_constant(self) result(tc)
       class(taylor_green_t), intent(in) :: self
       real(wp) :: tc
-      tc = self%td
+      tc = self%point%time_constant()
+   end function
+
+   ! Time at which the amplitude has dropped to the fraction frac of umax
+   function taylor_green_decay_time(self,frac) result(t)
+      class(taylor_green_t), intent(in) :: self
+      real(wp), intent(in) :: frac
+      real(wp) :: t
+      t = self%point%decay_time(frac)
    end function
 
    subroutine taylor_green_eval(self,t,p,ux,uy,S)
@@ -55,44 +60,18 @@ contains
       real(wp), intent(out), optional :: S(self%ny,self%nx,3)
 
       integer :: x, y
-      real(wp) :: xx, yy
-      real(wp), parameter :: rho0 = 1.0_wp
+      real(wp) :: xx(self%ny), yy(self%ny)
 
-      associate(umax=>self%umax, &
-                kx => self%kx, &
-                ky=>self%ky, &
-                td => self%td)
+      yy = [(y - 0.5_wp, y = 1, self%ny)]
 
       do x = 1, self%nx
-         xx = (x - 1) + 0.5_wp
-         do y = 1, self%ny
-            yy = (y - 1) + 0.5_wp
-
-            ux(y,x) = -umax*sqrt(ky/kx)*cos(kx*xx)*sin(ky*yy)*exp(-t/td)
-            uy(y,x) =  umax*sqrt(kx/ky)*sin(kx*xx)*cos(ky*yy)*exp(-t/td)
-            p(y,x) = -0.25_wp*(umax**2)*((ky/kx)*cos(2._wp*kx*xx) + (kx/ky)*cos(2._wp*ky*yy))*exp(-2._wp*t/td)
-
-            if (present(S)) then
-              S(y,x,1) = umax*sqrt(kx*ky)*sin(kx*xx)*sin(ky*yy)*exp(-t/td)
-              S(y,x,2) = 0.5_wp*umax*(sqrt(kx**3/ky) - sqrt(ky**3/kx))*cos(kx*xx)*cos(ky*yy)*exp(-t/td)
-              S(y,x,3) = -S(y,x,1)
-            end if
-         end do
+         xx = x - 0.5_wp
+         call self%point%fields(xx,yy,p(:,x),ux(:,x),uy(:,x),t)
+         if (present(S)) then
+            call self%point%stress_tensor(xx,yy,S(:,x,1),S(:,x,2),S(:,x,3),t)
+         end if
       end do
 
-      end associate
    end subroutine
-
-!    kykx = ky/kx
-!    kxky = kx/ky
-
-!    pfx = -u0*sqrt(kykx)
-!    pfy =  u0*sqrt(kxky)
-
-!    do i = 1, n
-!      ux(i) = pfx*cos(kx*x(i))*sin(ky*y(i))*exp(-t/tc)
-!      uy(i) = pfy*sin(kx*x(i))*cos(ky*y(i))*exp(-t/tc)
-!      p(i) = -0.25_wp*u0**2*(kykx*cos(2*kx*x(i)) + kxky*cos(2*ky*y(i)))*exp(-2.0_wp*t/tc)
-!    end do
 
 end module
