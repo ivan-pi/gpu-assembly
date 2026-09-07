@@ -1,0 +1,73 @@
+# Formatting and linting, one configuration for three callers:
+#
+#   pre-commit install                    the git pre-commit hook
+#   pre-commit run --all-files            CI (.github/workflows/style.yml)
+#   .claude/hooks/format.sh               Claude Code, after every edit
+#
+# The versions pinned here are the ones that count; the same tools
+# installed by hand may disagree in the details. `pre-commit autoupdate`
+# moves the pins.
+#
+# The vendored trees under third_party/ and the case files under data/
+# (.points, .graph, .node, .iperm, whose bytes .gitattributes promises
+# not to change) are excluded throughout.
+exclude: |
+  (?x)^(
+      third_party/.* |
+      data/.*\.(points|graph|node|iperm)
+  )$
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      # data/README.md: cases larger than a few hundred kilobytes are
+      # generated, not committed.
+      - id: check-added-large-files
+        args: [--maxkb=512]
+
+  # C++ and CUDA: the style is .clang-format. Sections that must not be
+  # touched (the tables in src/cuda_arch.h) are fenced with
+  # `// clang-format off` and `// clang-format on` in the source.
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v22.1.5
+    hooks:
+      - id: clang-format
+        types_or: [c++, cuda]
+
+  # clang-tidy needs the compile database of a configured build tree,
+  # so it is not run on every commit:
+  #
+  #   cmake -B build
+  #   pre-commit run --hook-stage manual clang-tidy --all-files
+  #
+  # Only translation units in the database are listed; the headers are
+  # checked through them (HeaderFilterRegex in .clang-tidy). The CUDA
+  # sources and the files CMake does not build yet are left out.
+  - repo: https://github.com/cpp-linter/cpp-linter-hooks
+    rev: v1.6.0
+    hooks:
+      - id: clang-tidy
+        args: [--checks=.clang-tidy, --version=20, --compile-commands=build]
+        files: ^(src/rbf_spatial\.cpp|test/.*\.cpp)$
+        stages: [manual]
+
+  # Python under data/: Ruff's lint and import order first, then Black's
+  # formatting, with the settings in data/pyproject.toml.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.6
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 26.5.1
+    hooks:
+      - id: black

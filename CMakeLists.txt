@@ -5,6 +5,10 @@ project(gpu-assembly LANGUAGES CXX Fortran)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# compile_commands.json, which clang-tidy reads (.clang-tidy and the
+# manual-stage hook in .pre-commit-config.yaml)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # The CUDA parts (cuSolverDx assembly kernels, LBM D2Q9 kernels,
 # CUDA Fortran demo) are isolated behind this option so the host library
 # and its tests build with any C++/Fortran toolchain.

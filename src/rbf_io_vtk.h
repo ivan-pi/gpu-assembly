@@ -30,11 +30,18 @@ inline bool vtk_name_ok(std::string_view name) {
 }
 
 // The scalar type label the legacy VTK format expects for T.
-template <class T> constexpr const char* vtk_type_name();
-template <> constexpr const char* vtk_type_name<float>()  { return "float"; }
-template <> constexpr const char* vtk_type_name<double>() { return "double"; }
+template <class T>
+constexpr const char* vtk_type_name();
+template <>
+constexpr const char* vtk_type_name<float>() {
+    return "float";
+}
+template <>
+constexpr const char* vtk_type_name<double>() {
+    return "double";
+}
 
-} // namespace detail
+}  // namespace detail
 
 // A named per-node 2-d vector: (x[i * stride], y[i * stride]) at node i; the
 // z component is written as 0. Interleaved {ux0, uy0, ux1, ...} storage is
@@ -63,13 +70,14 @@ struct VtkVector {
 // empty. The format caps it at 256 characters including the newline, so at
 // most 255 here, and it must not contain a line break.
 template <class T>
-void write_vtk_polydata(const std::string& fname, std::size_t n,
-                        const T* x, const T* y,
+void write_vtk_polydata(const std::string& fname,
+                        std::size_t n,
+                        const T* x,
+                        const T* y,
                         List<Column<std::type_identity_t<T>>> scalars,
                         List<VtkVector<std::type_identity_t<T>>> vectors = {},
                         std::size_t xy_stride = 1,
-                        std::string_view title = "rbf point cloud")
-{
+                        std::string_view title = "rbf point cloud") {
     static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
                   "legacy VTK arrays are float or double");
     using detail::num;
@@ -86,9 +94,13 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
     auto out = detail::open_out(fname);
     const char* tn = detail::vtk_type_name<T>();
 
+    // The stream statements below are laid out line for line as the file
+    // they write, and kept that way.
+    // clang-format off
     out << "# vtk DataFile Version 2.0\n" << title << '\n'
         << "ASCII\n"
            "DATASET POLYDATA\n";
+    // clang-format on
 
     out << "POINTS " << n << ' ' << tn << '\n';
     for (std::size_t i = 0; i < n; ++i)
@@ -103,8 +115,10 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
     out << "POINT_DATA " << n << '\n';
 
     for (const auto& s : scalars) {
+        // clang-format off
         out << "SCALARS " << s.name << ' ' << tn << " 1\n"
                "LOOKUP_TABLE default\n";
+        // clang-format on
         for (std::size_t i = 0; i < n; ++i)
             out << num(s.v[i * s.stride]) << '\n';
     }
@@ -115,6 +129,6 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
     }
 }
 
-} // namespace rbf::io
+}  // namespace rbf::io
 
-#endif // RBF_IO_VTK_H
+#endif  // RBF_IO_VTK_H

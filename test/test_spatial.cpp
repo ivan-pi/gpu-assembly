@@ -14,8 +14,8 @@
 //   ctest --test-dir build
 
 #include <algorithm>
-#include <cmath>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <numeric>
@@ -32,29 +32,31 @@ using rbf::spatial::interleave;
 using rbf::spatial::KdTree;
 using rbf::spatial::PeriodicBox;
 
-template<std::size_t D>
+template <std::size_t D>
 using Box = std::optional<PeriodicBox<double, D>>;
 
 // A cheap reproducible generator; the clouds only need to be irregular.
 struct Rng {
     std::uint64_t s;
     double next() {  // in [0, 1)
-        s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
         return static_cast<double>(s >> 11) * 0x1.0p-53;
     }
 };
 
 // Points spread over the box, or over the unit cube when there is none.
-template<std::size_t D>
+template <std::size_t D>
 static std::vector<double> cloud(Rng& rng, std::size_t n, const Box<D>& b) {
     std::vector<double> p(n * D);
     for (std::size_t i = 0; i < n; ++i)
         for (std::size_t d = 0; d < D; ++d)
-            p[i*D + d] = (b ? b->period[d] : 1.0) * rng.next();
+            p[i * D + d] = (b ? b->period[d] : 1.0) * rng.next();
     return p;
 }
 
-template<std::size_t D>
+template <std::size_t D>
 static double dist(const Box<D>& b, const double* p, const double* q) {
     double s = 0;
     for (std::size_t d = 0; d < D; ++d) {
@@ -65,13 +67,15 @@ static double dist(const Box<D>& b, const double* p, const double* q) {
 }
 
 // The k nearest, by sorting every point of the cloud.
-template<std::size_t D>
-static std::vector<int> brute_knn(const Box<D>& b, std::span<const double> pts,
-                                  const double* q, int k) {
+template <std::size_t D>
+static std::vector<int> brute_knn(const Box<D>& b,
+                                  std::span<const double> pts,
+                                  const double* q,
+                                  int k) {
     std::vector<int> p(pts.size() / D);
     std::iota(p.begin(), p.end(), 0);
     std::stable_sort(p.begin(), p.end(), [&](int a, int c) {
-        return dist<D>(b, &pts[a*D], q) < dist<D>(b, &pts[c*D], q);
+        return dist<D>(b, &pts[a * D], q) < dist<D>(b, &pts[c * D], q);
     });
     p.resize(static_cast<std::size_t>(k));
     return p;
@@ -82,13 +86,16 @@ static std::vector<int> brute_knn(const Box<D>& b, std::span<const double> pts,
 // agree; the indices only have to agree where the distance is distinct.
 // The brute-force row is sorted, so matching it entry by entry also
 // checks that the tree's row is.
-template<std::size_t D>
-static void check_row(const Box<D>& b, std::span<const double> pts,
-                      const double* q, const std::int32_t* got, int k) {
+template <std::size_t D>
+static void check_row(const Box<D>& b,
+                      std::span<const double> pts,
+                      const double* q,
+                      const std::int32_t* got,
+                      int k) {
     const auto want = brute_knn<D>(b, pts, q, k);
     for (int j = 0; j < k; ++j) {
-        const double dg = dist<D>(b, &pts[got[j]*D], q);
-        const double dw = dist<D>(b, &pts[want[j]*D], q);
+        const double dg = dist<D>(b, &pts[got[j] * D], q);
+        const double dw = dist<D>(b, &pts[want[j] * D], q);
         CHECK(std::abs(dg - dw) <= 1e-12 * (1.0 + dw));
     }
 }
@@ -150,7 +157,7 @@ static void test_interleave() {
 
 // The whole search API on one box: self-stencils, arbitrary queries,
 // query points from outside the box, and the returned distances.
-template<std::size_t D>
+template <std::size_t D>
 static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     std::printf("  %zud: %s\n", D, what);
     Rng rng{0x9e3779b97f4a7c15ull ^ (n * 31 + D)};
@@ -164,8 +171,8 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     const auto ja = tree.knn_stencils(k);
     CHECK(ja.size() == n * static_cast<std::size_t>(k));
     for (std::size_t s = 0; s < n; ++s) {
-        CHECK(ja[s*k] == static_cast<std::int32_t>(s));
-        check_row<D>(b, pts, &pts[s*D], &ja[s*k], k);
+        CHECK(ja[s * k] == static_cast<std::int32_t>(s));
+        check_row<D>(b, pts, &pts[s * D], &ja[s * k], k);
     }
 
     // arbitrary query points, deliberately shifted whole periods out of
@@ -175,12 +182,12 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     if (b)
         for (std::size_t s = 0; s < nq; ++s)
             for (std::size_t d = 0; d < D; ++d)
-                q[s*D + d] += (d % 2 ? -2.0 : 3.0) * b->period[d];
+                q[s * D + d] += (d % 2 ? -2.0 : 3.0) * b->period[d];
 
     const auto jq = tree.knn_stencils(q, k);
     CHECK(jq.size() == nq * static_cast<std::size_t>(k));
     for (std::size_t s = 0; s < nq; ++s)
-        check_row<D>(b, pts, &q[s*D], &jq[s*k], k);
+        check_row<D>(b, pts, &q[s * D], &jq[s * k], k);
 
     // the distances that come with the indices are the true ones
     std::vector<std::intptr_t> idx(nq * static_cast<std::size_t>(k));
@@ -188,7 +195,7 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     tree.query(q, k, idx, d);
     for (std::size_t i = 0; i < idx.size(); ++i) {
         const auto s = i / static_cast<std::size_t>(k);
-        const double want = dist<D>(b, &pts[idx[i]*D], &q[s*D]);
+        const double want = dist<D>(b, &pts[idx[i] * D], &q[s * D]);
         CHECK(std::abs(d[i] - want) <= 1e-12 * (1.0 + want));
         CHECK(idx[i] == jq[i]);
     }
@@ -200,19 +207,15 @@ static void test_search() {
 
     search_on<2>("open plane", std::nullopt, 500, 8);
     search_on<2>("unit box", PeriodicBox<double, 2>{{1.0, 1.0}}, 500, 8);
-    search_on<2>("anisotropic box",
-                 PeriodicBox<double, 2>{{2.0, 5.0}}, 700, 12);
+    search_on<2>("anisotropic box", PeriodicBox<double, 2>{{2.0, 5.0}}, 700, 12);
     // k = n: the stencil is the whole cloud, the hardest case for the
     // pruning, and a thin box where a neighbour may be reached by more
     // than one image
-    search_on<2>("k = n on a thin box",
-                 PeriodicBox<double, 2>{{1.0, 0.05}}, 40, 40);
+    search_on<2>("k = n on a thin box", PeriodicBox<double, 2>{{1.0, 0.05}}, 40, 40);
 
     search_on<3>("open space", std::nullopt, 600, 10);
-    search_on<3>("unit cube",
-                 PeriodicBox<double, 3>{{1.0, 1.0, 1.0}}, 600, 10);
-    search_on<3>("anisotropic cell",
-                 PeriodicBox<double, 3>{{1.0, 3.0, 0.5}}, 600, 16);
+    search_on<3>("unit cube", PeriodicBox<double, 3>{{1.0, 1.0, 1.0}}, 600, 10);
+    search_on<3>("anisotropic cell", PeriodicBox<double, 3>{{1.0, 3.0, 0.5}}, 600, 16);
 }
 
 // A cloud whose neighbours differ between the open plane and the box:
@@ -231,10 +234,10 @@ static void test_periodicity_matters() {
     // Each corner has two neighbours at 0.04, one across each side, so
     // which one comes back is a tie; the distance is the assertion.
     for (int s = 0; s < 4; ++s) {
-        CHECK(open[s*2 + 1] == 4);  // in the plane, the middle point
-        const int nb = wrapped[s*2 + 1];
+        CHECK(open[s * 2 + 1] == 4);  // in the plane, the middle point
+        const int nb = wrapped[s * 2 + 1];
         CHECK(nb != 4);
-        CHECK(std::abs(dist<2>(box, &pts[s*2], &pts[nb*2]) - 0.04) < 1e-12);
+        CHECK(std::abs(dist<2>(box, &pts[s * 2], &pts[nb * 2]) - 0.04) < 1e-12);
     }
 }
 
@@ -253,16 +256,18 @@ static void test_degenerate() {
     const std::vector<double> same(32, 0.5);
     const auto ja = KdTree(same, *box).knn_stencils(4);
     CHECK(ja.size() == 16 * 4);
-    for (auto j : ja) CHECK(j >= 0 && j < 16);
+    for (auto j : ja)
+        CHECK(j >= 0 && j < 16);
 
     // collinear points, so one dimension has no spread at all
     std::vector<double> line_x(32), line_y(32, 0.5);
-    for (int i = 0; i < 32; ++i) line_x[i] = i / 32.0;
+    for (int i = 0; i < 32; ++i)
+        line_x[i] = i / 32.0;
     const auto pts = interleave(line_x, line_y);
     const auto jl = KdTree(pts, *box).knn_stencils(3);
     for (int s = 0; s < 32; ++s) {
-        CHECK(jl[s*3] == s);
-        check_row<2>(box, pts, &pts[s*2], &jl[s*3], 3);
+        CHECK(jl[s * 3] == s);
+        check_row<2>(box, pts, &pts[s * 2], &jl[s * 3], 3);
     }
 }
 
@@ -276,7 +281,7 @@ static void test_stencils_are_query() {
     const auto ja = tree.knn_stencils(5);
     std::vector<std::intptr_t> raw(300 * 5);
     tree.query(5, raw);
-    CHECK(std::equal(ja.begin(), ja.end(), raw.begin(), raw.end()));
+    CHECK(std::ranges::equal(ja, raw));
 }
 
 // The tree owns its cloud through a pointer that never moves, so it is
@@ -297,11 +302,11 @@ static void test_move() {
     KdTree a(pts, *box);
     const auto before = a.knn_stencils(6);
 
-    KdTree b(std::move(a));                 // move-construct
+    KdTree b(std::move(a));  // move-construct
     CHECK(b.size() == 200 && b.ndim() == 2 && b.periodic());
     CHECK(b.knn_stencils(6) == before);
 
-    KdTree c(pts, 2);                       // a different tree, then assign over it
+    KdTree c(pts, 2);  // a different tree, then assign over it
     c = std::move(b);
     CHECK(c.periodic());
     CHECK(c.knn_stencils(6) == before);
@@ -311,7 +316,7 @@ static void test_move() {
     const auto q = cloud<2>(rng, 50, box);
     const auto jq = c.knn_stencils(q, 6);
     for (std::size_t s = 0; s < 50; ++s)
-        check_row<2>(box, pts, &q[s*2], &jq[s*6], 6);
+        check_row<2>(box, pts, &q[s * 2], &jq[s * 6], 6);
 }
 
 int main() {

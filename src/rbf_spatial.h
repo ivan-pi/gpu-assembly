@@ -36,22 +36,24 @@ namespace detail {
 // x: for x a hair below zero, say -1e-30, the difference rounds up to L
 // itself and lands outside the interval. One pass fixes it; ckdtree's
 // own wrap_position guards the same way.
-template<typename T>
+template <typename T>
 T fold(T x, T L) {
     x -= L * std::floor(x / L);
-    while (x >= L) x -= L;
-    while (x < 0) x += L;
+    while (x >= L)
+        x -= L;
+    while (x < 0)
+        x += L;
     return x;
 }
 
-} // namespace detail
+}  // namespace detail
 
 // The box [0, period[d]) along each of D axes, with opposite faces
 // identified. Anchored at the origin, as SciPy's boxsize is and as the
 // Fortran type periodic_box in src/rbf_periodic_box.f90 is; a cloud
 // that lives somewhere else is translated by the caller, once, rather
 // than by the box on every wrap.
-template<typename T, std::size_t D>
+template <typename T, std::size_t D>
 struct PeriodicBox {
     static_assert(D >= 1, "a box needs at least one axis");
 
@@ -74,12 +76,14 @@ struct PeriodicBox {
     }
 
     std::array<T, D> wrap(std::array<T, D> p) const {
-        for (std::size_t d = 0; d < D; ++d) p[d] = wrap(d, p[d]);
+        for (std::size_t d = 0; d < D; ++d)
+            p[d] = wrap(d, p[d]);
         return p;
     }
 
     std::array<T, D> minimum_image(std::array<T, D> dx) const {
-        for (std::size_t d = 0; d < D; ++d) dx[d] = minimum_image(d, dx[d]);
+        for (std::size_t d = 0; d < D; ++d)
+            dx[d] = minimum_image(d, dx[d]);
         return dx;
     }
 };
@@ -89,7 +93,7 @@ struct PeriodicBox {
 //
 //     auto points = rbf::spatial::interleave(x, y);      // 2-d
 //     auto points = rbf::spatial::interleave(x, y, z);   // 3-d
-template<std::ranges::contiguous_range Axis, std::ranges::contiguous_range... Rest>
+template <std::ranges::contiguous_range Axis, std::ranges::contiguous_range... Rest>
 std::vector<double> interleave(const Axis& x, const Rest&... rest) {
     constexpr std::size_t D = 1 + sizeof...(Rest);
     const std::size_t n = std::ranges::size(x);
@@ -100,7 +104,7 @@ std::vector<double> interleave(const Axis& x, const Rest&... rest) {
     const auto take = [&](const auto& axis) {
         const auto* a = std::ranges::data(axis);
         for (std::size_t i = 0; i < n; ++i)
-            out[i*D + d] = static_cast<double>(a[i]);
+            out[i * D + d] = static_cast<double>(a[i]);
         ++d;
     };
     take(x);
@@ -111,9 +115,9 @@ std::vector<double> interleave(const Axis& x, const Rest&... rest) {
 // Build parameters, named after SciPy's; they trade build time against
 // query time and never change the answer.
 struct KdTreeParams {
-    int leafsize = 16;    // points below which a node is searched by brute force
-    bool balanced = true; // split at the median rather than at the midpoint
-    bool compact = true;  // shrink each node's box onto its points
+    int leafsize = 16;     // points below which a node is searched by brute force
+    bool balanced = true;  // split at the median rather than at the midpoint
+    bool compact = true;   // shrink each node's box onto its points
 };
 
 // A k-d tree over a fixed point cloud, in any number of dimensions,
@@ -134,11 +138,11 @@ public:
     // In a periodic box, which is also where the dimension comes from.
     // Points outside the box are wrapped into it, so the cloud need not
     // be pre-wrapped; the indices are unaffected either way.
-    template<std::size_t D>
-    KdTree(std::span<const double> points, const PeriodicBox<double, D>& box,
+    template <std::size_t D>
+    KdTree(std::span<const double> points,
+           const PeriodicBox<double, D>& box,
            KdTreeParams params = {})
-        : KdTree(points, static_cast<int>(D),
-                 std::span<const double>{box.period}, params) {}
+        : KdTree(points, static_cast<int>(D), std::span<const double>{box.period}, params) {}
 
     ~KdTree();
     KdTree(KdTree&&) noexcept;
@@ -158,12 +162,13 @@ public:
     // when only the indices are wanted. Query points are wrapped into
     // the box. OpenMP-parallel over the queries, which is what SciPy's
     // `workers` does too.
-    void query(std::span<const double> q, int k,
-               std::span<std::intptr_t> idx, std::span<double> dist = {}) const;
+    void query(std::span<const double> q,
+               int k,
+               std::span<std::intptr_t> idx,
+               std::span<double> dist = {}) const;
 
     // The same, centred on the cloud's own points, in its own order.
-    void query(int k, std::span<std::intptr_t> idx,
-               std::span<double> dist = {}) const;
+    void query(int k, std::span<std::intptr_t> idx, std::span<double> dist = {}) const;
 
     // Fixed-k stencils as ja(k, nq) in Fortran order: the k nearest
     // neighbours of query s are contiguous at ja[s*k], sorted by
@@ -179,8 +184,10 @@ public:
 
 private:
     // period is empty in the open plane, else one side length per axis.
-    KdTree(std::span<const double> points, int ndim,
-           std::span<const double> period, KdTreeParams params);
+    KdTree(std::span<const double> points,
+           int ndim,
+           std::span<const double> period,
+           KdTreeParams params);
 
     std::span<const double> points() const;  // the cloud, as stored
 
@@ -192,6 +199,6 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace rbf::spatial
+}  // namespace rbf::spatial
 
-#endif // RBF_SPATIAL_H
+#endif  // RBF_SPATIAL_H

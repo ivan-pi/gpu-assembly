@@ -1,0 +1,59 @@
+name: Style
+
+# The hooks of .pre-commit-config.yaml over the whole tree: clang-format
+# for the C++ and CUDA, Ruff and Black for the Python under data/, and
+# the generic checks (whitespace, line endings, file sizes). Kept apart
+# from the build so that a stray blank line fails fast and on its own.
+#
+# clang-tidy is a second job: it needs a configured build tree for its
+# compile database, and takes longer.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install pre-commit
+
+      - name: Check
+        run: pre-commit run --all-files --show-diff-on-failure
+
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ gfortran
+          pip install pre-commit
+
+      # The compile database, not a build
+      - name: Configure
+        run: cmake -B build
+
+      - name: Check
+        run: pre-commit run --hook-stage manual clang-tidy --all-files

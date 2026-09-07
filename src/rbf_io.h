@@ -6,8 +6,8 @@
 //
 //   read_points, read_points_aos     points file (.points): count, then "x y" -> SoA or AoS
 //   read_graph_csr                   graph file (.graph): stencils -> (ia, ja)
-//   read_nodes, write_nodes          node file (.node), Triangle's format; what NodeSet reads and writes
-//   read_ordering, write_ordering    ordering file (.iperm): one new index per node
+//   read_nodes, write_nodes          node file (.node), Triangle's format; what NodeSet reads and
+//   writes read_ordering, write_ordering    ordering file (.iperm): one new index per node
 //   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
 // rbf_io_vtk.h and rbf_io_gnuplot.h add the plotting formats.
@@ -63,8 +63,14 @@ inline std::ofstream open_out(const std::string& fname) {
 // 0.1 is written as 0.1, not 0.10000000000000001, and integers as is.
 //
 //     out << num(x[i]) << ' ' << num(y[i]);
-template <class V> struct Num { V v; };
-template <class V> Num<V> num(V v) { return {v}; }
+template <class V>
+struct Num {
+    V v;
+};
+template <class V>
+Num<V> num(V v) {
+    return {v};
+}
 template <class V>
 std::ostream& operator<<(std::ostream& os, Num<V> n) {
     char buf[32];
@@ -82,8 +88,14 @@ struct LineCursor {
     explicit LineCursor(std::string_view s) : p(s.data()), end(s.data() + s.size()) {}
 
     static bool ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
-    void skip_ws() { while (p != end && ws(*p)) ++p; }
-    bool at_end() { skip_ws(); return p == end; }
+    void skip_ws() {
+        while (p != end && ws(*p))
+            ++p;
+    }
+    bool at_end() {
+        skip_ws();
+        return p == end;
+    }
 
     // Reals are parsed as double and converted, so a value below the float
     // range reads as 0 rather than failing; integers are parsed in their own
@@ -123,7 +135,7 @@ inline bool next_data_line(std::istream& in, std::string& line, std::size_t& lin
     return false;
 }
 
-} // namespace detail
+}  // namespace detail
 
 // A named per-node column: v[i * stride] is the value at node i. The
 // writers that take fields (VTK, gnuplot columns) take lists of these.
@@ -154,8 +166,7 @@ namespace detail {
 // The points file: the point count on the first line, then one coordinate
 // pair per line. on_count(n) is called once, on_point(x, y) n times.
 template <class T, class OnCount, class OnPoint>
-void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_point)
-{
+void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_point) {
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     auto in = open_in(fname);
     std::string line;
@@ -177,18 +188,24 @@ void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_poi
     }
 }
 
-} // namespace detail
+}  // namespace detail
 
 // Coordinates as separate arrays (SoA), the layout the assembly kernels
 // take. The points file is the companion of the graph file: one gives the
 // point cloud, the other the stencils, in the same numbering.
 template <class T = double>
-std::pair<std::vector<T>, std::vector<T>> read_points(const std::string& fname)
-{
+std::pair<std::vector<T>, std::vector<T>> read_points(const std::string& fname) {
     std::vector<T> x, y;
-    detail::read_points_with<T>(fname,
-        [&](std::size_t n) { x.reserve(n); y.reserve(n); },
-        [&](T px, T py) { x.push_back(px); y.push_back(py); });
+    detail::read_points_with<T>(
+        fname,
+        [&](std::size_t n) {
+            x.reserve(n);
+            y.reserve(n);
+        },
+        [&](T px, T py) {
+            x.push_back(px);
+            y.push_back(py);
+        });
     return {std::move(x), std::move(y)};
 }
 
@@ -196,12 +213,11 @@ std::pair<std::vector<T>, std::vector<T>> read_points(const std::string& fname)
 // std::vector<Point> with Point{T x, y;}, or any container whose value_type
 // is brace-constructible from two T.
 template <class ArrayOfStructs, class T = double>
-ArrayOfStructs read_points_aos(const std::string& fname)
-{
+ArrayOfStructs read_points_aos(const std::string& fname) {
     using Struct = typename ArrayOfStructs::value_type;
     ArrayOfStructs xy;
-    detail::read_points_with<T>(fname,
-        [&](std::size_t n) { xy.reserve(n); },
+    detail::read_points_with<T>(
+        fname, [&](std::size_t n) { xy.reserve(n); },
         [&](T px, T py) { xy.push_back(Struct{px, py}); });
     return xy;
 }
@@ -224,12 +240,15 @@ ArrayOfStructs read_points_aos(const std::string& fname)
 // reported with its line number.
 template <class T>
 std::size_t read_nodes(const std::string& fname,
-                       std::vector<T>& x, std::vector<T>& y, std::vector<int>& marker,
-                       std::vector<T>* attributes = nullptr)
-{
+                       std::vector<T>& x,
+                       std::vector<T>& y,
+                       std::vector<int>& marker,
+                       std::vector<T>* attributes = nullptr) {
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     auto in = detail::open_in(fname);
-    x.clear(); y.clear(); marker.clear();
+    x.clear();
+    y.clear();
+    marker.clear();
     if (attributes) attributes->clear();
 
     std::string line;
@@ -247,14 +266,16 @@ std::size_t read_nodes(const std::string& fname,
         if (dim != 2) fail_here("dimension " + std::to_string(dim) + ", expected 2");
         if (nmark > 1) fail_here("marker column count must be 0 or 1");
     }
-    x.reserve(n); y.reserve(n); marker.reserve(n);
+    x.reserve(n);
+    y.reserve(n);
+    marker.reserve(n);
     if (attributes) attributes->reserve(n * nattr);
 
     std::size_t first = 0;
     for (std::size_t i = 0; i < n; ++i) {
         if (!detail::next_data_line(in, line, lineno))
-            detail::fail(fname, "header says " + std::to_string(n) + " vertices, found "
-                                + std::to_string(i));
+            detail::fail(fname, "header says " + std::to_string(n) + " vertices, found " +
+                                    std::to_string(i));
         detail::LineCursor c{line};
         std::size_t idx;
         double px, py;
@@ -264,8 +285,8 @@ std::size_t read_nodes(const std::string& fname,
             if (idx > 1) fail_here("vertex numbering must start at 0 or 1");
             first = idx;
         } else if (idx != first + i) {
-            fail_here("vertex number " + std::to_string(idx) + ", expected "
-                      + std::to_string(first + i));
+            fail_here("vertex number " + std::to_string(idx) + ", expected " +
+                      std::to_string(first + i));
         }
         for (std::size_t a = 0; a < nattr; ++a) {
             double v;
@@ -287,10 +308,13 @@ std::size_t read_nodes(const std::string& fname,
 // Inverse of read_nodes, numbered from 0. A null marker leaves the marker
 // column out (nmark = 0); attributes, if given, are row-major n x nattr.
 template <class T>
-void write_nodes(const std::string& fname, std::size_t n,
-                 const T* x, const T* y, const int* marker = nullptr,
-                 std::size_t nattr = 0, const T* attributes = nullptr)
-{
+void write_nodes(const std::string& fname,
+                 std::size_t n,
+                 const T* x,
+                 const T* y,
+                 const int* marker = nullptr,
+                 std::size_t nattr = 0,
+                 const T* attributes = nullptr) {
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     using detail::num;
     assert(nattr == 0 || attributes);
@@ -298,7 +322,8 @@ void write_nodes(const std::string& fname, std::size_t n,
     out << n << " 2 " << nattr << ' ' << (marker ? 1 : 0) << '\n';
     for (std::size_t i = 0; i < n; ++i) {
         out << i << ' ' << num(x[i]) << ' ' << num(y[i]);
-        for (std::size_t a = 0; a < nattr; ++a) out << ' ' << num(attributes[i * nattr + a]);
+        for (std::size_t a = 0; a < nattr; ++a)
+            out << ' ' << num(attributes[i * nattr + a]);
         if (marker) out << ' ' << marker[i];
         out << '\n';
     }
@@ -319,13 +344,12 @@ void write_nodes(const std::string& fname, std::size_t n,
 // Rows may have different lengths, but every row must have at least one
 // entry (a node with no neighbours gives a singular system), every index
 // must lie in [0, n) and appear at most once per row, the entry count must
-// match nnz, and nothing may follow the n-th row. With k > 0 every row must hold exactly k entries and
-// the header must satisfy nnz == n * k. Returns {ia, ja} with ia 0-based.
+// match nnz, and nothing may follow the n-th row. With k > 0 every row must hold exactly k entries
+// and the header must satisfy nnz == n * k. Returns {ia, ja} with ia 0-based.
 template <class I = std::int32_t>
-std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fname,
-                                                         int k = 0)
-{
-    static_assert(std::is_integral_v<I> && std::is_signed_v<I>, "index type must be a signed integer");
+std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fname, int k = 0) {
+    static_assert(std::is_integral_v<I> && std::is_signed_v<I>,
+                  "index type must be a signed integer");
     assert(k >= 0 && "k must be 0 (ragged rows) or the row length");
     auto in = detail::open_in(fname);
 
@@ -338,44 +362,45 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
             detail::fail(fname, "malformed header, expected: n nnz");
     }
     if (k > 0 && nnz != n * static_cast<std::size_t>(k))
-        detail::fail(fname, "header says " + std::to_string(n) + " rows and "
-                            + std::to_string(nnz) + " entries, inconsistent with k="
-                            + std::to_string(k));
+        detail::fail(fname, "header says " + std::to_string(n) + " rows and " +
+                                std::to_string(nnz) +
+                                " entries, inconsistent with k=" + std::to_string(k));
 
     std::vector<I> ia, ja;
     ia.reserve(n + 1);
     ia.push_back(0);
     ja.reserve(nnz);
-    std::vector<std::size_t> last_row(n, n);   // row in which each index was last seen
+    std::vector<std::size_t> last_row(n, n);  // row in which each index was last seen
 
     for (std::size_t i = 0; i < n; ++i) {
         if (!std::getline(in, line))
-            detail::fail(fname, "header says " + std::to_string(n)
-                                + " rows, found " + std::to_string(i));
+            detail::fail(fname,
+                         "header says " + std::to_string(n) + " rows, found " + std::to_string(i));
         detail::LineCursor c{line};
         std::size_t len = 0;
         for (I j; !c.at_end(); ++len) {
             if (!c.next(j))
-                detail::fail(fname, "row " + std::to_string(i) + ": bad index at \"" + c.here() + "\"");
+                detail::fail(fname,
+                             "row " + std::to_string(i) + ": bad index at \"" + c.here() + "\"");
             if (j < 0 || static_cast<std::size_t>(j) >= n)
-                detail::fail(fname, "row " + std::to_string(i) + ": index " + std::to_string(j)
-                                    + " outside [0, " + std::to_string(n) + "); indices are 0-based");
+                detail::fail(fname, "row " + std::to_string(i) + ": index " + std::to_string(j) +
+                                        " outside [0, " + std::to_string(n) +
+                                        "); indices are 0-based");
             if (last_row[j] == i)
-                detail::fail(fname, "row " + std::to_string(i) + ": index " + std::to_string(j)
-                                    + " listed twice");
+                detail::fail(fname, "row " + std::to_string(i) + ": index " + std::to_string(j) +
+                                        " listed twice");
             last_row[j] = i;
             ja.push_back(j);
         }
-        if (len == 0)
-            detail::fail(fname, "row " + std::to_string(i) + " has no entries");
+        if (len == 0) detail::fail(fname, "row " + std::to_string(i) + " has no entries");
         if (k > 0 && len != static_cast<std::size_t>(k))
-            detail::fail(fname, "row " + std::to_string(i) + " has " + std::to_string(len)
-                                + " entries, expected k=" + std::to_string(k));
+            detail::fail(fname, "row " + std::to_string(i) + " has " + std::to_string(len) +
+                                    " entries, expected k=" + std::to_string(k));
         ia.push_back(static_cast<I>(ja.size()));
     }
     if (ja.size() != nnz)
-        detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
-                            + std::to_string(ja.size()));
+        detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found " +
+                                std::to_string(ja.size()));
     in >> std::ws;
     if (!in.eof()) detail::fail(fname, "unexpected data after row " + std::to_string(n - 1));
     return {std::move(ia), std::move(ja)};
@@ -393,12 +418,13 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
 // The values must form a permutation of 0 .. n-1: an index out of range or
 // listed twice is an error.
 template <class I = std::int32_t>
-std::vector<I> read_ordering(const std::string& fname)
-{
-    static_assert(std::is_integral_v<I> && std::is_signed_v<I>, "index type must be a signed integer");
+std::vector<I> read_ordering(const std::string& fname) {
+    static_assert(std::is_integral_v<I> && std::is_signed_v<I>,
+                  "index type must be a signed integer");
     auto in = detail::open_in(fname);
     std::vector<I> iperm;
-    for (I v; in >> v; ) iperm.push_back(v);
+    for (I v; in >> v;)
+        iperm.push_back(v);
     if (!in.eof())
         detail::fail(fname, "line " + std::to_string(iperm.size() + 1) + ": not an integer");
 
@@ -407,11 +433,11 @@ std::vector<I> read_ordering(const std::string& fname)
     for (std::size_t i = 0; i < n; ++i) {
         const I v = iperm[i];
         if (v < 0 || static_cast<std::size_t>(v) >= n)
-            detail::fail(fname, "line " + std::to_string(i + 1) + ": index "
-                                + std::to_string(v) + " outside [0, " + std::to_string(n) + ")");
+            detail::fail(fname, "line " + std::to_string(i + 1) + ": index " + std::to_string(v) +
+                                    " outside [0, " + std::to_string(n) + ")");
         if (seen[v])
-            detail::fail(fname, "line " + std::to_string(i + 1) + ": index "
-                                + std::to_string(v) + " appears twice");
+            detail::fail(fname, "line " + std::to_string(i + 1) + ": index " + std::to_string(v) +
+                                    " appears twice");
         seen[v] = 1;
     }
     return iperm;
@@ -419,19 +445,20 @@ std::vector<I> read_ordering(const std::string& fname)
 
 // Inverse of read_ordering: iperm[i] is the new index of node i.
 template <class I>
-void write_ordering(const std::string& fname, std::size_t n, const I* iperm)
-{
+void write_ordering(const std::string& fname, std::size_t n, const I* iperm) {
     static_assert(std::is_integral_v<I>, "index type must be integral");
 #ifndef NDEBUG
     std::vector<char> seen(n, 0);
     for (std::size_t i = 0; i < n; ++i) {
-        assert(iperm[i] >= 0 && static_cast<std::size_t>(iperm[i]) < n && "iperm index out of range");
+        assert(iperm[i] >= 0 && static_cast<std::size_t>(iperm[i]) < n &&
+               "iperm index out of range");
         assert(!seen[iperm[i]] && "iperm index listed twice: not a permutation");
         seen[iperm[i]] = 1;
     }
 #endif
     auto out = detail::open_out(fname);
-    for (std::size_t i = 0; i < n; ++i) out << iperm[i] << '\n';
+    for (std::size_t i = 0; i < n; ++i)
+        out << iperm[i] << '\n';
 }
 
 // ---------------------------------------------------------------------------
@@ -454,10 +481,12 @@ void write_ordering(const std::string& fname, std::size_t n, const I* iperm)
 // assembly, or to compare stencil graphs without the weights.
 template <class T, class I>
 void write_matrix_market(const std::string& fname,
-                         std::size_t rows, std::size_t cols,
-                         const I* ia, const I* ja, const T* a,
-                         int csr_base = 0)
-{
+                         std::size_t rows,
+                         std::size_t cols,
+                         const I* ia,
+                         const I* ja,
+                         const T* a,
+                         int csr_base = 0) {
     static_assert(std::is_integral_v<I>, "index type must be integral");
     static_assert(std::is_floating_point_v<T>, "value type must be floating point");
     using detail::num;
@@ -467,8 +496,8 @@ void write_matrix_market(const std::string& fname,
     for (std::size_t i = 0; i < rows; ++i) {
         assert(ia[i + 1] >= ia[i] && "ia is not non-decreasing");
         for (I k = ia[i] - csr_base; k < ia[i + 1] - csr_base; ++k)
-            assert(ja[k] >= csr_base && static_cast<std::size_t>(ja[k] - csr_base) < cols
-                   && "ja column out of range");
+            assert(ja[k] >= csr_base && static_cast<std::size_t>(ja[k] - csr_base) < cols &&
+                   "ja column out of range");
     }
 #endif
     auto out = detail::open_out(fname);
@@ -485,13 +514,14 @@ void write_matrix_market(const std::string& fname,
 // Sparsity pattern only, without having to name a value type at the call site.
 template <class I>
 void write_matrix_market_pattern(const std::string& fname,
-                                 std::size_t rows, std::size_t cols,
-                                 const I* ia, const I* ja,
-                                 int csr_base = 0)
-{
+                                 std::size_t rows,
+                                 std::size_t cols,
+                                 const I* ia,
+                                 const I* ja,
+                                 int csr_base = 0) {
     write_matrix_market<double, I>(fname, rows, cols, ia, ja, nullptr, csr_base);
 }
 
-} // namespace rbf::io
+}  // namespace rbf::io
 
-#endif // RBF_IO_H
+#endif  // RBF_IO_H

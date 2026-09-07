@@ -65,6 +65,7 @@ export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
 ```
 
 Documentation:
+- [docs/developers.md](docs/developers.md): notes for developers
 - [docs/nodeset.md](docs/nodeset.md): the `NodeSet` class, its
   renumbering and the stencil search
 - [docs/spatial.md](docs/spatial.md): `rbf::spatial`, the periodic box

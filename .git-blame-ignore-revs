@@ -1,0 +1,5 @@
+# Commits git blame should look past, with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Apply clang-format to the C++ and CUDA sources
+b410271709877727b879d14b117d0aad60487a66

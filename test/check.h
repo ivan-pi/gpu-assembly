@@ -7,11 +7,13 @@
 
 static int failures = 0;
 
-#define CHECK(cond) \
-    do { if (!(cond)) { \
-        std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
-        ++failures; \
-    } } while (0)
+#define CHECK(cond)                                                     \
+    do {                                                                \
+        if (!(cond)) {                                                  \
+            std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+            ++failures;                                                 \
+        }                                                               \
+    } while (0)
 
 static int report(const char* suite) {
     if (failures) {
@@ -22,4 +24,4 @@ static int report(const char* suite) {
     return 0;
 }
 
-#endif // RBF_TEST_CHECK_H
+#endif  // RBF_TEST_CHECK_H

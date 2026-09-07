@@ -47,8 +47,10 @@ pip install -e "data[tools,reorder]"
 
 The Python is formatted with [Black](https://black.readthedocs.io/) and
 its imports sorted and checked with [Ruff](https://docs.astral.sh/ruff/),
-with the settings in `pyproject.toml`; CI checks both. Before
-committing, from this directory:
+with the settings in `pyproject.toml`; CI checks both, through the
+pre-commit configuration at the repository root (see
+[docs/developers.md](../docs/developers.md)). By hand, from this
+directory:
 
 ```
 pip install black ruff
