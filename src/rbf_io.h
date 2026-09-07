@@ -32,6 +32,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -83,11 +84,25 @@ struct LineCursor {
     void skip_ws() { while (p != end && ws(*p)) ++p; }
     bool at_end() { skip_ws(); return p == end; }
 
+    // Reals are parsed as double and converted, so a value below the float
+    // range reads as 0 rather than failing; integers are parsed in their own
+    // type, so an out-of-range index is an error.
     template <class V>
     bool next(V& v) {
         skip_ws();
-        const auto [q, ec] = std::from_chars(p, end, v);
-        if (ec != std::errc{} || (q != end && !ws(*q))) return false;
+        const char* q;
+        if constexpr (std::is_floating_point_v<V>) {
+            double d;
+            const auto r = std::from_chars(p, end, d);
+            if (r.ec != std::errc{}) return false;
+            v = static_cast<V>(d);
+            q = r.ptr;
+        } else {
+            const auto r = std::from_chars(p, end, v);
+            if (r.ec != std::errc{}) return false;
+            q = r.ptr;
+        }
+        if (q != end && !ws(*q)) return false;
         p = q;
         return true;
     }
