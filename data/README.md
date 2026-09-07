@@ -59,3 +59,23 @@ Scripts that produced a case go in `gen/`.
   refined towards the walls in three levels, as a `.node` file with
   markers for the four walls and the corners. Needs numpy; `--plot`
   needs matplotlib.
+
+## Inspecting
+
+`tools/inspect_points.py` reads a points or node file, a graph file and
+an ordering file, checks them (counts against the headers, indices in
+range, no node twice in a stencil, the ordering a permutation, the same
+node count across the files) and prints the node count, the markers, the
+bounding box, nearest-neighbour statistics and, for a graph, the row
+lengths, symmetry and bandwidth. `--plot` draws the nodes by marker,
+with `--labels` for the indices and `--stencil` for the stencils of
+chosen nodes; `--spy` draws the sparsity pattern, before and after an
+ordering file if one is given. It never writes the files.
+
+```
+python3 tools/inspect_points.py wright_square_hole_892.node --plot
+python3 tools/inspect_points.py poisson_32_21.points poisson_32_21.graph --periodic 32 32 --spy
+```
+
+Needs numpy; scipy and matplotlib are optional, for speed and the
+figures. `--help` lists the options.
