@@ -200,7 +200,7 @@ def main():
     m = markers(pts, Lx, Ly)
 
     if args.output.endswith(".points"):
-        write_points(args.output, pts)           # the format has no comments
+        write_points(args.output, pts)           # the format has no comments or markers
     else:
         write_node(args.output, pts, m,
                    f"produced by cavity_refined.py --distribution {args.distribution} "
