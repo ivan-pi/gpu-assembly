@@ -24,8 +24,12 @@ Export the MathDx path:
 export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
 ```
 
-The file formats the library reads and writes are described in
-[docs/file_formats.md](docs/file_formats.md).
+Documentation:
+- [docs/file_formats.md](docs/file_formats.md): the file formats the
+  library reads and writes
+- [docs/periodic_benchmarks.md](docs/periodic_benchmarks.md): the
+  analytic periodic flow fields in `examples/`, for verifying a lattice
+  Boltzmann implementation
 
 References:
 - [RBF-FD Stencil Sizer](https://ivan-pi.github.io/tools/rbf_fd_stencil_sizer.html)

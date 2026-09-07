@@ -20,10 +20,14 @@ add_library(nanoflann INTERFACE)
 target_include_directories(nanoflann INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanoflann)
 
-# Host library: the Fortran curve-key module plus the header-only C++
-# parts (rbf_reorder.h, rbf_nodeset.h, rbf_io.h). Consumers get the
-# include paths and the Fortran runtime by linking `rbf`.
-add_library(rbf STATIC src/rbf_ordering.F90)
+# Host library: the Fortran curve-key, precision and periodic-box
+# modules plus the header-only C++ parts (rbf_reorder.h, rbf_nodeset.h,
+# rbf_io.h). Consumers get the include paths and the Fortran runtime by
+# linking `rbf`.
+add_library(rbf STATIC
+    src/rbf_ordering.F90
+    src/rbf_precision.f90
+    src/rbf_periodic_box.f90)
 target_include_directories(rbf PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(rbf PUBLIC nanoflann)
 if(OpenMP_Fortran_FOUND)
