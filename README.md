@@ -25,6 +25,10 @@ export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
 ```
 
 Documentation:
+- [docs/nodeset.md](docs/nodeset.md): the `NodeSet` class, its
+  renumbering and the stencil search
+- [docs/renumbering.md](docs/renumbering.md): permutations,
+  space-filling-curve orderings and graph renumbering
 - [docs/file_formats.md](docs/file_formats.md): the file formats the
   library reads and writes
 - [docs/periodic_benchmarks.md](docs/periodic_benchmarks.md): the
