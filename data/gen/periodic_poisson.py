@@ -34,8 +34,8 @@ import numpy as np
 from pointclouds import stencils
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_graph, write_node, write_points
-from pointclouds.markers import HOLE, INTERIOR, MARKER_STYLE
 from pointclouds.poisson import PoissonDisk, wrap
+from pointclouds.stencils import MARKERS
 
 
 def circle(radius, centre, d):
@@ -60,8 +60,8 @@ def sample(extent, d, candidates, hole, seed):
     inside = np.hypot(*(pts - centre).T) < (hole or 0.0)
     inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
     pts = pts[~inside]
-    m = np.full(len(pts), INTERIOR)
-    m[: len(seeds)] = HOLE
+    m = np.full(len(pts), MARKERS.interior)
+    m[: len(seeds)] = MARKERS.hole
     return pts, m
 
 
@@ -74,7 +74,7 @@ def tiled(pts, m, extent, tiles):
     pts = np.vstack([pts + extent * shift for shift in shifts])
     m = np.tile(m, len(shifts))
     order = np.concatenate(
-        (np.flatnonzero(m != INTERIOR), np.flatnonzero(m == INTERIOR))
+        (np.flatnonzero(m != MARKERS.interior), np.flatnonzero(m == MARKERS.interior))
     )
     return wrap(pts[order], extent * tiles), m[order]
 
@@ -82,7 +82,7 @@ def tiled(pts, m, extent, tiles):
 def plot(pts, m, graph, extent, tiles):
     import matplotlib.pyplot as plt
 
-    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKER_STYLE)
+    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKERS.style)
     if graph:  # one stencil, to see it wrap
         ia, ja = graph
         middle = ja[ia[len(pts) // 2] : ia[len(pts) // 2 + 1]]
@@ -168,7 +168,7 @@ def main():
         "(default: 1 1, the sample alone)",
     )
 
-    stencils.add_options(ap, knn=21, why="as in the poisson_32_21 case")
+    stencils.add_option(ap, default=("knn", 21))
     ap.add_argument(
         "--seed", type=int, help="seed of the sample (default: drawn and reported)"
     )
@@ -210,10 +210,10 @@ def main():
             f"the box is narrower than twice the distance {d:g}: no room for nodes"
         )
 
-    stencil = stencils.from_args(args)
+    method, value = args.stencil
     box = extent * tiles
     if not args.no_graph:
-        problem = stencils.check(stencil, box, True)
+        problem = stencils.check(method, value, box, (True, True))
         if problem:
             ap.error(problem)
     stem, ext = output_stem(args.output, default=".points")
@@ -222,7 +222,9 @@ def main():
         print(f"seed {seed}")
 
     pts, m = tiled(*sample(extent, d, args.candidates, hole, seed), extent, tiles)
-    graph = None if args.no_graph else stencils.search(pts, box, True, stencil)
+    graph = None
+    if not args.no_graph:
+        graph = stencils.select_stencils(pts, box, (True, True), method, value)
 
     if ext == ".node":
         geometry = f"--size {lx:g} {ly:g} --distance {d:g} --tile {tiles[0]} {tiles[1]}"

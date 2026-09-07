@@ -3,7 +3,7 @@
 random amount, with the periodic stencil graph that goes with them.
 
     python3 perturbed_grid.py -n 40 tg_40
-    python3 perturbed_grid.py -n 40 --sigma 0.02 --knn 21 tg_40
+    python3 perturbed_grid.py -n 40 --sigma 0.02 --stencil knn 21 tg_40
     python3 perturbed_grid.py -n 40 --geometry channel poiseuille_40.node
     python3 perturbed_grid.py -n 40 --seed 1234 tg_40
 
@@ -36,9 +36,10 @@ Two geometries differ in what happens at the sides:
 The nodes are written row by row from y = 0 upwards, x fastest, so the
 wall nodes of a channel are the first N and the last N lines of the file.
 
-The stencil of a node is the set of nodes it interpolates from: its k
-nearest neighbours by default, the nodes within a given distance with
---radius, or those within a square with --square. The search knows which
+The stencil of a node is the set of nodes it interpolates from,
+selected by --stencil: its k nearest neighbours (`knn K`, the default
+with the 15 of the reference), the nodes within a distance (`radius
+R`), or the nodes within a square (`range S`). The search knows which
 sides are periodic, so a stencil next to a periodic side reaches around
 it, and every stencil starts with the node itself.
 
@@ -56,7 +57,7 @@ file, with a comment line naming the command and a marker per node
     3  top wall, y = N
 
 The numbering is the one the generators share, counter-clockwise from
-the bottom wall (pointclouds/markers.py), which leaves 2 and 4 for the
+the bottom wall (pointclouds/stencils.py), which leaves 2 and 4 for the
 east and west walls: those sides are periodic here and carry no nodes of
 their own.
 """
@@ -68,8 +69,8 @@ import numpy as np
 from pointclouds import stencils
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_graph, write_node, write_points
-from pointclouds.markers import INTERIOR, MARKER_STYLE, NORTH, SOUTH
 from pointclouds.poisson import wrap
+from pointclouds.stencils import MARKERS
 
 
 def grid(n, periodic):
@@ -79,9 +80,9 @@ def grid(n, periodic):
     y = np.arange(float(n if periodic else n + 1))
     xv, yv = np.meshgrid(x, y)  # row by row, x fastest
     pts = np.column_stack((xv.ravel(), yv.ravel()))
-    m = np.full(len(pts), INTERIOR)
+    m = np.full(len(pts), MARKERS.interior)
     if not periodic:
-        m[:n], m[len(pts) - n :] = SOUTH, NORTH
+        m[:n], m[len(pts) - n :] = MARKERS.south, MARKERS.north
     return pts, m
 
 
@@ -89,7 +90,7 @@ def perturb(pts, m, sigma, box, periodic, rng):
     """Every coordinate displaced by up to sigma spacings, except the one
     across the wall, which would take a wall node off its wall."""
     d = rng.uniform(-sigma, sigma, pts.shape)
-    d[m != INTERIOR, 1] = 0.0
+    d[m != MARKERS.interior, 1] = 0.0
     pts = pts + d
     pts[:, 0] = wrap(pts[:, 0], box)
     if periodic:
@@ -102,7 +103,7 @@ def perturb(pts, m, sigma, box, periodic, rng):
 def plot(pts, m, graph):
     import matplotlib.pyplot as plt
 
-    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKER_STYLE)
+    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKERS.style)
     if graph:  # one stencil, to see it wrap
         ia, ja = graph
         middle = ja[ia[len(pts) // 2] : ia[len(pts) // 2 + 1]]
@@ -161,7 +162,7 @@ def main():
         "and periodic in x (default: periodic)",
     )
 
-    stencils.add_options(ap, knn=15, why="the stencil size of the reference")
+    stencils.add_option(ap, default=("knn", 15))
     ap.add_argument(
         "--seed", type=int, help="seed of the grid (default: drawn and reported)"
     )
@@ -186,9 +187,9 @@ def main():
             f"and nodes may end up on top of each other"
         )
 
-    stencil = stencils.from_args(args)
+    method, value = args.stencil
     if not args.no_graph:
-        problem = stencils.check(stencil, extent, wraps)
+        problem = stencils.check(method, value, extent, wraps)
         if problem:
             ap.error(problem)
     stem, ext = output_stem(args.output, default=".points")
@@ -198,7 +199,9 @@ def main():
 
     pts0, m = grid(n, periodic)
     pts = perturb(pts0, m, sigma, box, periodic, np.random.default_rng(seed))
-    graph = None if args.no_graph else stencils.search(pts, extent, wraps, stencil)
+    graph = None
+    if not args.no_graph:
+        graph = stencils.select_stencils(pts, extent, wraps, method, value)
 
     if ext == ".node":
         geometry = f"-n {n} --sigma {sigma:g} --geometry {args.geometry}"

@@ -1,127 +1,164 @@
-"""The stencil search the generators in data/gen share. The stencil of a
-node is the set of nodes it interpolates from: its k nearest neighbours,
-the nodes within a distance, or those within a square, found by scipy's
-k-d tree over a box periodic in either axis, so that a stencil next to a
-periodic side reaches around it. Every stencil starts with the node
-itself, which is what the graph file expects (docs/file_formats.md), and
-the stencils come back in the CSR form the readers use: (ia, ja), with
-the stencil of node i at ja[ia[i]:ia[i + 1]].
+"""Stencil selection for the generators in data/gen. The stencil of a
+node is the set of nodes it interpolates from, and there are three ways
+to select it: its k nearest neighbours (knn), the nodes within a
+distance of it (radius), or the nodes within a distance of it along
+both axes, a square, which is an orthogonal range search (range).
+scipy's k-d tree does the searching, over a box periodic in either
+axis, so that a stencil next to a periodic side reaches around it.
+Every stencil starts with the node itself, which is what the graph file
+expects (docs/file_formats.md), and the stencils come back in the CSR
+form the readers use: (ia, ja), with the stencil of node i at
+ja[ia[i]:ia[i + 1]].
 
-A generator adds the three options that pick one with `add_options`,
-reads the choice back with `from_args`, checks it against its box with
-`check`, and runs `search` on every cloud it makes:
+A generator offers the choice as one option, --stencil METHOD VALUE,
+checks it against its box, and selects the stencils of the cloud:
 
-    add_options(parser, knn=15)
+    add_option(parser, default=("knn", 15))
     ...
-    stencil = from_args(args)
-    problem = check(stencil, extent, periodic)
+    method, value = args.stencil
+    problem = check(method, value, extent, periodic)
     if problem:
         parser.error(problem)
     ...
-    ia, ja = search(pts, extent, periodic, stencil)
+    ia, ja = select_stencils(pts, extent, periodic, method, value)
+
+The module also fixes the boundary markers of the node files, the
+convention the generators share: MARKERS.interior is 0, the walls are
+numbered counter-clockwise from the bottom, then the corners of a
+cavity, then a hole in the interior, and MARKERS.style colours them the
+same in the --plot of every generator.
 """
 
+import argparse
 from collections import namedtuple
 
 import numpy as np
 
-from .cli import number
+METHODS = ("knn", "radius", "range")
 
-__all__ = ["Stencil", "add_options", "from_args", "check", "search"]
-
-
-# A choice of stencil: kind is "knn", "radius" or "square", and reach the
-# k of knn or the distance of the other two.
-Stencil = namedtuple("Stencil", "kind reach")
+Markers = namedtuple("Markers", "interior south east north west corner hole style")
+MARKERS = Markers(0, 1, 2, 3, 4, 5, 6, style=dict(cmap="tab10", vmin=0, vmax=9))
 
 
-def add_options(ap, knn, why=""):
-    """--knn, --radius and --square, mutually exclusive, on the parser;
-    `knn` is the stencil size used when none is given, and `why` says
-    where it comes from, in the help."""
-    group = ap.add_mutually_exclusive_group()
-    group.add_argument(
-        "--knn",
-        type=number(int, least=1),
-        default=knn,
-        metavar="K",
-        help=f"stencil of the K nearest nodes (default: {knn}{', ' + why if why else ''})",
-    )
-    group.add_argument(
-        "--radius",
-        type=number(float, above=0.0),
-        metavar="R",
-        help="stencil of the nodes within a distance R",
-    )
-    group.add_argument(
-        "--square",
-        type=number(float, above=0.0),
-        metavar="S",
-        help="stencil of the nodes within S in both x and y, a square of side 2 S",
+def add_option(ap, default):
+    """--stencil METHOD VALUE on the parser, `default` being the
+    (method, value) pair used when it is not given."""
+    ap.add_argument(
+        "--stencil",
+        action=StencilOption,
+        nargs=2,
+        default=default,
+        metavar=("METHOD", "VALUE"),
+        help="how the stencil of a node is selected: knn K, its K nearest "
+        "nodes; radius R, the nodes within a distance R of it; range S, the "
+        "nodes within S of it along both axes, a square of side 2 S "
+        f"(default: {default[0]} {default[1]})",
     )
 
 
-def from_args(args):
-    """The Stencil the parsed options ask for."""
-    if args.radius is not None:
-        return Stencil("radius", args.radius)
-    if args.square is not None:
-        return Stencil("square", args.square)
-    return Stencil("knn", args.knn)
+class StencilOption(argparse.Action):
+    """--stencil METHOD VALUE as parsed: the pair (method, value), with
+    the value an int for knn and a float for the other methods, checked
+    the way argparse checks a type."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        method, text = values
+        try:
+            value = parse_value(method, text)
+        except ValueError as e:
+            raise argparse.ArgumentError(self, str(e))
+        setattr(namespace, self.dest, (method, value))
 
 
-def check(stencil, extent, periodic):
-    """What is wrong with the stencil on the box `extent`, periodic per
-    axis as `periodic` says, or None: along a periodic axis a stencil
-    cannot reach more than half way around, since beyond that a node
-    meets its own image, which its stencil cannot hold twice."""
-    kind, reach = stencil
-    periodic = np.broadcast_to(np.asarray(periodic, bool), 2)
-    if kind == "knn" or not periodic.any():
+def parse_value(method, text):
+    """The VALUE of --stencil for METHOD, or ValueError saying what is
+    wrong with either."""
+    if method not in METHODS:
+        raise ValueError(f"the method is one of {', '.join(METHODS)}, not '{method}'")
+    if method == "knn":
+        if not text.isdigit() or int(text) < 1:
+            raise ValueError(f"knn takes a number of nodes, at least 1, not '{text}'")
+        return int(text)
+    try:
+        value = float(text)
+    except ValueError:
+        raise ValueError(f"{method} takes a distance, not '{text}'") from None
+    if value <= 0:
+        raise ValueError(f"{method} takes a positive distance, not {text}")
+    return value
+
+
+def check(method, value, extent, periodic):
+    """What is wrong with the selection on the box `extent` = (Lx, Ly),
+    with `periodic` = (px, py) saying which axes wrap, or None: along a
+    periodic axis a stencil cannot reach more than half way around,
+    since beyond that a node meets its own image, which its stencil
+    cannot hold twice."""
+    if method == "knn":
         return None
-    half = 0.5 * np.asarray(extent, float)[periodic].min()
-    if reach > half:
+    half = min((L for L, p in zip(extent, periodic) if p), default=np.inf) / 2
+    if value > half:
         return (
-            f"--{kind} {reach:g} reaches more than half way around the box, "
-            f"which is {2 * half:g} across: at most {half:g}"
+            f"--stencil {method} {value:g} reaches more than half way around "
+            f"the box, which is {2 * half:g} across: at most {half:g}"
         )
     return None
 
 
-def search(pts, extent, periodic, stencil):
-    """The stencils of all nodes of `pts` in CSR form, (ia, ja), the node
-    itself first in each. `extent` is the box (Lx, Ly) and `periodic`
-    says per axis, or for both at once, whether the search wraps around
-    it. Raises ValueError for a stencil larger than the cloud, and when
-    two nodes coincide, which no stencil can tell apart."""
+def select_stencils(pts, extent, periodic, method, value, order="distance"):
+    """The stencils of all nodes of `pts` in CSR form, (ia, ja): the node
+    itself first in each, then its neighbours nearest first, or by index
+    with order="index". `extent` is the box (Lx, Ly) and `periodic` =
+    (px, py) says which axes the search wraps around. Raises ValueError
+    when two nodes coincide, which no stencil can tell apart."""
     from scipy.spatial import cKDTree
 
-    n = len(pts)
-    kind, reach = stencil
-    periodic = np.broadcast_to(np.asarray(periodic, bool), 2)
-    tree = cKDTree(pts, boxsize=np.where(periodic, np.asarray(extent, float), 0.0))
-    if kind == "knn":
-        if reach > n:
-            raise ValueError(
-                f"a stencil of {reach} nodes is larger than the cloud of {n}"
-            )
-        dist, adj = tree.query(pts, max(reach, 2), workers=-1)  # two, to see a twin
-        _refuse_twins(dist, adj)
-        return np.arange(0, n * reach + 1, reach), adj[:, :reach].ravel()
-    _refuse_twins(*tree.query(pts, 2, workers=-1))
-    norm = np.inf if kind == "square" else 2  # the max norm bounds a square
-    pairs = tree.sparse_distance_matrix(tree, reach, p=norm, output_type="coo_matrix")
+    if order not in ("distance", "index"):
+        raise ValueError(f"order is 'distance' or 'index', not '{order}'")
+    tree = cKDTree(pts, boxsize=[L if p else 0.0 for L, p in zip(extent, periodic)])
+    if method == "knn":
+        return nearest(tree, value, order)
+    if method == "radius":
+        return within(tree, value, 2, order)
+    if method == "range":
+        return within(tree, value, np.inf, order)  # the max norm bounds a square
+    raise ValueError(f"the method is one of {', '.join(METHODS)}, not '{method}'")
+
+
+def nearest(tree, k, order):
+    """The k nearest nodes of every node of the tree, itself first."""
+    n = tree.n
+    assert k <= n, "a stencil larger than the cloud"
+    dist, adj = tree.query(tree.data, max(k, 2), workers=-1)  # two, to see a twin
+    refuse_twins(dist, adj)
+    adj = adj[:, :k]
+    if order == "index":
+        adj[:, 1:] = np.sort(adj[:, 1:], axis=1)
+    return np.arange(0, n * k + 1, k), adj.ravel()
+
+
+def within(tree, distance, p, order):
+    """The nodes within `distance` of every node of the tree in the
+    p-norm, itself first, from the sparse matrix of all pairs of nodes
+    that close."""
+    n = tree.n
+    refuse_twins(*tree.query(tree.data, 2, workers=-1))
+    pairs = tree.sparse_distance_matrix(tree, distance, p=p, output_type="coo_matrix")
     keep = pairs.row != pairs.col  # the node itself goes first instead
-    row, col = pairs.row[keep], pairs.col[keep]
-    order = np.lexsort((col, row))  # by node, then by neighbour index
-    row, col = row[order], col[order]
+    row, col, dist = pairs.row[keep], pairs.col[keep], pairs.data[keep]
+    if order == "distance":
+        o = np.lexsort((col, dist, row))  # by node, then by distance, then by index
+    else:
+        o = np.lexsort((col, row))  # by node, then by index
+    row, col = row[o], col[o]
     first = np.searchsorted(row, np.arange(n + 1))  # where each node's pairs start
     return first + np.arange(n + 1), np.insert(col, first[:-1], np.arange(n))
 
 
-def _refuse_twins(dist, adj):
-    """ValueError on a node whose second-nearest is at distance zero."""
+def refuse_twins(dist, adj):
+    """ValueError on a node whose second-nearest is at distance zero; the
+    two at that distance are the first two of its row, in either order."""
     same = np.flatnonzero(dist[:, 1] == 0)
     if same.size:
-        i = int(same[0])
-        raise ValueError(f"nodes {i} and {int(adj[i, 1])} coincide")
+        i, j = sorted(adj[same[0], :2].tolist())
+        raise ValueError(f"nodes {i} and {j} coincide")

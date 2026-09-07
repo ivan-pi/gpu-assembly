@@ -100,11 +100,12 @@ Marker 0 is an interior node in all of them.
 
 Scripts that produced a case go in `gen/`, and what they share with the
 tools in the `pointclouds` package, laid out like the C++ library:
-`pointclouds.io` reads and writes the formats above, `pointclouds.markers`
-fixes the boundary-marker convention, `pointclouds.cli` the command-line
-conventions, and `pointclouds.stencils` the stencil search with the three
-options that pick one (`--knn`, `--radius`, `--square`), which wraps
-around the periodic sides of a box. `pointclouds.poisson` fills a
+`pointclouds.io` reads and writes the formats above, `pointclouds.cli`
+the command-line conventions, and `pointclouds.stencils` the selection
+of the stencils, by nearest neighbours, radius or range, as the one
+option `--stencil METHOD VALUE` offers it, with a search that wraps
+around the periodic sides of a box, and the boundary-marker convention
+of the node files. `pointclouds.poisson` fills a
 rectangle with points no two of which are closer than a radius, with
 either axis periodic or neither, from seed points if given, in whatever
 units the extent and the radius come in; its interface follows

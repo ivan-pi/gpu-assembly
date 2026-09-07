@@ -50,7 +50,7 @@ Boundary markers (docs/file_formats.md, node file):
     5  corner, where two walls meet
 
 The walls are numbered counter-clockwise from the bottom, the numbering
-the generators share (pointclouds/markers.py). The corners get
+the generators share (pointclouds/stencils.py). The corners get
 their own marker because a corner node belongs to two walls with, in the
 cavity, different boundary data: the lid velocity meets the wall's no-slip.
 Whoever assembles the boundary conditions decides what a corner gets.
@@ -68,7 +68,7 @@ import numpy as np
 
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_node, write_points
-from pointclouds.markers import CORNER, EAST, INTERIOR, MARKER_STYLE, NORTH, SOUTH, WEST
+from pointclouds.stencils import MARKERS
 
 SPACINGS = (1.0, 1.5, 2.5)  # at the wall, in the second band, in the middle
 
@@ -145,16 +145,16 @@ def graded_coordinate(L, levels):
 def grid(Lx, Ly, levels):
     x, y = np.meshgrid(graded_coordinate(Lx, levels), graded_coordinate(Ly, levels))
     pts = np.column_stack((x.ravel(), y.ravel()))
-    on_wall = markers(pts, Lx, Ly) != INTERIOR
+    on_wall = markers(pts, Lx, Ly) != MARKERS.interior
     return np.vstack((pts[on_wall], pts[~on_wall]))
 
 
 def markers(pts, Lx, Ly):
     x, y = pts[:, 0], pts[:, 1]
     s, e, n, w = y < TOL, x > Lx - TOL, y > Ly - TOL, x < TOL
-    m = np.full(len(pts), INTERIOR)
-    m[s], m[e], m[n], m[w] = SOUTH, EAST, NORTH, WEST
-    m[(s | n) & (e | w)] = CORNER
+    m = np.full(len(pts), MARKERS.interior)
+    m[s], m[e], m[n], m[w] = MARKERS.south, MARKERS.east, MARKERS.north, MARKERS.west
+    m[(s | n) & (e | w)] = MARKERS.corner
     return m
 
 
@@ -240,7 +240,7 @@ def main():
     if args.plot:
         import matplotlib.pyplot as plt
 
-        plt.scatter(pts[:, 0], pts[:, 1], c=m, s=4, **MARKER_STYLE)
+        plt.scatter(pts[:, 0], pts[:, 1], c=m, s=4, **MARKERS.style)
         plt.axis("equal")
         plt.show()
 
