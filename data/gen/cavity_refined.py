@@ -74,6 +74,20 @@ SPACINGS = (1.0, 1.5, 2.5)     # at the wall, in the second band, in the middle
 
 INTERIOR, SOUTH, EAST, NORTH, WEST, CORNER = 0, 1, 2, 3, 4, 5
 
+
+def number(kind, least=None, above=None):
+    """An argparse type that also carries a bound: argparse turns the
+    ArgumentTypeError into its own usage message, naming the option."""
+    def parse(text):
+        value = kind(text)                       # a ValueError here: "invalid int"
+        if least is not None and value < least:
+            raise argparse.ArgumentTypeError(f"must be at least {least:g}")
+        if above is not None and value <= above:
+            raise argparse.ArgumentTypeError(f"must be greater than {above:g}")
+        return value
+    parse.__name__ = kind.__name__               # the name argparse reports
+    return parse
+
 TOL = 1e-9
 
 
@@ -195,20 +209,17 @@ def main():
                     "`-` is standard output")
     ap.add_argument("--distribution", choices=("rings", "grid"), default="rings",
                     help="concentric rectangles, or a tensor-product grid (default: rings)")
-    ap.add_argument("--size", nargs=2, type=float, metavar=("LX", "LY"),
+    ap.add_argument("--size", nargs=2, type=number(float, above=0.0),
+                    metavar=("LX", "LY"),
                     help="sides of the cavity, in the same units as the coordinates "
                          "(default: 10 N by 10 N, which makes the spacing at the "
                          "wall h = 1)")
-    ap.add_argument("-n", "--steps", type=int, default=10, metavar="N",
+    ap.add_argument("-n", "--steps", type=number(int, least=1), default=10, metavar="N",
                     help="spacings across each band (default: 10)")
     ap.add_argument("--plot", action="store_true", help="show the cloud, coloured by marker")
     args = ap.parse_args()
-    if args.steps < 1:
-        sys.exit("--steps must be at least 1")
     span = 2 * args.steps * sum(SPACINGS)        # the bands from both walls
     Lx, Ly = (float(span), float(span)) if args.size is None else args.size
-    if min(Lx, Ly) <= 0.0:
-        sys.exit("--size must be positive")
     scale = min(Lx, Ly) / span                   # the shorter side holds the bands
 
     piped = args.output in ("-", "-.node", "-.points")

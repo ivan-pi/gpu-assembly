@@ -79,6 +79,20 @@ from scipy.spatial import cKDTree
 INTERIOR, SOUTH, NORTH = 0, 1, 3
 
 
+def number(kind, least=None, above=None):
+    """An argparse type that also carries a bound: argparse turns the
+    ArgumentTypeError into its own usage message, naming the option."""
+    def parse(text):
+        value = kind(text)                       # a ValueError here: "invalid int"
+        if least is not None and value < least:
+            raise argparse.ArgumentTypeError(f"must be at least {least:g}")
+        if above is not None and value <= above:
+            raise argparse.ArgumentTypeError(f"must be greater than {above:g}")
+        return value
+    parse.__name__ = kind.__name__               # the name argparse reports
+    return parse
+
+
 def grid(n, h, geometry):
     """The Cartesian nodes and their markers: N by N on the periodic box,
     N by N + 1 on the channel, whose last row is the top wall."""
@@ -188,12 +202,13 @@ def main():
     ap.add_argument("output", help="output file: the points file and the graph "
                     "file next to it, or a node file with the markers and the "
                     "graph if the name ends in .node; `-` is standard output")
-    ap.add_argument("-n", "--nodes", type=int, required=True, metavar="N",
+    ap.add_argument("-n", "--nodes", type=number(int, least=2), required=True, metavar="N",
                     help="nodes across the box")
-    ap.add_argument("--size", type=float, metavar="L",
+    ap.add_argument("--size", type=number(float, above=0.0), metavar="L",
                     help="side of the box, in the same units as the coordinates "
                          "(default: N, which makes the spacing h = 1)")
-    ap.add_argument("-s", "--sigma", type=float, default=0.2, metavar="SIGMA",
+    ap.add_argument("-s", "--sigma", type=number(float, least=0.0), default=0.2,
+                    metavar="SIGMA",
                     help="displacement of a node, in spacings: uniform on "
                          "[-SIGMA h, SIGMA h] (default: 0.2)")
     ap.add_argument("-g", "--geometry", choices=("periodic", "channel"),
@@ -202,18 +217,18 @@ def main():
                          "and periodic in x (default: periodic)")
 
     stencil = ap.add_mutually_exclusive_group()
-    stencil.add_argument("--knn", type=int, metavar="K",
+    stencil.add_argument("--knn", type=number(int, least=1), metavar="K",
                          help="stencil of the K nearest nodes (default: 15, the "
                               "stencil size of the reference)")
-    stencil.add_argument("--radius", type=float, metavar="R",
+    stencil.add_argument("--radius", type=number(float, above=0.0), metavar="R",
                          help="stencil of the nodes within R spacings")
-    stencil.add_argument("--square", type=float, metavar="S",
+    stencil.add_argument("--square", type=number(float, above=0.0), metavar="S",
                          help="stencil of the nodes within S spacings in both x "
                               "and y, a square of side 2 S h")
 
     ap.add_argument("--seed", type=int,
                     help="seed of the displacements (default: drawn and reported)")
-    ap.add_argument("--realizations", type=int, default=1, metavar="R",
+    ap.add_argument("--realizations", type=number(int, least=1), default=1, metavar="R",
                     help="independent grids to write, numbered from 0 (default: 1)")
     ap.add_argument("--no-graph", action="store_true",
                     help="write the coordinates only, without the stencil graph")
@@ -222,27 +237,19 @@ def main():
     args = ap.parse_args()
 
     n, sigma = args.nodes, args.sigma
-    if n < 2:
-        sys.exit("-n must be at least 2")
     size = float(n) if args.size is None else args.size    # lattice units by default
-    if size <= 0.0:
-        sys.exit("--size must be positive")
     h = size / n
-    if sigma < 0.0:
-        sys.exit("--sigma must not be negative")
     if sigma >= 0.5:
         print(f"warning: --sigma {sigma:g} moves a node out of its own cell, "
               f"and nodes may end up on top of each other", file=sys.stderr)
     if args.knn is None and args.radius is None and args.square is None and not args.no_graph:
         args.knn = 15
     for flag, reach in (("--radius", args.radius), ("--square", args.square)):
-        if reach is not None and not 0.0 < reach <= 0.5 * n:
+        if reach is not None and reach > 0.5 * n:
             # Beyond half the box a node is its own neighbour through the
             # periodic side, which the stencil of a node cannot hold twice.
-            sys.exit(f"{flag} must be positive and at most {0.5 * n:g} spacings, "
-                     f"half the width of the box")
-    if args.realizations < 1:
-        sys.exit("--realizations must be at least 1")
+            ap.error(f"{flag} reaches more than half way around the box: at most "
+                     f"{0.5 * n:g} spacings for -n {n}")
 
     seed = np.random.SeedSequence().entropy if args.seed is None else args.seed
     streams = np.random.SeedSequence(seed).spawn(args.realizations)
@@ -254,10 +261,10 @@ def main():
 
     piped = base == "-"                          # `-`, `-.points` or `-.node`
     if piped and not args.no_graph:
-        sys.exit("only one file fits down a pipe: add --no-graph to write the "
+        ap.error("only one file fits down a pipe: add --no-graph to write the "
                  "coordinates to standard output, or name a file for the pair")
     if piped and args.realizations > 1:
-        sys.exit("a series needs file names to go in: --realizations cannot "
+        ap.error("a series needs file names to go in: --realizations cannot "
                  "write to standard output")
     report = sys.stderr if piped else sys.stdout
 
@@ -268,8 +275,8 @@ def main():
     size_flag = "" if args.size is None else f"--size {size:g} "
 
     pts0, m = grid(n, h, args.geometry)
-    if args.knn is not None and not 1 <= args.knn <= len(pts0) and not args.no_graph:
-        sys.exit(f"--knn must be at least 1 and at most {len(pts0)}, the number of nodes")
+    if args.knn is not None and args.knn > len(pts0) and not args.no_graph:
+        ap.error(f"--knn is larger than the {len(pts0)} nodes of the grid")
     if args.seed is None:
         print(f"seed {seed}", file=report)
 
