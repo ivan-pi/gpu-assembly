@@ -15,7 +15,7 @@ The host library and its tests:
 - (optional) OpenMP, for host parallelism and, in a future version,
   target offload
 - [nanoflann](https://github.com/jlblancoc/nanoflann), vendored under
-  `third_party/`, so there is nothing to install
+  `third_party/`
 
 The GPU parts additionally:
 
