@@ -13,11 +13,11 @@ extension, so one stem names the whole case: `case.points` and
 import contextlib
 import sys
 
+
 def open_out(stem, ext):
     """The file this stem and extension name, or standard output for `-`,
     which stays open."""
-    return (contextlib.nullcontext(sys.stdout) if stem == "-"
-            else open(stem + ext, "w"))
+    return contextlib.nullcontext(sys.stdout) if stem == "-" else open(stem + ext, "w")
 
 
 def write_points(stem, pts):
@@ -25,7 +25,7 @@ def write_points(stem, pts):
     with open_out(stem, ".points") as f:
         f.write(f"{len(pts)}\n")
         for x, y in pts.tolist():
-            f.write(f"{x!r} {y!r}\n")            # repr: shortest round-trip text
+            f.write(f"{x!r} {y!r}\n")  # repr: shortest round-trip text
 
 
 def write_node(stem, pts, m, provenance):

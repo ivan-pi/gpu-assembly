@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A new push to the same branch or pull request supersedes the run in
+# progress; nobody waits on results for a commit that is already gone.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   host-tests:
     name: ${{ matrix.name }}

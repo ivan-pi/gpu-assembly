@@ -1,0 +1,35 @@
+name: Python style
+
+# The Python under data/: Black's formatting and Ruff's lint and import
+# order, with the settings in data/pyproject.toml. Kept apart from the
+# build so that a stray blank line fails fast and on its own.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-style:
+    name: black / ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install black ruff
+
+      - name: Check
+        working-directory: data
+        run: |
+          black --check --diff .
+          ruff check .

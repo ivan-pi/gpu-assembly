@@ -18,14 +18,16 @@ import argparse
 
 def number(kind, least=None, above=None):
     """An argparse type that also carries a bound."""
+
     def parse(text):
-        value = kind(text)                       # a ValueError here: "invalid int"
+        value = kind(text)  # a ValueError here: "invalid int"
         if least is not None and value < least:
             raise argparse.ArgumentTypeError(f"must be at least {least:g}")
         if above is not None and value <= above:
             raise argparse.ArgumentTypeError(f"must be greater than {above:g}")
         return value
-    parse.__name__ = kind.__name__               # the name argparse reports
+
+    parse.__name__ = kind.__name__  # the name argparse reports
     return parse
 
 
