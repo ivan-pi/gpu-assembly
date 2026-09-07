@@ -30,11 +30,20 @@
  * The other two (shear_layer, barotropic_vortex) are initial conditions
  * only and take no time argument.
  *
+ * Every constructor asserts the constraints its formulas rely on (a
+ * positive viscosity, wave numbers that are not both zero, ...), and the
+ * decaying cases assert a non-negative time, since a benchmark starts
+ * from the initial field. The checks follow the rest of the library and
+ * compile out with NDEBUG.
+ *
  * For a box of side L the wave numbers must be integer multiples of
- * 2*pi/L for the field to be periodic.
+ * 2*pi/L for the field to be periodic. The cases do not know the box,
+ * so `wavenumber(n, L)` builds such a wave number from a mode number,
+ * and the wavy cases answer `periodic(Lx, Ly)` for the caller to assert.
  */
 
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <tuple>
 
@@ -42,6 +51,21 @@ namespace flow_benchmarks {
 
 template<typename T>
 inline constexpr T pi = T(3.141592653589793238462643383279502884L);
+
+// Wave number of the n-th mode on a box of side L
+template<typename T>
+T wavenumber(int n, T L) {
+    assert(L > 0 && "box side must be positive");
+    return 2*pi<T>*n/L;
+}
+
+// Whether the wave number k fits an integer number of periods in L
+template<typename T>
+bool periodic(T k, T L, T tol = T(1e-10)) {
+    assert(L > 0 && "box side must be positive");
+    const T n = k*L/(2*pi<T>);
+    return std::abs(n - std::round(n)) <= tol*std::max(T(1), std::abs(n));
+}
 
 
 /*
@@ -63,18 +87,38 @@ template<typename T>
 struct shear_wave {
 
     T kx, ky, nu, u0;
-    T phase{};
+    T phase;
+
+    shear_wave(T kx, T ky, T nu, T u0, T phase = {})
+        : kx(kx), ky(ky), nu(nu), u0(u0), phase(phase)
+    {
+        assert(kx*kx + ky*ky > 0 && "wave vector must not be zero");
+        assert(nu > 0 && "viscosity must be positive");
+    }
 
     T ksqr() const { return kx*kx + ky*ky; }
     T time_constant() const { return T(1.0)/(nu*ksqr()); }
-    T decay_time(T frac) const { return -time_constant()*std::log(frac); }
+    bool periodic(T Lx, T Ly) const {
+        return flow_benchmarks::periodic(kx, Lx) && flow_benchmarks::periodic(ky, Ly);
+    }
+
+    // Time at which the amplitude has dropped to the fraction frac of u0
+    T decay_time(T frac) const {
+        assert(frac > 0 && frac <= 1 && "fraction must be in (0, 1]");
+        return -time_constant()*std::log(frac);
+    }
 
     // Velocity amplitude at time t
-    T amplitude(T time) const { return u0*std::exp(-time/time_constant()); }
+    T amplitude(T time) const {
+        assert(time >= 0 && "time must be non-negative");
+        return u0*std::exp(-time/time_constant());
+    }
 
     // Viscosity recovered from the amplitudes a0 and a1 measured at the
     // times t0 and t1: nu = -ln(a1/a0) / (|k|^2 (t1 - t0))
     T viscosity(T a0, T a1, T t0, T t1) const {
+        assert(a1/a0 > 0 && "amplitudes must have the same sign");
+        assert(t1 != t0 && "the two instants must differ");
         return -std::log(a1/a0)/(ksqr()*(t1 - t0));
     }
 
@@ -128,16 +172,37 @@ struct taylor_green {
 
     T kx, ky, nu, u0;
 
+    taylor_green(T kx, T ky, T nu, T u0)
+        : kx(kx), ky(ky), nu(nu), u0(u0)
+    {
+        // the amplitudes take sqrt(ky/kx), sqrt(kx/ky) and sqrt(kx*ky)
+        assert(kx*ky > 0 && "kx and ky must be nonzero and of the same sign");
+        assert(nu > 0 && "viscosity must be positive");
+    }
+
     T ksqr() const { return kx*kx + ky*ky; }
     T time_constant() const { return T(1.0)/(nu*ksqr()); }
-    T decay_time(T frac) const { return -time_constant()*std::log(frac); }
+    bool periodic(T Lx, T Ly) const {
+        return flow_benchmarks::periodic(kx, Lx) && flow_benchmarks::periodic(ky, Ly);
+    }
+
+    // Time at which the amplitude has dropped to the fraction frac of u0
+    T decay_time(T frac) const {
+        assert(frac > 0 && frac <= 1 && "fraction must be in (0, 1]");
+        return -time_constant()*std::log(frac);
+    }
 
     // Velocity amplitude at time t
-    T amplitude(T time) const { return u0*std::exp(-time/time_constant()); }
+    T amplitude(T time) const {
+        assert(time >= 0 && "time must be non-negative");
+        return u0*std::exp(-time/time_constant());
+    }
 
     // Viscosity recovered from the amplitudes a0 and a1 measured at the
     // times t0 and t1: nu = -ln(a1/a0) / (|k|^2 (t1 - t0))
     T viscosity(T a0, T a1, T t0, T t1) const {
+        assert(a1/a0 > 0 && "amplitudes must have the same sign");
+        assert(t1 != t0 && "the two instants must differ");
         return -std::log(a1/a0)/(ksqr()*(t1 - t0));
     }
 
@@ -189,9 +254,16 @@ struct taylor_green {
 template<typename T>
 struct shear_layer {
 
-    T u0, L;
-    T k{80.0};
-    T delta{0.05};
+    T u0, L, k, delta;
+
+    shear_layer(T u0, T L, T k = T(80.0), T delta = T(0.05))
+        : u0(u0), L(L), k(k), delta(delta)
+    {
+        assert(L > 0 && "box side must be positive");
+        assert(k > 0 && "layer steepness must be positive");
+    }
+
+    bool periodic(T Lx, T Ly) const { return Lx == L && Ly == L; }
 
     std::tuple<T,T,T> operator()(std::array<T,2> xy) const {
 
@@ -236,8 +308,17 @@ struct barotropic_vortex {
     std::array<T,2> center;
     T Rc;
     T eps;
-    T rho0{1.0};
-    T csqr{T(1.0)/3}; // D2Q9 in lattice units
+    T rho0;
+    T csqr;
+
+    barotropic_vortex(T U0, std::array<T,2> center, T Rc, T eps,
+                      T rho0 = T(1.0), T csqr = T(1.0)/3 /* D2Q9, lattice units */)
+        : U0(U0), center(center), Rc(Rc), eps(eps), rho0(rho0), csqr(csqr)
+    {
+        assert(Rc > 0 && "vortex radius must be positive");
+        assert(rho0 > 0 && "reference density must be positive");
+        assert(csqr > 0 && "squared sound speed must be positive");
+    }
 
     std::tuple<T,T,T> operator()(std::array<T,2> xy) const {
 
