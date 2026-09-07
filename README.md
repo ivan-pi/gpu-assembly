@@ -14,8 +14,8 @@ The host library and its tests:
 - A Fortran 2008 compiler (gfortran, ifx, nvfortran)
 - (optional) OpenMP, for host parallelism and, in a future version,
   target offload
-- [nanoflann](https://github.com/jlblancoc/nanoflann), vendored under
-  `third_party/`
+- [nanoflann](https://github.com/jlblancoc/nanoflann), a header-only k-d
+  tree, vendored under `third_party/`
 - [ckdtree](https://github.com/scipy/scipy/tree/main/scipy/spatial/ckdtree),
   SciPy's k-d tree, vendored under `third_party/` and built from source
 

@@ -25,9 +25,7 @@ add_library(nanoflann INTERFACE)
 target_include_directories(nanoflann INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanoflann)
 
-# SciPy's ckdtree (vendored). Only rbf_spatial.cpp includes its headers,
-# and `rbf` links it PRIVATE, so ckdtree_decl.h stays out of the include
-# path of anything that links `rbf`.
+# SciPy's ckdtree (vendored)
 add_library(ckdtree STATIC
     third_party/ckdtree/src/build.cxx
     third_party/ckdtree/src/count_neighbors.cxx
