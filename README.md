@@ -10,6 +10,16 @@ cmake --build build
 ctest --test-dir build
 ```
 
+CI exercises GCC (`g++`/`gfortran`) and the LLVM toolchain
+(`clang++`/`flang`, versions 20 and 22). To build with LLVM flang:
+
+```
+CXX=clang++-20 FC=flang-20 cmake -B build
+```
+
+On Ubuntu 24.04 the packages are `clang-20 flang-20 libomp-20-dev`;
+`flang-22` ships with Ubuntu 26.04.
+
 The CUDA parts (cuSolverDx assembly kernels, LBM D2Q9 kernels,
 CUDA Fortran demo) are opt-in and need the NVHPC toolchain plus MathDx:
 

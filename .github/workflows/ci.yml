@@ -8,11 +8,49 @@ on:
 
 jobs:
   host-tests:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: gcc / gfortran
+            os: ubuntu-latest
+            packages: g++ gfortran
+            cxx: g++
+            fc: gfortran
+
+          # LLVM toolchain from the Ubuntu archive: clang++ for the C++
+          # parts, LLVM flang (flang-new) for the Fortran modules.
+          # libomp-N-dev gives both compilers their OpenMP runtime.
+          - name: clang-20 / flang-20
+            os: ubuntu-24.04
+            packages: clang-20 flang-20 libomp-20-dev
+            cxx: clang++-20
+            fc: flang-20
+
+          # flang-22 only ships in Ubuntu 26.04 (resolute); the
+          # ubuntu-26.04 runner image is still in preview.
+          - name: clang-22 / flang-22
+            os: ubuntu-26.04
+            packages: clang-22 flang-22 libomp-22-dev
+            cxx: clang++-22
+            fc: flang-22
+
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.packages }}
+          ${{ matrix.cxx }} --version
+          ${{ matrix.fc }} --version
+
       - name: Configure
+        env:
+          CXX: ${{ matrix.cxx }}
+          FC: ${{ matrix.fc }}
         run: cmake -B build
 
       - name: Build
