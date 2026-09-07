@@ -7,8 +7,6 @@ Strzelczyk and Matyka (2022).
 
 import argparse
 
-import numpy as np
-
 from pointclouds import cli
 from pointclouds.generators import PerturbedGrid
 
@@ -64,7 +62,7 @@ def main():
     ap.add_argument(
         "--seed",
         type=int,
-        help="seed of the displacements (default: drawn and reported)",
+        help="seed of the displacements (default: random)",
     )
     ap.add_argument(
         "--plot", action="store_true", help="show the grid, with one stencil"
@@ -73,9 +71,6 @@ def main():
 
     if args.sigma >= 0.5:
         print(f"warning: --sigma {args.sigma:g} may put nodes on top of each other")
-    if args.seed is None:
-        args.seed = np.random.SeedSequence().entropy
-        print(f"seed {args.seed}")
     stem, ext = cli.output_stem(args.output, default=".points")
 
     cloud = PerturbedGrid(

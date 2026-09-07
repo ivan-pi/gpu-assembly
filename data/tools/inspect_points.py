@@ -9,6 +9,7 @@ import argparse
 import logging
 import os
 import sys
+from dataclasses import dataclass
 
 import numpy as np
 from scipy.sparse import csr_array
@@ -17,7 +18,21 @@ from pointclouds.cli import number
 from pointclouds.io import FormatError, read_graph, read_nodes, read_ordering
 from pointclouds.nodeset import NodeSet
 
-KINDS = {".points": "nodes", ".node": "nodes", ".graph": "graph", ".iperm": "ordering"}
+KINDS = {
+    ".points": "cloud",
+    ".node": "cloud",
+    ".graph": "graph",
+    ".iperm": "iperm",
+}
+
+
+@dataclass
+class Case:
+    """The files of a case as read; any of the three may be missing."""
+
+    cloud: NodeSet = None
+    graph: "Graph" = None
+    iperm: np.ndarray = None
 
 
 def describe_nodes(fname, xy, cloud):
@@ -162,7 +177,7 @@ shows the new indices; only the spy plot also shows the file order."""
 
 
 def parse_args():
-    """Return the command line, with `files` mapping each kind of file to its name."""
+    """Return the command line, with `files` mapping each field of a Case to its file."""
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n")[0],
         epilog=EPILOG,
@@ -228,7 +243,7 @@ def parse_args():
     args.files = files
     if args.spy and "graph" not in files:
         sys.exit("--spy needs a graph file")
-    if args.plot and "nodes" not in files:
+    if args.plot and "cloud" not in files:
         sys.exit("--plot needs a points or node file")
     if args.stencil and "graph" not in files and args.k < 2:
         sys.exit(
@@ -237,20 +252,15 @@ def parse_args():
     return args
 
 
-def draw(args, loaded):
+def draw(args, case):
     """Show or save one figure: the nodes, the spy plot, or both.
 
     An ordering renumbers the nodes and the graph first, and adds the spy
     plot in file order beside the renumbered one.
     """
-    cloud, graph, iperm = (
-        loaded.get("nodes"),
-        loaded.get("graph"),
-        loaded.get("ordering"),
-    )
-    file_graph = None
-    if iperm is not None:
-        order = np.argsort(iperm)
+    cloud, graph, file_graph = case.cloud, case.graph, None
+    if case.iperm is not None:
+        order = np.argsort(case.iperm)
         if cloud is not None:
             cloud = NodeSet(
                 cloud.points[order],
@@ -259,7 +269,7 @@ def draw(args, loaded):
                 periodic=cloud.periodic,
             )
         if graph is not None:
-            file_graph, graph = graph, graph.renumbered(iperm)
+            file_graph, graph = graph, graph.renumbered(case.iperm)
         print("ordering applied: nodes and stencils are in the new numbering below")
 
     stencils = []
@@ -283,12 +293,12 @@ def draw(args, loaded):
     if args.plot:
         ax = next(axes)
         cloud.plot(ax, args.labels, stencils)
-        ax.set_title(os.path.basename(args.files["nodes"]), fontsize=9)
+        ax.set_title(os.path.basename(args.files["cloud"]), fontsize=9)
     if args.spy:
         base = os.path.basename(args.files["graph"])
         if file_graph is not None:
             file_graph.spy(next(axes), f"{base}, file order")
-            graph.spy(next(axes), f"{base}, {os.path.basename(args.files['ordering'])}")
+            graph.spy(next(axes), f"{base}, {os.path.basename(args.files['iperm'])}")
         else:
             graph.spy(next(axes), base)
     fig.tight_layout()
@@ -305,23 +315,23 @@ def main():
         level=logging.INFO, format="  note: %(message)s", stream=sys.stdout
     )
     box = dict(extent=args.periodic, periodic=(True, True)) if args.periodic else {}
-    problems, sizes, loaded = [], {}, {}
+    problems, sizes, case = [], {}, Case()
     for kind, fname in args.files.items():
         try:
-            if kind == "nodes":
+            if kind == "cloud":
                 xy, m = read_nodes(fname)
-                loaded[kind] = cloud = NodeSet(xy, m, **box)
-                problems += describe_nodes(fname, xy, cloud)
+                case.cloud = NodeSet(xy, m, **box)
+                problems += describe_nodes(fname, xy, case.cloud)
             elif kind == "graph":
-                loaded[kind] = graph = Graph(*read_graph(fname))
-                graph.describe(fname)
+                case.graph = Graph(*read_graph(fname))
+                case.graph.describe(fname)
             else:
-                loaded[kind] = iperm = read_ordering(fname)
-                print(f"{fname}: a permutation of {len(iperm)} nodes")
+                case.iperm = read_ordering(fname)
+                print(f"{fname}: a permutation of {len(case.iperm)} nodes")
         except FormatError as e:
             problems += e.problems
         else:
-            sizes[fname] = len(loaded[kind])
+            sizes[fname] = len(getattr(case, kind))
     if len(set(sizes.values())) > 1:
         problems.append(
             "node counts differ: " + ", ".join(f"{f} has {n}" for f, n in sizes.items())
@@ -333,7 +343,7 @@ def main():
         if problems:
             print("no figure: fix the problems above first")
         else:
-            draw(args, loaded)
+            draw(args, case)
     sys.exit(1 if problems else 0)
 
 

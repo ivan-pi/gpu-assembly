@@ -25,6 +25,13 @@ same numbering, or a node file with the markers if named so
 (docs/file_formats.md)."""
 
 
+def hole_radius(solid_fraction, size):
+    """Return the radius of the disk covering the fraction of the box."""
+    lx, ly = size
+    area = solid_fraction * lx * ly
+    return np.sqrt(area / np.pi)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n")[0],
@@ -78,9 +85,7 @@ def main():
         help="lay MX by MY copies of the sample side by side (default: 1 1)",
     )
     cli.add_graph_options(ap)
-    ap.add_argument(
-        "--seed", type=int, help="seed of the sample (default: drawn and reported)"
-    )
+    ap.add_argument("--seed", type=int, help="seed of the sample (default: random)")
     ap.add_argument(
         "--plot", action="store_true", help="show the cloud, with one stencil"
     )
@@ -90,10 +95,7 @@ def main():
     if args.solid_fraction is not None:
         if args.solid_fraction >= 1.0:
             ap.error("--solid-fraction must be less than 1")
-        hole = float(np.sqrt(args.solid_fraction * np.prod(args.size) / np.pi))
-    if args.seed is None:
-        args.seed = np.random.SeedSequence().entropy
-        print(f"seed {args.seed}")
+        hole = hole_radius(args.solid_fraction, args.size)
     stem, ext = cli.output_stem(args.output, default=".points")
 
     cloud = PoissonBox(
