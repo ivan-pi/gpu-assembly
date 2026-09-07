@@ -14,14 +14,14 @@ import contextlib
 import sys
 
 
+# The file this stem and extension name, or standard output for `-`, which
+# stays open.
 def open_out(stem, ext):
-    """The file this stem and extension name, or standard output for `-`,
-    which stays open."""
     return contextlib.nullcontext(sys.stdout) if stem == "-" else open(stem + ext, "w")
 
 
 def write_points(stem, pts):
-    """A points file: the count, then a coordinate pair per line."""
+    """Write a points file: the count, then a coordinate pair per line."""
     with open_out(stem, ".points") as f:
         f.write(f"{len(pts)}\n")
         for x, y in pts.tolist():
@@ -29,8 +29,7 @@ def write_points(stem, pts):
 
 
 def write_node(stem, pts, m, title):
-    """A node file: the title of the cloud as a comment, the header, then
-    a numbered node with its marker per line."""
+    """Write a node file: the title as a comment, the header, then a numbered node with its marker per line."""
     with open_out(stem, ".node") as f:
         f.write(f"# {title}\n")
         f.write(f"{len(pts)} 2 0 1\n")
@@ -39,9 +38,7 @@ def write_node(stem, pts, m, title):
 
 
 def write_graph(stem, ia, ja):
-    """A graph file from the stencils in CSR form, the stencil of node i
-    at ja[ia[i]:ia[i + 1]]: the node count and the edge count, then one
-    stencil per line."""
+    """Write a graph file from the stencils in CSR form, the stencil of node i at ``ja[ia[i]:ia[i + 1]]``: the node and edge counts, then one stencil per line."""
     starts = ia.tolist()
     with open_out(stem, ".graph") as f:
         f.write(f"{len(starts) - 1} {starts[-1]}\n")
@@ -50,7 +47,7 @@ def write_graph(stem, ia, ja):
 
 
 def write_ordering(stem, iperm):
-    """An ordering file: the new index of every node, one per line."""
+    """Write an ordering file: the new index of every node, one per line."""
     with open_out(stem, ".iperm") as f:
         for i in iperm.tolist():
             f.write(f"{i}\n")

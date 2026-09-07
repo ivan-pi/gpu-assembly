@@ -28,6 +28,11 @@ pre-commit run --hook-stage manual clang-tidy --all-files
 A block the formatter must leave alone, such as a hand-aligned table,
 sits between `// clang-format off` and `// clang-format on`.
 
+Python docstrings follow the NumPy convention and go on what a user
+calls, the classes and the functions of the `pointclouds` package;
+what is internal to a module gets a comment instead, and a script's
+own functions a one-line summary.
+
 The reformatting commit that introduced the style is listed in
 `.git-blame-ignore-revs`; `git blame` skips it after
 

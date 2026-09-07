@@ -21,8 +21,7 @@ log = logging.getLogger(__name__)
 
 
 class FormatError(ValueError):
-    """A file that does not follow its format: `problems` lists what is
-    wrong, each entry naming the file, and str() joins them by line."""
+    """A file that does not follow its format: `problems` lists what is wrong, each entry naming the file, and ``str()`` joins them by line."""
 
     def __init__(self, fname, *messages):
         self.problems = [f"{fname}: {m}" for m in messages]
@@ -30,16 +29,16 @@ class FormatError(ValueError):
 
 
 def plural(k, word):
-    """The count and the word, with an s unless the count is 1."""
+    """Return the count and the word, with an s unless the count is 1."""
     return f"{k} {word}{'' if k == 1 else 's'}"
 
 
 # ----------------------------------------------------------- text parsing
 
 
-def lines_of(fname, comments):
-    """(line number, tokens) of every non-blank line; `#` starts a comment
-    in the formats that have them."""
+# (line number, tokens) of every non-blank line; `#` starts a comment in the
+# formats that have them.
+def _lines_of(fname, comments):
     out = []
     with open(fname) as f:
         for no, line in enumerate(f, 1):
@@ -51,23 +50,23 @@ def lines_of(fname, comments):
     return out
 
 
-def nums(toks, conv):
-    """All tokens through int or float, or None if one is not a number."""
+# All tokens through int or float, or None if one is not a number.
+def _nums(toks, conv):
     try:
         return [conv(t) for t in toks]
     except ValueError:
         return None
 
 
-def read_header(fname, form, comments):
-    """The non-negative integers of the first line, and the lines after it:
-    (values, rows). `form` names the fields, `n nnz` say, and sets how
-    many there are."""
-    lines = lines_of(fname, comments)
+# The non-negative integers of the first line, and the lines after it:
+# (values, rows). `form` names the fields, `n nnz` say, and sets how many
+# there are.
+def _read_header(fname, form, comments):
+    lines = _lines_of(fname, comments)
     if not lines:
         raise FormatError(fname, "empty file")
     no, head = lines[0]
-    vals = nums(head, int)
+    vals = _nums(head, int)
     if vals is None or len(vals) != len(form.split()) or min(vals) < 0:
         raise FormatError(
             fname, f"line {no}: expected the header '{form}', got '{' '.join(head)}'"
@@ -75,10 +74,10 @@ def read_header(fname, form, comments):
     return vals, lines[1:]
 
 
-def parse_rows(fname, rows, form, convert):
-    """Every row through `convert`, which returns the values of a line or
-    None: the list of values, or FormatError naming every bad line.
-    `form` describes a line in the message."""
+# Every row through `convert`, which returns the values of a line or None: the
+# list of values, or FormatError naming every bad line. `form` describes a
+# line in the message.
+def _parse_rows(fname, rows, form, convert):
     out, bad = [], []
     for no, toks in rows:
         vals = convert(toks)
@@ -95,8 +94,7 @@ def parse_rows(fname, rows, form, convert):
 
 
 def read_nodes(fname):
-    """The nodes of a .points or .node file, told apart by extension:
-    (xy, marker) with a marker per node, 0 for interior."""
+    """Read a points or node file, told apart by extension: ``(xy, markers)`` with a marker per node, 0 for interior."""
     reader = read_node if fname.endswith(".node") else read_points
     xy, marker = reader(fname)
     bad = np.flatnonzero(~np.isfinite(xy).all(axis=1))
@@ -110,8 +108,8 @@ def read_nodes(fname):
 
 
 def read_points(fname):
-    """`n`, then n lines of `x y`: (xy, zero markers)."""
-    (n,), rows = read_header(fname, "n", comments=False)
+    """Read a points file, ``n`` then n lines of ``x y``: ``(xy, markers)`` with every marker 0."""
+    (n,), rows = _read_header(fname, "n", comments=False)
     if len(rows) < n:
         raise FormatError(
             fname, f"header says {n} points, the file has {len(rows)} lines after it"
@@ -123,19 +121,18 @@ def read_points(fname):
             len(rows) - n,
             n,
         )
-    vals = parse_rows(
+    vals = _parse_rows(
         fname,
         rows[:n],
         "x y",
-        lambda toks: nums(toks, float) if len(toks) == 2 else None,
+        lambda toks: _nums(toks, float) if len(toks) == 2 else None,
     )
     return np.array(vals, dtype=float).reshape(n, 2), np.zeros(n, dtype=int)
 
 
 def read_node(fname):
-    """Triangle's format, `n 2 nattr nmark` then `i x y a... [marker]`
-    per node: (xy, markers)."""
-    (n, dim, nattr, nmark), rows = read_header(
+    """Read a node file in Triangle's format, ``n 2 nattr nmark`` then ``i x y a... [marker]`` per node: ``(xy, markers)``."""
+    (n, dim, nattr, nmark), rows = _read_header(
         fname, "n dim nattr nmark", comments=True
     )
     if dim != 2:
@@ -151,14 +148,14 @@ def read_node(fname):
     if not nmark:
         log.info("%s: no marker column: every node is interior", fname)
     form = f"i x y{' a' * nattr}{' marker' if nmark else ''}"
-    vals = parse_rows(fname, rows, form, lambda toks: _node_line(toks, nattr, nmark))
+    vals = _parse_rows(fname, rows, form, lambda toks: _node_line(toks, nattr, nmark))
     table = np.array(vals, dtype=float).reshape(n, 4)
     _check_consecutive(fname, table[:, 0].astype(int), rows)
     return table[:, 1:3], table[:, 3].astype(int)
 
 
+# (index, x, y, marker) of a node line, or None if malformed.
 def _node_line(toks, nattr, nmark):
-    """(index, x, y, marker) of a node line, or None if malformed."""
     if len(toks) != 3 + nattr + nmark:
         return None
     try:
@@ -172,8 +169,8 @@ def _node_line(toks, nattr, nmark):
         return None
 
 
+# The index column has to count from 0 or from 1.
 def _check_consecutive(fname, index, rows):
-    """The index column has to count from 0 or from 1."""
     expected = np.arange(index.size)
     if np.array_equal(index, expected + 1):
         log.info(
@@ -192,8 +189,7 @@ def _check_consecutive(fname, index, rows):
 
 
 def stencils_to_csr(stencils):
-    """The row pointer and the column indices of a list of stencils:
-    (ia, ja), with the stencil of node i at ja[ia[i]:ia[i + 1]]."""
+    """Return the row pointer and the column indices of a list of stencils, ``(ia, ja)``."""
     ia = np.cumsum([0, *map(len, stencils)])
     ja = np.fromiter(
         itertools.chain.from_iterable(stencils), dtype=int, count=int(ia[-1])
@@ -202,15 +198,14 @@ def stencils_to_csr(stencils):
 
 
 def read_graph(fname):
-    """`n nnz`, then a line of 0-based indices per node: the stencils in
-    CSR form as (ia, ja)."""
-    (n, nnz), rows = read_header(fname, "n nnz", comments=False)
+    """Read a graph file, ``n nnz`` then a line of 0-based indices per node: the stencils in CSR form as ``(ia, ja)``."""
+    (n, nnz), rows = _read_header(fname, "n nnz", comments=False)
     if len(rows) != n:
         raise FormatError(
             fname, f"header says {n} nodes, the file has {len(rows)} stencil lines"
         )
-    stencils = parse_rows(
-        fname, rows, "integer stencil entries", lambda toks: nums(toks, int)
+    stencils = _parse_rows(
+        fname, rows, "integer stencil entries", lambda toks: _nums(toks, int)
     )
     ia, ja = stencils_to_csr(stencils)
     problems = []
@@ -235,8 +230,8 @@ def read_graph(fname):
     return ia, ja
 
 
+# The rows in which some node is listed twice.
 def _rows_with_duplicates(ia, ja):
-    """The rows in which some node is listed twice."""
     n = len(ia) - 1
     # i * n + j of every entry
     keys = np.sort(np.repeat(np.arange(n), np.diff(ia)) * n + ja)
@@ -247,13 +242,12 @@ def _rows_with_duplicates(ia, ja):
 
 
 def read_ordering(fname):
-    """One integer per line, no header: iperm, the new index of every node,
-    which has to be a permutation."""
-    vals = parse_rows(
+    """Read an ordering file, one integer per line and no header: `iperm`, the new index of every node, checked to be a permutation."""
+    vals = _parse_rows(
         fname,
-        lines_of(fname, comments=False),
+        _lines_of(fname, comments=False),
         "one integer",
-        lambda toks: nums(toks, int) if len(toks) == 1 else None,
+        lambda toks: _nums(toks, int) if len(toks) == 1 else None,
     )
     iperm = np.array(vals, dtype=int).reshape(-1)
     n = iperm.size

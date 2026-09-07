@@ -18,7 +18,7 @@ from .stencils import KNN
 
 
 def number(kind, *, least=None, above=None):
-    """An argparse type that also carries a bound."""
+    """Return an argparse type with a bound: `least` inclusive, `above` exclusive."""
 
     def parse(text):
         value = kind(text)  # a ValueError here: "invalid int"
@@ -33,17 +33,16 @@ def number(kind, *, least=None, above=None):
 
 
 def output_stem(name, default):
-    """The stem of an output name and the extension that picks its format:
-    the one it ends in, or `default` if it ends in none of them."""
+    """Return the stem of an output name and the extension that picks its format: the one it ends in, or `default` if none."""
     for ext in (".node", ".points"):
         if name.endswith(ext):
             return name.removesuffix(ext), ext
     return name, default
 
 
+# An option stored with the method it stands for: -K 18 gives args.graph =
+# ("knn", 18).
 class Pair(argparse.Action):
-    """An option stored with the method it stands for: -K 18 gives
-    args.graph = ("knn", 18)."""
 
     def __call__(self, ap, namespace, value, option):
         setattr(namespace, self.dest, (self.const, value))
@@ -94,8 +93,7 @@ def add_graph_options(ap):
 
 
 def show(cloud, graph=None):
-    """The figure of --plot: the cloud, with the stencil of its middle
-    node when a graph is given."""
+    """Show the figure of --plot: the cloud, with the stencil of its middle node when a graph is given."""
     import matplotlib.pyplot as plt
 
     stencils = []

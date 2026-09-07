@@ -45,18 +45,34 @@ MARKERS = Markers()
 
 
 def boundary_first(markers):
-    """The permutation that puts the boundary nodes ahead of the interior
-    ones, each group in its order."""
+    """Return the permutation that puts the boundary nodes ahead of the interior ones, each group in its order."""
     return np.argsort(markers == MARKERS.interior, kind="stable")
 
 
 class NodeSet:
-    """A point cloud: `points` (n, 2); a marker per node in `markers`, 0
-    for an interior node; the box `extent` = (Lx, Ly) it lives in, or
-    None for the open plane; `periodic` = (px, py), which sides of the
-    box are one; and a `title` in words, the comment of its node file.
-    `boxsize` is the side of every periodic axis and 0 for the others,
-    as scipy's k-d tree takes it."""
+    """A point cloud with a marker per node and the box it lives in.
+
+    Parameters
+    ----------
+    points : (n, 2) array_like
+        The coordinates.
+    markers : (n,) array_like of int, optional
+        The boundary marker of every node, 0 for an interior one; all
+        interior when not given.
+    extent : (2,) tuple of float, optional
+        The box ``[0, Lx) x [0, Ly)``, or None for the open plane.
+    periodic : (2,) tuple of bool
+        Which sides of the box are one. The points are brought into the
+        box through those sides, and the stencil search wraps around them.
+    title : str
+        What the cloud is, in words: the comment of its node file.
+
+    Attributes
+    ----------
+    boxsize : list of float
+        The side of every periodic axis and 0 for the others, as scipy's
+        k-d tree takes it.
+    """
 
     def __init__(
         self, points, markers=None, *, extent=None, periodic=(False, False), title=""
@@ -78,12 +94,26 @@ class NodeSet:
         return len(self.points)
 
     def stencils(self, method="knn", value=KNN):
-        """The stencil graph in CSR form, (ia, ja), with the stencil of
-        node i at ja[ia[i]:ia[i + 1]]; see pointclouds.stencils."""
+        """Select the stencil of every node.
+
+        Parameters
+        ----------
+        method : {"knn", "radius", "range"}
+            The nearest nodes, the nodes within a distance, or those within a
+            square; see `pointclouds.stencils`.
+        value : int or float
+            The stencil size for knn, the distance for the others.
+
+        Returns
+        -------
+        ia, ja : ndarray
+            The stencils in CSR form, that of node i at ``ja[ia[i]:ia[i + 1]]``,
+            the node itself first.
+        """
         return select_stencils(self.points, self.boxsize, method, value)
 
     def nearest(self):
-        """Index and distance of the nearest other node of every node."""
+        """Return the index and the distance of the nearest other node of every node."""
         d, j = cKDTree(self.points, boxsize=self.boxsize).query(
             self.points, 2, workers=-1
         )
@@ -92,9 +122,17 @@ class NodeSet:
         return j[:, 1], d[:, 1]
 
     def write(self, stem, ext=".points", graph=None):
-        """The points file, or with `ext` ".node" the node file with the
-        markers and the title as its comment, and the graph file when a
-        graph is given, all under `stem`."""
+        """Write the cloud, and its stencil graph if given.
+
+        Parameters
+        ----------
+        stem : str
+            The files are ``stem + ext`` and ``stem + ".graph"``.
+        ext : {".points", ".node"}
+            A points file, or a node file with the markers and the title.
+        graph : tuple of ndarray, optional
+            ``(ia, ja)`` from `stencils`.
+        """
         if ext == ".node":
             write_node(stem, self.points, self.markers, self.title)
         else:
@@ -103,8 +141,7 @@ class NodeSet:
             write_graph(stem, *graph)
 
     def summary(self, graph=None):
-        """One line: the node counts, the density over the box if there
-        is one, and the graph if given."""
+        """Return one line on the cloud: the node counts, the density over the box if there is one, and the graph if given."""
         n, boundary = len(self), int(np.count_nonzero(self.markers))
         text = f"{n} nodes ({n - boundary} interior, {boundary} boundary)"
         if self.extent is not None:
@@ -128,10 +165,18 @@ class NodeSet:
     ]
 
     def plot(self, ax, labels=False, stencils=()):
-        """The nodes coloured by marker, optionally every index and the
-        given (node, members) stencils: a circle about the node through
-        its farthest member, the members ringed and the node filled, a
-        wrapped member at its nearest image."""
+        """Draw the nodes on an axes, coloured by marker.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+        labels : bool
+            Write the index next to every node.
+        stencils : list of (int, array_like)
+            Nodes with their stencil members, each drawn as a circle about the
+            node through its farthest member, the members ringed and the node
+            filled; a wrapped member sits at its nearest image.
+        """
         xy, marker = self.points, self.markers
         interior = marker == MARKERS.interior
         if interior.any():
@@ -185,11 +230,20 @@ class NodeSet:
 
 
 class TiledNodeSet(NodeSet):
-    """MX by MY copies of a cloud periodic in both axes, side by side on
-    the box MX Lx by MY Ly: the copies row by row from the origin with x
-    fastest, and the boundary nodes of all the copies ahead of the
-    interior ones. The copies join without a seam, since the cloud is
-    periodic, so the stencils are searched over the whole tiling."""
+    """Copies of a cloud periodic in both axes, laid side by side.
+
+    The copies go row by row from the origin with x fastest, on the box
+    ``MX Lx`` by ``MY Ly``, with the boundary nodes of all the copies ahead
+    of the interior ones. They join without a seam, since the cloud is
+    periodic, so the stencils are searched over the whole tiling.
+
+    Parameters
+    ----------
+    cloud : NodeSet
+        Periodic in both axes.
+    tiles : (2,) tuple of int
+        The copies along x and along y, ``(MX, MY)``.
+    """
 
     def __init__(self, cloud, tiles):
         if cloud.periodic != (True, True):

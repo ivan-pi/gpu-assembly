@@ -30,7 +30,18 @@ class PerturbedGrid(NodeSet):
     south) and the last on the top (marker north), and a wall node
     slides along its wall but does not leave it. The nodes come row by
     row from y = 0, x fastest, so the wall nodes are the first N and the
-    last N."""
+    last N.
+
+    Parameters
+    ----------
+    n : int
+        Nodes across the box, which is N by N in lattice units.
+    sigma : float
+        The displacement of a node, uniform on ``[-sigma, sigma]`` spacings.
+    geometry : {"periodic", "channel"}
+    seed : int, optional
+        Of the displacements; random when not given.
+    """
 
     def __init__(self, n, sigma=0.2, *, geometry="periodic", seed=None):
         periodic = geometry == "periodic"
@@ -69,7 +80,21 @@ class PoissonBox(NodeSet):
     so the nearest nodes sit about a spacing off the circle; and what
     lands inside is discarded. That is the unit cell of a square array of
     cylinders. The hole is at least `distance` in radius and leaves that
-    much to its image across the periodic sides."""
+    much to its image across the periodic sides.
+
+    Parameters
+    ----------
+    extent : (2,) array_like
+        The box ``[0, Lx) x [0, Ly)``.
+    distance : float
+        The least distance between two nodes, 1 in lattice units.
+    candidates : int
+        The throws a node makes before it is retired; more pack tighter.
+    hole : float, optional
+        The radius of the disk cut out of the middle of the box.
+    seed : int, optional
+        Of the sample; random when not given.
+    """
 
     def __init__(self, extent, distance=1.0, *, candidates=100, hole=None, seed=None):
         from .poisson import PoissonDisk  # compiled by numba, only when needed
@@ -144,7 +169,16 @@ class RefinedCavity(NodeSet):
     The markers are south, east, north (the lid) and west for the walls,
     and corner where two walls meet, since a corner node carries the
     boundary data of both walls, which differ in the cavity; whoever
-    assembles the boundary conditions decides what a corner gets."""
+    assembles the boundary conditions decides what a corner gets.
+
+    Parameters
+    ----------
+    steps : int
+        Spacings across each band.
+    size : (2,) tuple of float, optional
+        The cavity ``(Lx, Ly)``, at least the 10 steps of the bands.
+    distribution : {"rings", "grid"}
+    """
 
     SPACINGS = (1.0, 1.5, 2.5)  # at the wall, in the second band, in the middle
 
@@ -198,17 +232,17 @@ class RefinedCavity(NodeSet):
             title=f"refined cavity, size={Lx:g}x{Ly:g}, {distribution}, steps={steps}",
         )
 
+    # From a to b in a whole number of steps as close to h as possible; the
+    # end b is left out.
     @staticmethod
     def _side(a, b, h):
-        """From a to b in a whole number of steps as close to h as
-        possible; the end b is left out."""
         return np.linspace(a, b, max(round((b - a) / h), 1), endpoint=False)
 
+    # Points about h apart on the boundary of the cavity inset by r, counter-
+    # clockwise from (r, r); a segment or a point when a side has shrunk to
+    # nothing.
     @classmethod
     def _ring(cls, r, Lx, Ly, h):
-        """Points about h apart on the boundary of the cavity inset by r,
-        counter-clockwise from (r, r); a segment or a point when a side
-        has shrunk to nothing."""
         x0, x1, y0, y1 = r, Lx - r, r, Ly - r
         sx, sy = cls._side(x0, x1, h), cls._side(y0, y1, h)
         south = np.column_stack((sx, np.full(len(sx), y0)))

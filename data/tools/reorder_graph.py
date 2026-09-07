@@ -16,12 +16,7 @@ from pointclouds.io import FormatError, read_graph, write_ordering
 
 
 def adjacency_of(ia, ja):
-    """Return the stencils as an undirected graph without self-loops.
-
-    The pattern of A + A^T less the diagonal, as a CSR array with sorted
-    indices; the values count the directions of an edge, which the
-    orderings ignore.
-    """
+    """Return the stencils as an undirected graph without self-loops, the pattern of ``A + A^T`` less the diagonal, as a CSR array with sorted indices."""
     n = len(ia) - 1
     a = csr_array((np.ones(len(ja)), ja, ia), shape=(n, n))
     upper = triu(a + a.T, k=1)  # every edge once, without the self-loops
@@ -39,12 +34,7 @@ def rcm(adjacency, **kwargs):
 
 
 def nd(adjacency, seed=None, **kwargs):
-    """Return the new index of every node by METIS nested dissection.
-
-    The seed drives the random matching of the coarsening; METIS has a
-    fixed default, so the ordering repeats from run to run unless one is
-    given.
-    """
+    """Return the new index of every node by METIS nested dissection; the seed drives the random matching of the coarsening."""
     try:
         import pymetis
     except ImportError:
@@ -79,11 +69,7 @@ def bandwidth(ia, ja, iperm):
 
 
 def factor_nonzeros(adjacency, iperm):
-    """Return the nonzeros of the Cholesky factor in the new numbering.
-
-    Diagonal included, by cholmod's symbolic factorisation; None without
-    scikit-sparse.
-    """
+    """Return the nonzeros of the Cholesky factor in the new numbering by cholmod's symbolic factorisation, or None without scikit-sparse."""
     try:
         from sksparse.cholmod import symbfact
     except ImportError:

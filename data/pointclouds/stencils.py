@@ -27,6 +27,35 @@ KNN = 18  # the default stencil: the 6 terms of a second-order polynomial plus 1
 
 
 def select_stencils(pts, boxsize, method="knn", value=KNN):
+    """Select the stencil of every node of a cloud.
+
+    Parameters
+    ----------
+    pts : (n, 2) ndarray
+        The nodes.
+    boxsize : (2,) array_like
+        The side of the box along every periodic axis, around which the
+        search wraps, and 0 for an axis that does not.
+    method : {"knn", "radius", "range"}
+        The k nearest neighbours, the nodes within a distance, or the nodes
+        within a distance along both axes, a square.
+    value : int or float
+        The k of knn, the distance of the others.
+
+    Returns
+    -------
+    ia, ja : ndarray
+        The stencils in CSR form, that of node i at ``ja[ia[i]:ia[i + 1]]``:
+        the node itself first, then its neighbours nearest first.
+
+    Raises
+    ------
+    ValueError
+        When two nodes coincide, which no stencil can tell apart; for a
+        stencil larger than the cloud; and for a distance that reaches
+        more than half way around the box, where a node meets its own
+        image.
+    """
     n = len(pts)
     tree = cKDTree(pts, boxsize=boxsize)
 

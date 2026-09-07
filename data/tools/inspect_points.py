@@ -27,22 +27,7 @@ KINDS = {
 
 
 def describe_nodes(fname, xy, cloud):
-    """Print the counts, markers, box and spacing statistics of a cloud.
-
-    Parameters
-    ----------
-    fname : str
-        The file the cloud was read from, named in the report.
-    xy : (n, 2) ndarray
-        The coordinates as read, before the box wrapped them.
-    cloud : NodeSet
-        The cloud built from the file.
-
-    Returns
-    -------
-    list of str
-        The problems seen: the coincident nodes, if any.
-    """
+    """Print the statistics of the cloud read from `fname`, whose coordinates as read are `xy`; return the problems seen."""
     print(f"{fname}: {cloud.summary()}")
     values, counts = np.unique(cloud.markers, return_counts=True)
     print("  markers: " + "  ".join(f"{v}: {c}" for v, c in zip(values, counts)))
@@ -76,17 +61,7 @@ def describe_nodes(fname, xy, cloud):
 
 
 class Graph:
-    """The stencils of all nodes, from a graph file.
-
-    Attributes
-    ----------
-    ia, ja : ndarray
-        The stencils in CSR form, that of node i at ``ja[ia[i]:ia[i + 1]]``.
-    n, nnz : int
-        The node count and the entry count.
-    pattern : csr_array
-        The same stencils as a sparse pattern, for the checks.
-    """
+    """The stencils of a graph file, as the CSR arrays and as a sparse pattern."""
 
     def __init__(self, ia, ja):
         self.ia, self.ja = ia, ja
@@ -131,7 +106,7 @@ class Graph:
         print(f"  bandwidth: {np.abs(self.pattern.tocoo().row - ja).max()}")
 
     def spy(self, ax, title):
-        """The sparsity pattern, one square per stored entry."""
+        """Draw the sparsity pattern, one square per stored entry."""
         n = self.n
         width = ax.figure.get_size_inches()[0] * ax.get_position().width * 72  # points
         ax.scatter(
@@ -245,11 +220,7 @@ def parse_args():
 
 
 def draw(args, case):
-    """Show or save one figure: the nodes, the spy plot, or both.
-
-    An ordering renumbers the nodes and the graph first, and adds the spy
-    plot in file order beside the renumbered one.
-    """
+    """Show or save one figure: the nodes, the spy plot, or both, renumbered by the ordering if one was given, with the spy plot in file order beside it."""
     cloud, graph, file_graph = case.cloud, case.graph, None
     if case.iperm is not None:
         order = np.argsort(case.iperm)

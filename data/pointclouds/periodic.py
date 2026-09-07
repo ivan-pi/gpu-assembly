@@ -7,7 +7,7 @@ import numpy as np
 
 
 def wrap(z, box):
-    """Coordinates z brought into [0, box) through the periodic sides."""
+    """Return the coordinates `z` brought into ``[0, box)`` through the periodic sides."""
     z, box = np.array(z, float), np.asarray(box, float)
     periodic = box > 0
     w = np.mod(z[..., periodic], box[periodic])
@@ -17,7 +17,7 @@ def wrap(z, box):
 
 
 def minimum_image(d, box):
-    """Displacements d shortened through the nearer of the two sides."""
+    """Return the displacements `d` shortened through the nearer of the two sides."""
     d, box = np.array(d, float), np.asarray(box, float)
     periodic = box > 0
     d[..., periodic] -= box[periodic] * np.round(d[..., periodic] / box[periodic])
