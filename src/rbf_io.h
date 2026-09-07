@@ -1,21 +1,19 @@
 #ifndef RBF_IO_H
 #define RBF_IO_H
 
-// ASCII input and output for RBF-FD drivers.
+// ASCII input and output for RBF-FD drivers. The formats are described in
+// docs/file_formats.md.
 //
-//   read_points, read_points_aos   count-prefixed "x y" list -> SoA or AoS
-//   read_nodes, write_nodes        "x y flag" list, the format NodeSet reads
-//   read_graph_csr                 variable-length adjacency list -> (ia, ja)
-//   write_matrix_market            CSR matrix -> Matrix Market (real, or pattern)
+//   read_nodeset, read_nodes_aos       node file (.nodes): count, then "x y" -> SoA or AoS
+//   read_graph_csr                   graph file (.graph): stencils -> (ia, ja)
+//   read_nodeset, write_nodeset      "x y flag" list, the file NodeSet reads and writes
+//   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
 // Every reader checks that the file opened. Readers whose format carries a
 // count also check that they got that many, exiting with a message rather
 // than returning a short container.
 // Every writer emits full round-trip precision for floating point, so a file
 // written here reproduces the values it was given.
-//
-// These are ASCII formats: convenient, diffable, and slow. If reading becomes
-// a bottleneck the answer is a binary format, not a faster parser.
 //
 // Assisted-by: Claude Fable 5.1
 
@@ -95,23 +93,22 @@ inline void expect_end(std::istream& in, const std::string& fname,
 } // namespace detail
 
 // ---------------------------------------------------------------------------
-// Points
+// Node file (.nodes)
 // ---------------------------------------------------------------------------
 
-// Coordinates as separate arrays (SoA), from a file whose first line is the
-// point count:
+// Coordinates as separate arrays (SoA), from a node file: the node count on
+// the first line, then one coordinate pair per line:
 //
 //     n
 //     x0 y0
 //     x1 y1
 //     ...
 //
-// Returns {x, y}, the layout the assembly kernels take. This is a different
-// format from the one NodeSet reads (see read_nodes): no count header there,
-// and a third flag column per line. Use this reader for plain point clouds
-// that carry no per-node tag, such as node generator output.
+// Returns {x, y}, the layout the assembly kernels take. The node file is the
+// companion of the graph file (read_graph_csr): one gives the point cloud,
+// the other the stencils, in the same numbering.
 template <class T = double>
-std::pair<std::vector<T>, std::vector<T>> read_points(const std::string& fname)
+std::pair<std::vector<T>, std::vector<T>> read_nodes(const std::string& fname)
 {
     auto in = detail::open_in(fname);
     std::size_t n = 0;
@@ -135,7 +132,7 @@ std::pair<std::vector<T>, std::vector<T>> read_points(const std::string& fname)
 // is brace-constructible from two T. Preferred where a point is passed
 // around as a unit; the SoA form suits device upload.
 template <class ArrayOfStructs, class T = double>
-ArrayOfStructs read_points_aos(const std::string& fname)
+ArrayOfStructs read_nodes_aos(const std::string& fname)
 {
     using Struct = typename ArrayOfStructs::value_type;
     auto in = detail::open_in(fname);
@@ -154,10 +151,11 @@ ArrayOfStructs read_points_aos(const std::string& fname)
 }
 
 // ---------------------------------------------------------------------------
-// Nodes: coordinates plus a per-node flag, the format NodeSet reads
+// NodeSet file: coordinates plus a per-node flag
 // ---------------------------------------------------------------------------
 
-// One node per line, no header, read to end of file:
+// The file NodeSet reads and writes. One node per line, no header, read to
+// end of file:
 //
 //     x0 y0 flag0
 //     x1 y1 flag1
@@ -167,9 +165,8 @@ ArrayOfStructs read_points_aos(const std::string& fname)
 // flag is 0 for interior nodes and nonzero for boundary nodes. The file is
 // taken to be complete: reading stops at the first record that does not
 // parse as three numbers, whether that is the end of the file or not.
-// NodeSet's constructor delegates to this.
 template <class T>
-std::size_t read_nodes(const std::string& fname,
+std::size_t read_nodeset(const std::string& fname,
                        std::vector<T>& x, std::vector<T>& y, std::vector<int>& flag)
 {
     auto in = detail::open_in(fname);
@@ -183,9 +180,9 @@ std::size_t read_nodes(const std::string& fname,
     return x.size();
 }
 
-// Inverse of read_nodes. A null flag writes 0 (interior) for every node.
+// Inverse of read_nodeset. A null flag writes 0 (interior) for every node.
 template <class T>
-void write_nodes(const std::string& fname, std::size_t n,
+void write_nodeset(const std::string& fname, std::size_t n,
                  const T* x, const T* y, const int* flag = nullptr)
 {
     auto out = detail::open_out(fname);
@@ -195,7 +192,7 @@ void write_nodes(const std::string& fname, std::size_t n,
 }
 
 // ---------------------------------------------------------------------------
-// Graph
+// Graph file (.graph)
 // ---------------------------------------------------------------------------
 
 namespace detail {
@@ -226,8 +223,8 @@ std::size_t parse_ints(std::string_view text, std::vector<I>& ja,
 
 } // namespace detail
 
-// Adjacency graph in compressed sparse row form, from a file with a
-// "rows nnz" header followed by one line of neighbour indices per row:
+// Adjacency graph in compressed sparse row form, from a graph file: a
+// "rows nnz" header followed by one line of stencil indices per node:
 //
 //     n nnz
 //     j00 j01 j02 ...

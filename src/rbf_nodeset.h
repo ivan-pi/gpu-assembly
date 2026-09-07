@@ -52,9 +52,9 @@ public:
     std::vector<int> flag;        // per-node tag; 0 = interior, nonzero = boundary
     std::vector<index_type> bnd;  // indices of nonzero-flag nodes (boundary)
 
-    // Reads the "x y flag" file format; see rbf::io::read_nodes.
+    // Reads the "x y flag" NodeSet file; see rbf::io::read_nodeset.
     explicit NodeSet(const std::string& fname) {
-        num_points_ = io::read_nodes(fname, x, y, flag);
+        num_points_ = io::read_nodeset(fname, x, y, flag);
         rebuild_bnd();
         file_order_ = Permutation<I>::identity(num_points_);
     }
@@ -68,7 +68,7 @@ public:
     // k-d tree are not part of it, so the re-read set starts from the
     // identity order.
     void write(const std::string& fname) const {
-        io::write_nodes(fname, num_points_, x.data(), y.data(), flag.data());
+        io::write_nodeset(fname, num_points_, x.data(), y.data(), flag.data());
     }
 
     size_t num_points() const { return num_points_; }
