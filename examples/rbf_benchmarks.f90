@@ -7,38 +7,20 @@
 !     call case%fields(x, y, p, ux, uy)         ! initial conditions
 !
 ! evaluates the fields at the points (x(i), y(i)). The scalar p is the
-! pressure, or the density for acoustic_wave and barotropic_vortex. The
-! constructor functions stop with a message on parameters the formulas
-! cannot take (the C++ constructors assert the same).
+! pressure, or the density for acoustic_wave and barotropic_vortex.
+! Every case is built on the periodic_box of src/rbf_periodic_box.f90.
+! The constructor functions stop with a message on parameters the
+! formulas cannot take (the C++ constructors assert the same).
 module rbf_benchmarks
-use rbf_precision, only: wp
+use rbf_precision, only: wp, pi
+use rbf_periodic_box, only: periodic_box
 implicit none
 private
 
-public :: pi
-public :: periodic_box
 public :: mode, shear_modes, shear_wave, taylor_green
 public :: acoustic_wave
 public :: shear_layer
 public :: barotropic_vortex
-
-real(wp), parameter :: pi = 4.0_wp*atan(1.0_wp)
-
-!
-! [0, Lx) x [0, Ly) with periodic images. The mode (nx, ny) has the wave
-! number (2 pi nx/Lx, 2 pi ny/Ly); in lattice units Lx = nx cells.
-!
-type :: periodic_box
-    real(wp) :: Lx, Ly
-contains
-    procedure :: wavenumber => box_wavenumber
-    procedure :: wrap => box_wrap
-    procedure :: minimum_image => box_minimum_image
-end type
-
-interface periodic_box
-    module procedure :: periodic_box_constructor
-end interface
 
 !
 ! SHEAR MODES: shear waves sharing one |k|, an exact decaying solution
@@ -139,43 +121,6 @@ contains
 end type
 
 contains
-
-    !
-    ! PERIODIC BOX
-    !
-
-    function periodic_box_constructor(Lx,Ly) result(box)
-        real(wp), intent(in) :: Lx, Ly
-        type(periodic_box) :: box
-        if (Lx <= 0 .or. Ly <= 0) error stop "periodic_box: box sides must be positive"
-        box%Lx = Lx
-        box%Ly = Ly
-    end function
-
-    pure function box_wavenumber(box,nx,ny) result(k)
-        class(periodic_box), intent(in) :: box
-        integer, intent(in) :: nx, ny
-        real(wp) :: k(2)
-        k = [2*pi*nx/box%Lx, 2*pi*ny/box%Ly]
-    end function
-
-    ! The point mapped into the box
-    pure function box_wrap(box,xy) result(w)
-        class(periodic_box), intent(in) :: box
-        real(wp), intent(in) :: xy(2)
-        real(wp) :: w(2)
-        w(1) = xy(1) - box%Lx*floor(xy(1)/box%Lx)
-        w(2) = xy(2) - box%Ly*floor(xy(2)/box%Ly)
-    end function
-
-    ! The shortest of the displacement and its periodic images
-    pure function box_minimum_image(box,d) result(m)
-        class(periodic_box), intent(in) :: box
-        real(wp), intent(in) :: d(2)
-        real(wp) :: m(2)
-        m(1) = d(1) - box%Lx*anint(d(1)/box%Lx)
-        m(2) = d(2) - box%Ly*anint(d(2)/box%Ly)
-    end function
 
     !
     ! SHEAR MODES

@@ -18,8 +18,10 @@ are not here.
 
 ## Box and interface
 
-Every case is built on a `periodic_box` with sides `Lx` and `Ly`, which
-turns integer mode numbers `(nx, ny)` into the wave numbers
+Every case is built on a `periodic_box` with sides `Lx` and `Ly` (in
+Fortran the module `rbf_periodic_box` in `src/`, since the box also
+serves stencil assembly), which turns integer mode numbers `(nx, ny)`
+into the wave numbers
 `(2 pi nx/Lx, 2 pi ny/Ly)`, so every field is periodic by construction.
 In lattice units the box is `nx` by `ny` cells and the fundamental mode
 is `(1, 1)`. The box also wraps a point into itself and gives the
@@ -36,6 +38,8 @@ auto [p, ux, uy] = tg({x, y}, time);
 ```
 
 ```fortran
+use rbf_periodic_box, only: periodic_box
+use rbf_benchmarks, only: shear_modes, taylor_green
 type(periodic_box) :: box
 type(shear_modes) :: tg
 box = periodic_box(64.0_wp, 64.0_wp)
