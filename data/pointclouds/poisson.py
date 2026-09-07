@@ -59,8 +59,8 @@ __all__ = ["PoissonDisk"]
 # without cost, and the loop is split into small functions of those,
 # which LLVM inlines.
 
-Box = namedtuple("Box", "lx ly perx pery")       # the rectangle and its periodic axes
-Cells = namedtuple("Cells", "nx ny sx sy")       # the grid: counts and sides of the cells
+Box = namedtuple("Box", "lx ly perx pery")  # the rectangle and its periodic axes
+Cells = namedtuple("Cells", "nx ny sx sy")  # the grid: counts and sides of the cells
 Store = namedtuple("Store", "px py grid queue count")
 # px, py   the points, in the order drawn
 # grid     the index of the point in each cell, -1 for none
@@ -76,7 +76,7 @@ def wrap_coordinate(z, length):
         z += length
     elif z >= length:
         z -= length
-    if z >= length:                              # rounded up to the side
+    if z >= length:  # rounded up to the side
         z = 0.0
     return z
 
@@ -121,8 +121,7 @@ def squared_distance(box, dx, dy):
 def cell_of(cells, x, y):
     """The column and row of the cell (x, y) falls in; the last for a
     coordinate on the far side."""
-    return (min(int(x / cells.sx), cells.nx - 1),
-            min(int(y / cells.sy), cells.ny - 1))
+    return (min(int(x / cells.sx), cells.nx - 1), min(int(y / cells.sy), cells.ny - 1))
 
 
 @njit(cache=True)
@@ -184,7 +183,7 @@ def draw_points(store, cells, box, r, k, nmax, rng):
     """Points drawn from the queue until it is empty or there are nmax of
     them: a queued point throws its k candidates and comes off, and every
     candidate that fits is stored and queued in its turn."""
-    if store.count[0] == 0 and nmax > 0:        # no seeds: start anywhere
+    if store.count[0] == 0 and nmax > 0:  # no seeds: start anywhere
         insert_point(store, cells, rng.random() * box.lx, rng.random() * box.ly)
     r2 = r * r
     while store.count[1] > 0 and store.count[0] < nmax:
@@ -192,9 +191,10 @@ def draw_points(store, cells, box, r, k, nmax, rng):
         s = store.queue[qi]
         for _ in range(k):
             a = 2.0 * np.pi * rng.random()
-            b = r * sqrt(1.0 + 3.0 * rng.random())   # uniform over the annulus
-            inside, x, y = into_box(box, store.px[s] + b * np.cos(a),
-                                     store.py[s] + b * np.sin(a))
+            b = r * sqrt(1.0 + 3.0 * rng.random())  # uniform over the annulus
+            inside, x, y = into_box(
+                box, store.px[s] + b * np.cos(a), store.py[s] + b * np.sin(a)
+            )
             if not inside or cell_taken(store, cells, x, y):
                 continue
             if too_close(store, cells, box, x, y, r2):
@@ -202,12 +202,10 @@ def draw_points(store, cells, box, r, k, nmax, rng):
             insert_point(store, cells, x, y)
             if store.count[0] >= nmax:
                 break
-        else:                                    # all k thrown: retired
+        else:  # all k thrown: retired
             qn = store.count[1] - 1
             store.queue[qi] = store.queue[qn]
             store.count[1] = qn
-
-
 
 
 class PoissonDisk:
@@ -225,8 +223,15 @@ class PoissonDisk:
     `points` holds everything so far, seeds first, in the order drawn.
     """
 
-    def __init__(self, radius, extent=(1.0, 1.0), periodic=False,
-                 ncandidates=30, seed=None, seeds=None):
+    def __init__(
+        self,
+        radius,
+        extent=(1.0, 1.0),
+        periodic=False,
+        ncandidates=30,
+        seed=None,
+        seeds=None,
+    ):
         if radius <= 0:
             raise ValueError("radius must be positive")
         extent = np.asarray(extent, float)
@@ -241,8 +246,11 @@ class PoissonDisk:
         self.periodic = periodic
         self.ncandidates = int(ncandidates)
         self.seed = seed
-        self._seeds = (np.empty((0, 2)) if seeds is None
-                       else np.array(seeds, float, ndmin=2).reshape(-1, 2))
+        self._seeds = (
+            np.empty((0, 2))
+            if seeds is None
+            else np.array(seeds, float, ndmin=2).reshape(-1, 2)
+        )
         self.reset()
 
     def reset(self):
@@ -254,9 +262,13 @@ class PoissonDisk:
         nx, ny = (ceil(L / (self.radius / sqrt(2))) for L in self.extent)
         self._box = Box(lx, ly, bool(self.periodic[0]), bool(self.periodic[1]))
         self._cells = Cells(nx, ny, lx / nx, ly / ny)
-        self._store = Store(np.empty(nx * ny), np.empty(nx * ny),
-                            np.full(nx * ny, -1, np.int64),
-                            np.empty(nx * ny, np.int64), np.zeros(2, np.int64))
+        self._store = Store(
+            np.empty(nx * ny),
+            np.empty(nx * ny),
+            np.full(nx * ny, -1, np.int64),
+            np.empty(nx * ny, np.int64),
+            np.zeros(2, np.int64),
+        )
         self._rng = np.random.default_rng(self.seed)
         self.num_generated = 0
         self.add_points(self._seeds)
@@ -270,7 +282,8 @@ class PoissonDisk:
         if len(pts) == 0:
             return
         if np.any(pts[:, ~self.periodic] < 0) or np.any(
-                pts[:, ~self.periodic] >= self.extent[~self.periodic]):
+            pts[:, ~self.periodic] >= self.extent[~self.periodic]
+        ):
             raise ValueError("a point lies outside the rectangle")
         pts = pts.copy()
         pts[:, self.periodic] = wrap(pts[:, self.periodic], self.extent[self.periodic])
@@ -281,8 +294,15 @@ class PoissonDisk:
         """Draw up to n more points and return them; fewer when the space
         fills up first."""
         before = int(self._store.count[0])
-        draw_points(self._store, self._cells, self._box, self.radius, self.ncandidates,
-              min(before + n, len(self._store.px)), self._rng)
+        draw_points(
+            self._store,
+            self._cells,
+            self._box,
+            self.radius,
+            self.ncandidates,
+            min(before + n, len(self._store.px)),
+            self._rng,
+        )
         after = int(self._store.count[0])
         self.num_generated += after - before
         return self.points[before:]
@@ -299,6 +319,7 @@ class PoissonDisk:
 
 
 # ----------------------------------------------------------------- example
+
 
 def demo():
     """A sample of the unit square with r = 0.02, shown with its Delaunay
