@@ -3,7 +3,7 @@
 random amount, with the periodic stencil graph that goes with them.
 
     python3 perturbed_grid.py -n 40 tg_40
-    python3 perturbed_grid.py -n 40 --sigma 0.02 --knn 21 tg_40
+    python3 perturbed_grid.py -n 40 --sigma 0.02 -K 21 tg_40
     python3 perturbed_grid.py -n 40 --geometry channel poiseuille_40.node
     python3 perturbed_grid.py -n 40 --seed 1234 tg_40
 
@@ -14,10 +14,10 @@ both sides (the Taylor-Green test) or a channel periodic in x with walls
 at y = 0 and y = N (the Poiseuille test), whose wall nodes carry the
 markers 1 (bottom) and 3 (top).
 
-The stencil of a node is its --knn K nearest nodes, 18 by default where
-the reference uses 15, the nodes within a distance --radius R, or those
-within a square, --range S (pointclouds.stencils); the search wraps
-around the periodic sides. A run without --seed draws one and reports
+The stencil of a node is its K nearest nodes (--knn-graph K, or -K),
+18 by default where the reference uses 15, the nodes within a distance
+(--radius-graph R, or -R), or those within a square (--range-graph S);
+the search wraps around the periodic sides. A run without --seed draws one and reports
 it, so that the grid can be repeated.
 
 The output is a points file and a graph file in the same numbering, or a

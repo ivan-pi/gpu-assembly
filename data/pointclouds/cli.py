@@ -40,38 +40,44 @@ def output_stem(name, default, known=(".node", ".points")):
 
 
 class Pair(argparse.Action):
-    """An option stored with its own name: --knn 18 gives ("knn", 18)."""
+    """An option stored with the method it stands for: -K 18 gives
+    args.graph = ("knn", 18)."""
 
     def __call__(self, ap, namespace, value, option):
-        setattr(namespace, self.dest, (option.lstrip("-"), value))
+        setattr(namespace, self.dest, (self.const, value))
 
 
 def add_graph_options(ap):
-    """How the stencil graph is selected, one of --knn K, --radius R and
-    --range S, as args.graph = (method, value) for NodeSet.stencils, or
-    None for --no-graph. The 18 nearest nodes unless given: the 6 terms
-    of a second-order polynomial plus 12."""
+    """How the stencil graph is selected, one of --knn-graph K,
+    --radius-graph R and --range-graph S, as args.graph = (method, value)
+    for NodeSet.stencils, or None for --no-graph. The 18 nearest nodes
+    unless given: the 6 terms of a second-order polynomial plus 12."""
     group = ap.add_mutually_exclusive_group()
     group.add_argument(
-        "--knn",
+        "-K",
+        "--knn-graph",
         dest="graph",
         action=Pair,
+        const="knn",
         type=number(int, least=2),
         metavar="K",
         help="the stencil of a node is its K nearest nodes (default: 18)",
     )
     group.add_argument(
-        "--radius",
+        "-R",
+        "--radius-graph",
         dest="graph",
         action=Pair,
+        const="radius",
         type=number(float, above=0.0),
         metavar="R",
         help="the stencil of a node is the nodes within a distance R of it",
     )
     group.add_argument(
-        "--range",
+        "--range-graph",
         dest="graph",
         action=Pair,
+        const="range",
         type=number(float, above=0.0),
         metavar="S",
         help="the stencil of a node is the nodes within S of it along both "

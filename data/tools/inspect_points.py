@@ -75,7 +75,6 @@ class Graph:
     def __init__(self, ia, ja):
         self.ia, self.ja = ia, ja
         self.n, self.nnz = len(ia) - 1, len(ja)
-        self.rows = np.repeat(np.arange(self.n), np.diff(ia))  # the row of every entry
         self.pattern = csr_array(
             (np.ones(self.nnz, np.int8), ja, ia), shape=(self.n, self.n)
         )
@@ -118,7 +117,7 @@ class Graph:
             f"  entries with their transpose stored: {sym} of {self.nnz} "
             f"({100 * sym / self.nnz:.1f}%)"
         )
-        print(f"  bandwidth: {np.abs(self.rows - ja).max()}")
+        print(f"  bandwidth: {np.abs(self.pattern.tocoo().row - ja).max()}")
 
     def spy(self, ax, title):
         """The sparsity pattern, one square per stored entry."""
@@ -126,7 +125,7 @@ class Graph:
         width = ax.figure.get_size_inches()[0] * ax.get_position().width * 72  # points
         ax.scatter(
             self.ja,
-            self.rows,
+            self.pattern.tocoo().row,
             s=max(width / n, 0.8) ** 2,
             marker="s",
             color="black",

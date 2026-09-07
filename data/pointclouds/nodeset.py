@@ -16,6 +16,7 @@ node files are fixed here too, as MARKERS.
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from .io import read_nodes, write_graph, write_node, write_points
 from .periodic import minimum_image, wrap
@@ -85,8 +86,6 @@ class NodeSet:
     def neighbours(self, k):
         """Indices and distances of the k nearest other nodes of every
         node, nearest first."""
-        from scipy.spatial import cKDTree
-
         d, j = cKDTree(self.points, boxsize=self.boxsize).query(
             self.points, k + 1, workers=-1
         )

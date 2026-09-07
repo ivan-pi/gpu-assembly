@@ -20,11 +20,10 @@ the box, where a node meets its own image.
 """
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 
 def select_stencils(pts, boxsize, method, value):
-    from scipy.spatial import cKDTree
-
     n = len(pts)
     tree = cKDTree(pts, boxsize=boxsize)
 

@@ -7,12 +7,12 @@ name = "pointclouds"
 version = "0.1"
 description = "The point-cloud file formats of gpu-assembly, and what its data scripts share"
 requires-python = ">=3.9"
-dependencies = ["numpy"]
+dependencies = ["numpy", "scipy"]
 
 [project.optional-dependencies]
-tools = ["scipy", "matplotlib"]
-generate = ["scipy", "numba"]
-reorder = ["scipy", "pymetis", "scikit-sparse"]
+tools = ["matplotlib"]
+generate = ["numba"]
+reorder = ["pymetis", "scikit-sparse"]
 
 [tool.setuptools]
 packages = ["pointclouds", "pointclouds.io"]

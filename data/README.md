@@ -19,8 +19,8 @@ the `pointclouds` package beside them, which has to be installed for
 them to find it. From the repository root:
 
 ```
-pip install -e data                # pointclouds and numpy, in place
-pip install scipy matplotlib       # neighbour search, rcm, and the figures
+pip install -e data                # pointclouds, numpy and scipy, in place
+pip install matplotlib             # the figures
 pip install numba                  # the Poisson disk sampler
 pip install pymetis                # nested dissection
 pip install scikit-sparse          # minimum degree, and the fill-in count
@@ -108,8 +108,8 @@ the node files as `MARKERS`. The clouds the generators make are its
 children in `pointclouds.generators`, so that a script is its command
 line and a constructor call. `pointclouds.io` reads and writes the
 formats above, `pointclouds.cli` the command-line conventions, among
-them the options that select the stencil graph (`--knn K`, `--radius R`
-or `--range S`), `pointclouds.stencils` the selection itself, with a
+them the options that select the stencil graph (`--knn-graph K`,
+`--radius-graph R` or `--range-graph S`), `pointclouds.stencils` the selection itself, with a
 search that wraps around the periodic sides of a box, and
 `pointclouds.periodic` the box arithmetic. `pointclouds.poisson` fills a rectangle with points no two of which are
 closer than a radius, with either axis periodic or neither, from seed
