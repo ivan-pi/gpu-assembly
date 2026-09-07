@@ -50,7 +50,7 @@ Boundary markers (docs/file_formats.md, node file):
     5  corner, where two walls meet
 
 The walls are numbered counter-clockwise from the bottom, the numbering
-the generators share (pointclouds/formats.py). The corners get
+the generators share (pointclouds/markers.py). The corners get
 their own marker because a corner node belongs to two walls with, in the
 cavity, different boundary data: the lid velocity meets the wall's no-slip.
 Whoever assembles the boundary conditions decides what a corner gets.

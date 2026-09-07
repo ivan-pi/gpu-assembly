@@ -62,7 +62,7 @@ so the stream carries the file alone. The markers are:
     3  top wall, y = N
 
 The numbering is the one the generators share, counter-clockwise from
-the bottom wall (pointclouds/formats.py), which leaves 2 and 4 for the
+the bottom wall (pointclouds/markers.py), which leaves 2 and 4 for the
 east and west walls: those sides are periodic here and carry no nodes of
 their own.
 """
@@ -71,8 +71,8 @@ import argparse
 import sys
 
 import numpy as np
-from scipy.spatial import cKDTree
 
+from pointclouds import stencils
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_graph, write_node, write_points
 from pointclouds.markers import INTERIOR, MARKER_STYLE, NORTH, SOUTH
@@ -110,23 +110,6 @@ def wrap(z, box):
     z = np.mod(z, box)
     z[z >= box] = 0.0  # np.mod rounds up to the side
     return z
-
-
-def stencils(pts, box, periodic, kind, reach):
-    """The stencil of every node, as lists of node indices. A zero side
-    leaves that axis aperiodic, which is what the channel wants in y."""
-    tree = cKDTree(pts, boxsize=[box, box if periodic else 0.0])
-    if kind == "knn":
-        adj = tree.query(pts, reach)[1]
-        if not np.array_equal(adj[:, 0], np.arange(len(pts))):
-            sys.exit(
-                "a node is not its own nearest neighbour: two nodes coincide, "
-                "which takes a --sigma of about 0.5 or more"
-            )
-        return adj.tolist()  # the node itself opens each row
-    norm = np.inf if kind == "square" else 2  # the max norm bounds a square
-    adj = tree.query_ball_point(pts, reach, p=norm)
-    return [[i] + [j for j in row if j != i] for i, row in enumerate(adj)]
 
 
 def plot(pts, m, rows):
@@ -191,27 +174,7 @@ def main():
         "and periodic in x (default: periodic)",
     )
 
-    stencil = ap.add_mutually_exclusive_group()
-    stencil.add_argument(
-        "--knn",
-        type=number(int, least=1),
-        metavar="K",
-        help="stencil of the K nearest nodes (default: 15, the "
-        "stencil size of the reference)",
-    )
-    stencil.add_argument(
-        "--radius",
-        type=number(float, above=0.0),
-        metavar="R",
-        help="stencil of the nodes within R spacings",
-    )
-    stencil.add_argument(
-        "--square",
-        type=number(float, above=0.0),
-        metavar="S",
-        help="stencil of the nodes within S spacings in both x "
-        "and y, a square of side 2 S",
-    )
+    stencils.add_options(ap, knn=15, why=", the stencil size of the reference")
 
     ap.add_argument(
         "--seed",
@@ -246,19 +209,7 @@ def main():
             file=sys.stderr,
         )
 
-    if args.radius is not None:
-        kind, reach = "radius", args.radius
-    elif args.square is not None:
-        kind, reach = "square", args.square
-    else:
-        kind, reach = "knn", 15 if args.knn is None else args.knn
-    if kind != "knn" and reach > 0.5 * n:
-        # Beyond half the box a node is its own neighbour through the
-        # periodic side, which the stencil of a node cannot hold twice.
-        ap.error(
-            f"--{kind} reaches more than half way around the box: at most "
-            f"{0.5 * n:g} spacings for -n {n}"
-        )
+    stencil = stencils.from_args(args, knn=15)
 
     seed = np.random.SeedSequence().entropy if args.seed is None else args.seed
     streams = np.random.SeedSequence(seed).spawn(args.realizations)
@@ -279,8 +230,10 @@ def main():
         )
 
     pts0, m = grid(n, periodic)
-    if kind == "knn" and reach > len(pts0) and not args.no_graph:
-        ap.error(f"--knn is larger than the {len(pts0)} nodes of the grid")
+    if not args.no_graph:
+        problem = stencils.check(stencil, (box, box), (True, periodic), len(pts0))
+        if problem:
+            ap.error(problem)
     if args.seed is None:
         print(f"seed {seed}", file=sys.stderr)
 
@@ -288,7 +241,7 @@ def main():
     command = (
         f"produced by perturbed_grid.py -n {n} --sigma {sigma:g} "
         f"--geometry {args.geometry} "
-        f"{'--no-graph' if args.no_graph else f'--{kind} {reach:g}'} "
+        f"{'--no-graph' if args.no_graph else f'--{stencil.kind} {stencil.reach:g}'} "
         f"--seed {seed}"
     )
     if args.realizations > 1:
@@ -308,7 +261,10 @@ def main():
 
         rows, graph = None, ""
         if not args.no_graph:
-            rows = stencils(pts, box, periodic, kind, reach)
+            try:
+                rows = stencils.search(pts, (box, box), (True, periodic), stencil)
+            except ValueError as e:
+                sys.exit(f"{e}, which takes a --sigma of about 0.5 or more")
             write_graph(stem, rows)
             sizes = [len(row) for row in rows]
             graph = (

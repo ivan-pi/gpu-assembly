@@ -102,13 +102,15 @@ Scripts that produced a case go in `gen/`, and what they share with the
 tools in the `pointclouds` package, laid out like the C++ library:
 `pointclouds.io` reads and writes the formats above, `pointclouds.markers`
 fixes the boundary-marker convention, `pointclouds.cli` the command-line
-conventions. `pointclouds.poisson` fills a rectangle with points no two
-of which are closer than a radius, with either axis periodic or neither,
-from seed points if given, in whatever units the extent and the radius
-come in; its interface follows `scipy.stats.qmc.PoissonDisk`, and
-Bridson's loop is compiled by numba, so a million points take a few
-seconds; `tools/poisson_demo.py` shows a sample of it. The generators
-are:
+conventions, and `pointclouds.stencils` the stencil search with the three
+options that pick one (`--knn`, `--radius`, `--square`), which wraps
+around the periodic sides of a box. `pointclouds.poisson` fills a
+rectangle with points no two of which are closer than a radius, with
+either axis periodic or neither, from seed points if given, in whatever
+units the extent and the radius come in; its interface follows
+`scipy.stats.qmc.PoissonDisk`, and Bridson's loop is compiled by numba,
+so a million points take a few seconds; `tools/poisson_demo.py` shows a
+sample of it. The generators are:
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
@@ -118,6 +120,13 @@ are:
   at the top and bottom, as a `.points` or a `.node` file together with
   the `.graph` of its stencils, whose search wraps around the periodic
   sides.
+- `gen/periodic_poisson.py`: a Poisson disk sample of a periodic box, no
+  two nodes closer than a distance, either filling the box or laid
+  around a circular hole in its middle with nodes on the circle, the unit
+  cell of a square array of cylinders; as a `.points` or a `.node` file
+  with the `.graph` of its stencils. `--tile MX MY` lays copies of the
+  sample side by side into a bigger box, or a finer cloud of the same
+  physical box, for the cost of sampling one copy.
 
 They work in lattice units, in which the spacing is 1; scaling a case to
 other units is left to whoever needs it. `--help` describes the rest.

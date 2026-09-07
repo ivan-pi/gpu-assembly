@@ -3,6 +3,7 @@
     pointclouds.io       readers and writers for the files of docs/file_formats.md
     pointclouds.markers  the boundary-marker convention of the node files
     pointclouds.cli      the command-line conventions of the scripts
+    pointclouds.stencils the stencil search of the generators, and its options
     pointclouds.poisson  a Poisson disk sampler of a rectangle, periodic or not
 
 The generators in data/gen and the tools in data/tools import it, so it
