@@ -21,12 +21,8 @@ listed under [Extracted](#extracted).
 
 ## Extracted
 
-Node sets read off the figures of published papers with WebPlotDigitizer 4,
-as [node files](../docs/file_formats.md#node-file). A digitized coordinate
-is imprecise, limited by the pixel resolution of the figure, so wherever the
-shape of the boundary is known its nodes were reconstructed onto it to
-machine precision, which is what makes the normal taken from a boundary node
-exact.
+Node sets read off the figures of published papers, as
+[node files](../docs/file_formats.md#node-file).
 
 | Case | Nodes | Boundary | Geometry | Markers | From |
 |---|---|---|---|---|---|
@@ -36,6 +32,7 @@ exact.
 | `musavi_disk_409.node` | 409 | 64 | the disk `r <= 1` about the origin | 1 circle | [2] |
 | `musavi_disk_1501.node` | 1501 | 128 | the disk `r <= 1` about the origin | 1 circle | [2] |
 | `shu_square_4786.node` | 4786 | 264 | the square `[0, 1]^2` | 1 south, 2 east, 3 north, 4 west, 5 corner | [3] |
+| `barnett_disk_817.node` | 817 | 96 | the disk `r <= 1` about the origin | 1 circle | [4] |
 
 Marker 0 is an interior node in all of them.
 
@@ -50,6 +47,9 @@ Marker 0 is an interior node in all of them.
    0.2, 0.1 and 0.05.
 3. Shu, Ding and Zhao (2006), Comput. Math. Appl. 51, 1297-1310,
    [doi:10.1016/j.camwa.2006.04.015](https://doi.org/10.1016/j.camwa.2006.04.015).
+4. Barnett (2015), doctoral dissertation, University of Colorado Boulder,
+   [scholar.colorado.edu/.../8623hx72q](https://scholar.colorado.edu/concern/graduate_thesis_or_dissertations/8623hx72q),
+   figure 4.12.
 
 ## Generating
 
