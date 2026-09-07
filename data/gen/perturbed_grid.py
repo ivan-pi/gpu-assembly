@@ -76,6 +76,7 @@ from scipy.spatial import cKDTree
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_graph, write_node, write_points
 from pointclouds.markers import INTERIOR, MARKER_STYLE, NORTH, SOUTH
+from pointclouds.periodic import wrap
 
 
 def grid(n, periodic):
@@ -103,13 +104,6 @@ def perturb(pts, m, sigma, box, periodic, rng):
     else:
         pts[:, 1] = np.clip(pts[:, 1], 0.0, box)  # only reached by sigma >= 1
     return pts
-
-
-def wrap(z, box):
-    """Into [0, box) through the periodic side."""
-    z = np.mod(z, box)
-    z[z >= box] = 0.0  # np.mod rounds up to the side
-    return z
 
 
 def stencils(pts, box, periodic, kind, reach):
