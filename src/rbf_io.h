@@ -16,6 +16,8 @@
 //
 // These are ASCII formats: convenient, diffable, and slow. If reading becomes
 // a bottleneck the answer is a binary format, not a faster parser.
+//
+// Assisted-by: Claude Fable 5.1
 
 #include <algorithm>
 #include <cassert>

@@ -9,6 +9,8 @@
 // A node is written as one vertex, so the cloud renders as points, and every
 // field lands in POINT_DATA under the name given. Values are written at full
 // precision for T. Files should be given the .vtk extension.
+//
+// Assisted-by: Claude Fable 5.1
 
 #include <cassert>
 #include <cstddef>

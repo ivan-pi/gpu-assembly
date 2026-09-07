@@ -8,6 +8,8 @@
 //
 // Only the success paths are covered: the readers exit on a bad file, which
 // cannot be observed from inside the process.
+//
+// Assisted-by: Claude Fable 5.1
 
 #include <array>
 #include <cstdint>
