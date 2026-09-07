@@ -49,11 +49,7 @@ with different seeds.
 The output is a points file and a graph file, in the numbering the two
 share. A name ending in `.node` writes a node file instead of the points
 file, with a comment line naming the command and a marker per node
-(docs/file_formats.md). The name `-` writes to standard output, and
-`-- -.node` a node file there, after the option separator since the name
-starts with a dash. Only one file fits down a pipe, so both take
---no-graph. The report goes to standard error,
-so the stream carries the file alone. The markers are:
+(docs/file_formats.md). The markers are:
 
     0  interior
     1  bottom wall, y = 0
@@ -66,13 +62,12 @@ their own.
 """
 
 import argparse
-import sys
 
 import numpy as np
 
 from pointclouds import stencils
-from pointclouds.cli import add_run_options, draw_seed, number, output, stencil_report
-from pointclouds.io import write_graph, write_nodes
+from pointclouds.cli import number, output_stem
+from pointclouds.io import write_graph, write_node, write_points
 from pointclouds.markers import INTERIOR, MARKER_STYLE, NORTH, SOUTH
 from pointclouds.poisson import wrap
 
@@ -138,7 +133,7 @@ def main():
         "output",
         help="output file: the points file and the graph "
         "file next to it, or a node file with the markers and the "
-        "graph if the name ends in .node; `-` is standard output",
+        "graph if the name ends in .node",
     )
     ap.add_argument(
         "-n",
@@ -167,8 +162,18 @@ def main():
     )
 
     stencils.add_options(ap, knn=15, why="the stencil size of the reference")
-    add_run_options(
-        ap, "grid", plot="show the grid, coloured by marker, with one stencil"
+    ap.add_argument(
+        "--seed", type=int, help="seed of the grid (default: drawn and reported)"
+    )
+    ap.add_argument(
+        "--no-graph",
+        action="store_true",
+        help="write the coordinates only, without the stencil graph",
+    )
+    ap.add_argument(
+        "--plot",
+        action="store_true",
+        help="show the grid, coloured by marker, with one stencil",
     )
     args = ap.parse_args()
 
@@ -178,8 +183,7 @@ def main():
     if sigma >= 0.5:
         print(
             f"warning: --sigma {sigma:g} moves a node out of its own cell, "
-            f"and nodes may end up on top of each other",
-            file=sys.stderr,
+            f"and nodes may end up on top of each other"
         )
 
     stencil = stencils.from_args(args)
@@ -187,31 +191,32 @@ def main():
         problem = stencils.check(stencil, extent, wraps)
         if problem:
             ap.error(problem)
-    stem, ext = output(ap, args, default=".points")
-    seed = draw_seed(args)
+    stem, ext = output_stem(args.output, default=".points")
+    seed = args.seed if args.seed is not None else np.random.SeedSequence().entropy
+    if args.seed is None:
+        print(f"seed {seed}")
 
     pts0, m = grid(n, periodic)
     pts = perturb(pts0, m, sigma, box, periodic, np.random.default_rng(seed))
-    graph, report = None, ""
-    if not args.no_graph:
-        try:
-            graph = stencils.search(pts, extent, wraps, stencil)
-        except ValueError as e:
-            sys.exit(str(e))
-        report = stencil_report(graph[0])
+    graph = None if args.no_graph else stencils.search(pts, extent, wraps, stencil)
 
-    # The comment of a node file is the command that reproduces it.
-    provenance = (
-        f"produced by perturbed_grid.py -n {n} --sigma {sigma!r} "
-        f"--geometry {args.geometry} {'--no-graph' if args.no_graph else stencil} "
-        f"--seed {seed}"
-    )
-    write_nodes(stem, ext, pts, m, provenance)
+    if ext == ".node":
+        geometry = f"-n {n} --sigma {sigma:g} --geometry {args.geometry}"
+        write_node(stem, pts, m, f"produced by perturbed_grid.py {geometry}")
+    else:
+        write_points(stem, pts)
+    report = f"{stem}: {len(pts)} nodes"
+    if not periodic:
+        report += f", {np.count_nonzero(m)} of them on a wall"
     if graph:
-        write_graph(stem, *graph)
-    walls = f", {np.count_nonzero(m)} of them on a wall" if not periodic else ""
-    written = "standard output" if stem == "-" else stem
-    print(f"{written}: {len(pts)} nodes{walls}{report}", file=sys.stderr)
+        ia, ja = graph
+        write_graph(stem, ia, ja)
+        sizes = np.diff(ia)
+        report += (
+            f", {ia[-1]} edges in the stencil graph, "
+            f"stencils of {sizes.min()} to {sizes.max()} nodes"
+        )
+    print(report)
 
     if args.plot:
         plot(pts, m, graph)

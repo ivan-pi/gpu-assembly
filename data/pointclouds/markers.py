@@ -8,7 +8,13 @@ and so no marker, only a cavity has corners, and only a cylinder case a
 hole.
 """
 
-INTERIOR, SOUTH, EAST, NORTH, WEST, CORNER, HOLE = 0, 1, 2, 3, 4, 5, 6
+INTERIOR = 0
+SOUTH = 1
+EAST = 2
+NORTH = 3
+WEST = 4
+CORNER = 5
+HOLE = 6
 
 # Marker colours for --plot: fixed here so that a marker means the same
 # colour whichever generator drew the cloud.

@@ -59,14 +59,10 @@ The output file is a node file, named after the argument with `.node`
 appended if it is not there already. Its first line is a comment with
 the command that produced it, and every node carries its marker. A name
 ending in `.points` gives a points file instead, a format with no
-comment line and no markers: only the coordinates are written. The name
-`-` writes to standard output, `-- -.points` the points file there,
-after the option separator since the name starts with a dash. The report
-goes to standard error, so the stream carries the file alone.
+comment line and no markers: only the coordinates are written.
 """
 
 import argparse
-import sys
 
 import numpy as np
 
@@ -178,8 +174,7 @@ def main():
     ap.add_argument(
         "output",
         help="output file: a node file with the markers, or a "
-        "points file without them if the name ends in .points; "
-        "`-` is standard output",
+        "points file without them if the name ends in .points",
     )
     ap.add_argument(
         "--distribution",
@@ -236,12 +231,10 @@ def main():
         )
 
     counts = np.bincount(m, minlength=6)
-    written = "standard output" if stem == "-" else stem + suffix
     print(
-        f"{written}: {len(pts)} nodes, "
+        f"{stem + suffix}: {len(pts)} nodes, "
         f"{counts[0]} interior, S {counts[1]} E {counts[2]} N {counts[3]} "
-        f"W {counts[4]}, {counts[5]} corners",
-        file=sys.stderr,
+        f"W {counts[4]}, {counts[5]} corners"
     )
 
     if args.plot:

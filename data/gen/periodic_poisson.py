@@ -1,92 +1,39 @@
 #!/usr/bin/env python3
-"""Scattered point clouds of a periodic box, drawn by Poisson disk
-sampling, on their own or around a circular hole, with the periodic
-stencil graph that goes with them.
+"""A Poisson disk sample of a periodic box, on its own or around a
+circular hole, with the stencil graph that goes with it.
 
     python3 periodic_poisson.py --size 32 32 tg_32
-    python3 periodic_poisson.py --size 32 32 --knn 21 --seed 1234 tg_32
     python3 periodic_poisson.py --size 64 64 --hole 20 cylinder_64.node
     python3 periodic_poisson.py --size 32 32 --tile 4 4 tg_128
 
-The box is [0, Lx) x [0, Ly) with both sides periodic, and the nodes are
-a Poisson disk sample of it (pointclouds.poisson): no two closer than a
-distance d, and no room left for another one, which makes them scattered
-but evenly spread. The sampler is periodic itself, so the spacing holds
-across the sides as it does inside.
+Lengths are in lattice units: no two nodes are closer than the distance
+d, 1 by default, and how many fit is set by --candidates, about
+0.65 / d^2 per unit area at the default 100 (0.62 at 30, 0.68 at 300,
+where it levels off). The earlier poisson_32_21 case has its nodes 0.9
+apart, which --distance 0.9 reproduces.
 
-How tightly they pack is set by the candidates a node throws before it
-is retired, --candidates: about 0.65 / d^2 nodes per unit area with the
-default 100, 0.62 with 30, 0.68 with 300, where it levels off, at a
-sampling time that grows with the count. The distance is the stronger
-lever: the earlier cases (poisson_32_21) have their nodes 0.9 apart and
-0.81 of them per unit area, which --distance 0.9 reproduces.
+--hole R, or --solid-fraction PHI for the disk covering the fraction PHI
+of the box, cuts a disk out of the middle: the unit cell of a square
+array of cylinders. Nodes are laid on its circle first, marker 6, and
+the sample grows from them, so the nearest nodes sit a spacing off the
+cylinder. --tile MX MY lays MX by MY copies of the sample side by side
+into a box of MX Lx by MY Ly, numbered copy by copy with the circle
+nodes of all the copies first; the sample is periodic, so the copies
+join without a seam, and the stencils are searched over the whole
+tiling.
 
-Everything is in lattice units: the box is Lx by Ly and d is 1 unless
---distance says otherwise, so every length below -- the distance, the
-radius of the hole, the reach of a stencil -- is a number of spacings.
-Scaling a case to other units is left to whoever needs it.
-
-Two geometries differ in what is cut out of the box:
-
-  periodic  The box alone, as in the Taylor-Green test. Every node is
-            interior and the sample fills the box.
-  cylinder  The box less the disk of radius R about its centre, given
-            as --hole R or as --solid-fraction PHI, the fraction of the
-            box the disk covers: the unit cell of the periodic flow
-            through a square array of cylinders. Nodes are laid on the
-            circle first, as many as keep them d apart, and the sample
-            grows from them into the rest of the box, so the nodes
-            nearest the cylinder sit about a spacing off it. The nodes
-            inside the circle are discarded. The circle nodes come first
-            in the file.
-
---tile MX MY lays MX by MY copies of the sample side by side: a box of
-MX Lx by MY Ly holding MX MY times the nodes, sampled once. The sample
-is periodic, so the copies join without a seam, and the stencil search
-runs over the whole tiling, so no stencil knows where they meet. The
-tiling has the spacing of the sample and the size of the tiling: in
-lattice units the cloud is bigger, in the units of a fixed physical box
-it is finer, and either way it is cheaper than sampling the whole of it.
-A tiled cylinder case is an MX by MY array of cylinders. The nodes are
-numbered copy by copy, the copies row by row from the origin with x
-fastest, and the circle nodes of all the copies come first. A pattern
-repeats in it, of course, with the period of the sample.
-
-The stencil of a node is the set of nodes it interpolates from: its k
-nearest neighbours by default, the nodes within a given distance with
---radius, or those within a square with --square. The search wraps
-around both sides, so a stencil next to a side reaches around it, and
-every stencil starts with the node itself.
-
-A run without --seed draws one and reports it, so that the cloud can be
-repeated; a set of independent clouds to average over is a set of runs
-with different seeds.
-
-The output is a points file and a graph file, in the numbering the two
-share. A name ending in `.node` writes a node file instead of the points
-file, with a comment line naming the command and a marker per node
-(docs/file_formats.md). The name `-` writes to standard output, and
-`-- -.node` a node file there, after the option separator since the name
-starts with a dash. Only one file fits down a pipe, so both take
---no-graph. The report goes to standard error,
-so the stream carries the file alone. The markers are:
-
-    0  interior
-    6  the circle, the wall of the cylinder
-
-The numbering is the one the generators share (pointclouds/markers.py):
-the sides are periodic and carry no nodes of their own, so the markers
-of the four walls and the corners are not used.
+The output is a points file and a graph file in the same numbering, or a
+node file with the markers if the name ends in .node
+(docs/file_formats.md).
 """
 
 import argparse
-import sys
 
 import numpy as np
 
 from pointclouds import stencils
-from pointclouds.cli import add_run_options, draw_seed, number, output, stencil_report
-from pointclouds.io import write_graph, write_nodes
+from pointclouds.cli import number, output_stem
+from pointclouds.io import write_graph, write_node, write_points
 from pointclouds.markers import HOLE, INTERIOR, MARKER_STYLE
 from pointclouds.poisson import PoissonDisk, wrap
 
@@ -157,10 +104,8 @@ def plot(pts, m, graph, extent, tiles):
 
 HELP = __doc__.split("\n\n")[0] + """
 
-Lengths are in lattice units: the box is LX by LY and no two nodes are
-closer than the distance D, 1 by default. Markers are 0 interior, 6 the
-wall of the cylinder. The docstring at the top of the script describes
-the two geometries and the tiling."""
+Lengths are in lattice units. Markers are 0 interior, 6 the wall of the
+cylinder. The docstring at the top of the script has the details."""
 
 
 def main():
@@ -171,7 +116,7 @@ def main():
         "output",
         help="output file: the points file and the graph "
         "file next to it, or a node file with the markers and the "
-        "graph if the name ends in .node; `-` is standard output",
+        "graph if the name ends in .node",
     )
     ap.add_argument(
         "--size",
@@ -224,14 +169,23 @@ def main():
     )
 
     stencils.add_options(ap, knn=21, why="as in the poisson_32_21 case")
-    add_run_options(
-        ap,
-        "cloud",
-        plot="show the cloud, coloured by marker, with one stencil and the "
+    ap.add_argument(
+        "--seed", type=int, help="seed of the sample (default: drawn and reported)"
+    )
+    ap.add_argument(
+        "--no-graph",
+        action="store_true",
+        help="write the coordinates only, without the stencil graph",
+    )
+    ap.add_argument(
+        "--plot",
+        action="store_true",
+        help="show the cloud, coloured by marker, with one stencil and the "
         "outline of the tiles",
     )
     args = ap.parse_args()
 
+    lx, ly = args.size
     extent, tiles = np.array(args.size), np.array(args.tile)
     d = args.distance
     hole = args.hole
@@ -262,41 +216,37 @@ def main():
         problem = stencils.check(stencil, box, True)
         if problem:
             ap.error(problem)
-    stem, ext = output(ap, args, default=".points")
-    seed = draw_seed(args)
+    stem, ext = output_stem(args.output, default=".points")
+    seed = args.seed if args.seed is not None else np.random.SeedSequence().entropy
+    if args.seed is None:
+        print(f"seed {seed}")
 
     pts, m = tiled(*sample(extent, d, args.candidates, hole, seed), extent, tiles)
-    graph, report = None, ""
-    if not args.no_graph:
-        try:
-            graph = stencils.search(pts, box, True, stencil)
-        except ValueError as e:
-            sys.exit(str(e))
-        report = stencil_report(graph[0])
+    graph = None if args.no_graph else stencils.search(pts, box, True, stencil)
 
-    # The comment of a node file is the command that reproduces it.
-    lx, ly = extent.tolist()
-    if args.solid_fraction is not None:
-        cut = f"--solid-fraction {args.solid_fraction!r} "
+    if ext == ".node":
+        geometry = f"--size {lx:g} {ly:g} --distance {d:g} --tile {tiles[0]} {tiles[1]}"
+        if hole is not None:
+            geometry += f" --hole {hole:g}"
+        write_node(stem, pts, m, f"produced by periodic_poisson.py {geometry}")
     else:
-        cut = f"--hole {hole!r} " if hole is not None else ""
-    provenance = (
-        f"produced by periodic_poisson.py --size {lx!r} {ly!r} --distance {d!r} "
-        f"--candidates {args.candidates} {cut}--tile {tiles[0]} {tiles[1]} "
-        f"{'--no-graph' if args.no_graph else stencil} --seed {seed}"
-    )
-    write_nodes(stem, ext, pts, m, provenance)
-    if graph:
-        write_graph(stem, *graph)
+        write_points(stem, pts)
     area = box.prod() - (0.0 if hole is None else tiles.prod() * np.pi * hole**2)
-    nb = np.count_nonzero(m)
-    walls = f", {nb} of them on the cylinder{'s' if tiles.prod() > 1 else ''}"
-    written = "standard output" if stem == "-" else stem
-    print(
-        f"{written}: {len(pts)} nodes{walls if nb else ''}, "
-        f"{len(pts) / area:.3g} per unit area{report}",
-        file=sys.stderr,
-    )
+    report = f"{stem}: {len(pts)} nodes"
+    if hole is not None:
+        report += f", {np.count_nonzero(m)} of them on the cylinder"
+        if tiles.prod() > 1:
+            report += "s"
+    report += f", {len(pts) / area:.3g} per unit area"
+    if graph:
+        ia, ja = graph
+        write_graph(stem, ia, ja)
+        sizes = np.diff(ia)
+        report += (
+            f", {ia[-1]} edges in the stencil graph, "
+            f"stencils of {sizes.min()} to {sizes.max()} nodes"
+        )
+    print(report)
 
     if args.plot:
         plot(pts, m, graph, extent, tiles)

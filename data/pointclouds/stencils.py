@@ -30,15 +30,9 @@ from .cli import number
 __all__ = ["Stencil", "add_options", "from_args", "check", "search"]
 
 
-class Stencil(namedtuple("Stencil", "kind reach")):
-    """A choice of stencil: `kind` is "knn", "radius" or "square", and
-    `reach` the k of knn or the distance of the other two. Its str() is
-    the option that asks for it, for the provenance of a node file."""
-
-    __slots__ = ()
-
-    def __str__(self):
-        return f"--{self.kind} {self.reach!r}"
+# A choice of stencil: kind is "knn", "radius" or "square", and reach the
+# k of knn or the distance of the other two.
+Stencil = namedtuple("Stencil", "kind reach")
 
 
 def add_options(ap, knn, why=""):

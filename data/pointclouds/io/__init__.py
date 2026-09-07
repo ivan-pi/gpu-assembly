@@ -13,14 +13,7 @@ from .readers import (
     read_points,
     stencils_to_csr,
 )
-from .writers import (
-    open_out,
-    write_graph,
-    write_node,
-    write_nodes,
-    write_ordering,
-    write_points,
-)
+from .writers import open_out, write_graph, write_node, write_ordering, write_points
 
 __all__ = [
     "FormatError",
@@ -34,7 +27,6 @@ __all__ = [
     "stencils_to_csr",
     "write_graph",
     "write_node",
-    "write_nodes",
     "write_ordering",
     "write_points",
 ]
