@@ -94,10 +94,13 @@ void write_vtk_polydata(const std::string& fname,
     auto out = detail::open_out(fname);
     const char* tn = detail::vtk_type_name<T>();
 
-    out << "# vtk DataFile Version 2.0\n"
-        << title << '\n'
+    // The stream statements below are laid out line for line as the file
+    // they write, and kept that way.
+    // clang-format off
+    out << "# vtk DataFile Version 2.0\n" << title << '\n'
         << "ASCII\n"
            "DATASET POLYDATA\n";
+    // clang-format on
 
     out << "POINTS " << n << ' ' << tn << '\n';
     for (std::size_t i = 0; i < n; ++i)
@@ -112,9 +115,10 @@ void write_vtk_polydata(const std::string& fname,
     out << "POINT_DATA " << n << '\n';
 
     for (const auto& s : scalars) {
-        out << "SCALARS " << s.name << ' ' << tn
-            << " 1\n"
+        // clang-format off
+        out << "SCALARS " << s.name << ' ' << tn << " 1\n"
                "LOOKUP_TABLE default\n";
+        // clang-format on
         for (std::size_t i = 0; i < n; ++i)
             out << num(s.v[i * s.stride]) << '\n';
     }

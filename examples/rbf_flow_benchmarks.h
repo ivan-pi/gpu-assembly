@@ -235,15 +235,8 @@ struct acoustic_wave {
                   T csqr = T(1.0) / 3,
                   T rho0 = T(1.0),
                   T phase = {})
-        : box(box),
-          nx(nx),
-          ny(ny),
-          delta(delta),
-          nu(nu),
-          nu_bulk(nu_bulk.value_or(nu)),
-          csqr(csqr),
-          rho0(rho0),
-          phase(phase) {
+        : box(box), nx(nx), ny(ny), delta(delta), nu(nu), nu_bulk(nu_bulk.value_or(nu)), csqr(csqr),
+          rho0(rho0), phase(phase) {
         assert(box_ok(box) && "box sides must be positive");
         assert((nx != 0 || ny != 0) && "mode numbers must not both be zero");
         assert(delta > 0 && "relative density amplitude must be positive");

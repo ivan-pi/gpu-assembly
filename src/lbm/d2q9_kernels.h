@@ -24,9 +24,11 @@ struct d2q9 {
     static constexpr T three_ws = T(3) * ws;
     static constexpr T three_wd = T(3) * wd;
 
-    static constexpr T one_third = T(1) / T(3);
-    static constexpr T one_half = T(1) / T(2);
+    // clang-format off
+    static constexpr T one_third    = T(1) / T(3);
+    static constexpr T one_half     = T(1) / T(2);
     static constexpr T three_halves = T(3) / T(2);
+    // clang-format on
 };
 
 // Equilibrium populations for the given rho, ux, uy; the same arithmetic

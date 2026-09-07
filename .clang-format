@@ -20,6 +20,10 @@ PenaltyReturnTypeOnItsOwnLine: 1000
 # on its own line.
 AllowShortLoopsOnASingleLine: false
 
+# Constructor initializers that overflow are packed across lines, not
+# put one per line.
+PackConstructorInitializers: BinPack
+
 # Google derives pointer alignment per file; fix it instead.
 DerivePointerAlignment: false
 PointerAlignment: Left
