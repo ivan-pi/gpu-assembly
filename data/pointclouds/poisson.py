@@ -38,8 +38,8 @@ goes back to the start, and the same seed gives the same points. Numba
 compiles the loop on the first call of a process, which takes a few
 seconds, and caches the result next to this module.
 
-Run as a script, the module draws a sample and shows it triangulated,
-with a function interpolated over it, the example of the original.
+Run as a script, the module draws a sample of the unit square and shows
+it triangulated, with a function interpolated over it.
 """
 
 from collections import namedtuple
@@ -180,9 +180,10 @@ def insert_points(store, cells, xs, ys):
 
 
 @njit(cache=True)
-def bridson(store, cells, box, r, k, nmax, rng):
-    """Bridson's loop: points drawn until the queue is empty or there are
-    nmax of them. A point comes off the queue after its k candidates."""
+def draw_points(store, cells, box, r, k, nmax, rng):
+    """Points drawn from the queue until it is empty or there are nmax of
+    them: a queued point throws its k candidates and comes off, and every
+    candidate that fits is stored and queued in its turn."""
     if store.count[0] == 0 and nmax > 0:        # no seeds: start anywhere
         insert_point(store, cells, rng.random() * box.lx, rng.random() * box.ly)
     r2 = r * r
@@ -280,7 +281,7 @@ class PoissonDisk:
         """Draw up to n more points and return them; fewer when the space
         fills up first."""
         before = int(self._store.count[0])
-        bridson(self._store, self._cells, self._box, self.radius, self.ncandidates,
+        draw_points(self._store, self._cells, self._box, self.radius, self.ncandidates,
               min(before + n, len(self._store.px)), self._rng)
         after = int(self._store.count[0])
         self.num_generated += after - before
@@ -300,8 +301,9 @@ class PoissonDisk:
 # ----------------------------------------------------------------- example
 
 def demo():
-    """The example of the original script: a sample of the unit square,
-    Delaunay-triangulated, with a function interpolated over it."""
+    """A sample of the unit square with r = 0.02, shown with its Delaunay
+    triangulation, as the contours of a function over that triangulation,
+    and as the surface of the same function."""
     import matplotlib.pyplot as plt
     from matplotlib.tri import Triangulation
 
