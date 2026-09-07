@@ -75,7 +75,12 @@ __global__ void macros_kernel(const int n, const T* pdf, T* rho, T* ux, T* uy) {
 // BGK collision in place; also returns rho, ux, uy of the pre-collision
 // populations and indp, the direction-independent part of the equilibrium.
 template <typename T>
-__global__ void bgk_kernel_split(const int n, const T omega, T* pdf, T* rho, T* ux, T* uy,
+__global__ void bgk_kernel_split(const int n,
+                                 const T omega,
+                                 T* pdf,
+                                 T* rho,
+                                 T* ux,
+                                 T* uy,
                                  T* indp) {
     using lattice = d2q9<T>;
 

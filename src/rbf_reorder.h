@@ -42,10 +42,18 @@ static_assert(sizeof(BBox2<double>) == 4 * sizeof(double));
 }  // namespace rbf
 
 extern "C" {
-void rbf_morton_keys(const std::int32_t* n, const double* x, const double* y,
-                     const rbf::BBox2<double>* bbox, const std::int32_t* ndiv, std::int64_t* keys);
-void rbf_hilbert_keys(const std::int32_t* n, const double* x, const double* y,
-                      const rbf::BBox2<double>* bbox, const std::int32_t* ndiv, std::int64_t* keys);
+void rbf_morton_keys(const std::int32_t* n,
+                     const double* x,
+                     const double* y,
+                     const rbf::BBox2<double>* bbox,
+                     const std::int32_t* ndiv,
+                     std::int64_t* keys);
+void rbf_hilbert_keys(const std::int32_t* n,
+                      const double* x,
+                      const double* y,
+                      const rbf::BBox2<double>* bbox,
+                      const std::int32_t* ndiv,
+                      std::int64_t* keys);
 }
 
 namespace rbf {
@@ -146,11 +154,17 @@ private:
 
 namespace detail {
 
-using KeyFill = void (*)(const std::int32_t*, const double*, const double*, const BBox2<double>*,
-                         const std::int32_t*, std::int64_t*);
+using KeyFill = void (*)(const std::int32_t*,
+                         const double*,
+                         const double*,
+                         const BBox2<double>*,
+                         const std::int32_t*,
+                         std::int64_t*);
 
-inline std::vector<std::int64_t> fill_keys(KeyFill fill, std::span<const double> x,
-                                           std::span<const double> y, int ndiv,
+inline std::vector<std::int64_t> fill_keys(KeyFill fill,
+                                           std::span<const double> x,
+                                           std::span<const double> y,
+                                           int ndiv,
                                            std::optional<BBox2<double>> bbox) {
     assert(x.size() == y.size());
     assert(ndiv >= 1 && ndiv <= 31);  // 2 bits per level in an int64 key
@@ -177,13 +191,15 @@ Permutation<I> order_by_keys(std::span<const std::int64_t> keys) {
 // key bits (ndiv <= 31); the default resolves ~65k cells per axis.
 // bbox is computed from the points when not supplied.
 
-inline std::vector<std::int64_t> morton_keys(std::span<const double> x, std::span<const double> y,
+inline std::vector<std::int64_t> morton_keys(std::span<const double> x,
+                                             std::span<const double> y,
                                              int ndiv = 16,
                                              std::optional<BBox2<double>> bbox = std::nullopt) {
     return detail::fill_keys(&rbf_morton_keys, x, y, ndiv, bbox);
 }
 
-inline std::vector<std::int64_t> hilbert_keys(std::span<const double> x, std::span<const double> y,
+inline std::vector<std::int64_t> hilbert_keys(std::span<const double> x,
+                                              std::span<const double> y,
                                               int ndiv = 16,
                                               std::optional<BBox2<double>> bbox = std::nullopt) {
     return detail::fill_keys(&rbf_hilbert_keys, x, y, ndiv, bbox);
@@ -192,14 +208,18 @@ inline std::vector<std::int64_t> hilbert_keys(std::span<const double> x, std::sp
 // Morton (Z-curve) order of the points. Stable: points falling into the
 // same cell keep their relative order.
 template <typename I = std::int32_t>
-Permutation<I> morton_order(std::span<const double> x, std::span<const double> y, int ndiv = 16,
+Permutation<I> morton_order(std::span<const double> x,
+                            std::span<const double> y,
+                            int ndiv = 16,
                             std::optional<BBox2<double>> bbox = std::nullopt) {
     return detail::order_by_keys<I>(morton_keys(x, y, ndiv, bbox));
 }
 
 // Hilbert-curve order of the points; same contract as morton_order.
 template <typename I = std::int32_t>
-Permutation<I> hilbert_order(std::span<const double> x, std::span<const double> y, int ndiv = 16,
+Permutation<I> hilbert_order(std::span<const double> x,
+                             std::span<const double> y,
+                             int ndiv = 16,
                              std::optional<BBox2<double>> bbox = std::nullopt) {
     return detail::order_by_keys<I>(hilbert_keys(x, y, ndiv, bbox));
 }

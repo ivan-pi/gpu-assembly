@@ -238,8 +238,11 @@ ArrayOfStructs read_points_aos(const std::string& fname) {
 // them, and skipped otherwise. Returns n. A malformed file is an error
 // reported with its line number.
 template <class T>
-std::size_t read_nodes(const std::string& fname, std::vector<T>& x, std::vector<T>& y,
-                       std::vector<int>& marker, std::vector<T>* attributes = nullptr) {
+std::size_t read_nodes(const std::string& fname,
+                       std::vector<T>& x,
+                       std::vector<T>& y,
+                       std::vector<int>& marker,
+                       std::vector<T>* attributes = nullptr) {
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     auto in = detail::open_in(fname);
     x.clear();
@@ -304,8 +307,12 @@ std::size_t read_nodes(const std::string& fname, std::vector<T>& x, std::vector<
 // Inverse of read_nodes, numbered from 0. A null marker leaves the marker
 // column out (nmark = 0); attributes, if given, are row-major n x nattr.
 template <class T>
-void write_nodes(const std::string& fname, std::size_t n, const T* x, const T* y,
-                 const int* marker = nullptr, std::size_t nattr = 0,
+void write_nodes(const std::string& fname,
+                 std::size_t n,
+                 const T* x,
+                 const T* y,
+                 const int* marker = nullptr,
+                 std::size_t nattr = 0,
                  const T* attributes = nullptr) {
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     using detail::num;
@@ -469,8 +476,13 @@ void write_ordering(const std::string& fname, std::size_t n, const I* iperm) {
 // "pattern" value type: (row, col) entries with no values. Useful before
 // assembly, or to compare stencil graphs without the weights.
 template <class T, class I>
-void write_matrix_market(const std::string& fname, std::size_t rows, std::size_t cols, const I* ia,
-                         const I* ja, const T* a, int csr_base = 0) {
+void write_matrix_market(const std::string& fname,
+                         std::size_t rows,
+                         std::size_t cols,
+                         const I* ia,
+                         const I* ja,
+                         const T* a,
+                         int csr_base = 0) {
     static_assert(std::is_integral_v<I>, "index type must be integral");
     static_assert(std::is_floating_point_v<T>, "value type must be floating point");
     using detail::num;
@@ -497,8 +509,12 @@ void write_matrix_market(const std::string& fname, std::size_t rows, std::size_t
 
 // Sparsity pattern only, without having to name a value type at the call site.
 template <class I>
-void write_matrix_market_pattern(const std::string& fname, std::size_t rows, std::size_t cols,
-                                 const I* ia, const I* ja, int csr_base = 0) {
+void write_matrix_market_pattern(const std::string& fname,
+                                 std::size_t rows,
+                                 std::size_t cols,
+                                 const I* ia,
+                                 const I* ja,
+                                 int csr_base = 0) {
     write_matrix_market<double, I>(fname, rows, cols, ia, ja, nullptr, csr_base);
 }
 

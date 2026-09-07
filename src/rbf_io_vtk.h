@@ -70,10 +70,14 @@ struct VtkVector {
 // empty. The format caps it at 256 characters including the newline, so at
 // most 255 here, and it must not contain a line break.
 template <class T>
-void write_vtk_polydata(const std::string& fname, std::size_t n, const T* x, const T* y,
+void write_vtk_polydata(const std::string& fname,
+                        std::size_t n,
+                        const T* x,
+                        const T* y,
                         List<Column<std::type_identity_t<T>>> scalars,
                         List<VtkVector<std::type_identity_t<T>>> vectors = {},
-                        std::size_t xy_stride = 1, std::string_view title = "rbf point cloud") {
+                        std::size_t xy_stride = 1,
+                        std::string_view title = "rbf point cloud") {
     static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
                   "legacy VTK arrays are float or double");
     using detail::num;

@@ -35,8 +35,12 @@ namespace rbf::io {
 //     write_columns("rcond.dat", n, x, y, {{"rcond", rc}});
 //
 template <class T>
-void write_columns(const std::string& fname, std::size_t n, const T* x, const T* y,
-                   List<Column<std::type_identity_t<T>>> columns, std::size_t xy_stride = 1) {
+void write_columns(const std::string& fname,
+                   std::size_t n,
+                   const T* x,
+                   const T* y,
+                   List<Column<std::type_identity_t<T>>> columns,
+                   std::size_t xy_stride = 1) {
     using detail::num;
     assert(xy_stride >= 1);
     for ([[maybe_unused]] const auto& c : columns) assert(c.v && c.stride >= 1);

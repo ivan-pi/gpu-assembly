@@ -168,8 +168,8 @@ public:
     }
 
 private:
-    using Tree = nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<T, NodeSet>,
-                                                     NodeSet, 2, I>;
+    using Tree = nanoflann::
+        KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<T, NodeSet>, NodeSet, 2, I>;
 
     void rebuild_bnd() {
         bnd.clear();

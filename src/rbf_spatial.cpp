@@ -72,7 +72,9 @@ struct KdTree::Impl {
     ckdtree tree{};  // n, m and the pointers into the above
 };
 
-KdTree::KdTree(std::span<const double> points, int ndim, std::span<const double> period,
+KdTree::KdTree(std::span<const double> points,
+               int ndim,
+               std::span<const double> period,
                KdTreeParams params)
     : impl_(std::make_unique<Impl>()) {
     if (ndim < 1) fail("KdTree: ndim must be positive");
@@ -155,8 +157,11 @@ namespace {
 
 // The checks shared by every query entry point; returns the number of
 // query points.
-std::size_t checked_query(const ckdtree& tree, std::span<const double> q, int k,
-                          std::size_t idx_size, std::size_t dist_size) {
+std::size_t checked_query(const ckdtree& tree,
+                          std::span<const double> q,
+                          int k,
+                          std::size_t idx_size,
+                          std::size_t dist_size) {
     const auto m = static_cast<std::size_t>(tree.m);
     if (q.size() % m != 0) fail("KdTree::query: q is not a whole number of ndim-vectors");
     if (k < 1 || static_cast<std::size_t>(k) > static_cast<std::size_t>(tree.n))
@@ -229,7 +234,9 @@ void query_many(const ckdtree& tree, const double* q, std::size_t nq, int k, I* 
 
 }  // namespace
 
-void KdTree::query(std::span<const double> q, int k, std::span<std::intptr_t> idx,
+void KdTree::query(std::span<const double> q,
+                   int k,
+                   std::span<std::intptr_t> idx,
                    std::span<double> dist) const {
     const auto& tree = impl_->tree;
     const std::size_t nq = checked_query(tree, q, k, idx.size(), dist.size());

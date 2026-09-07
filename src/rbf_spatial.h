@@ -134,7 +134,8 @@ public:
     // Points outside the box are wrapped into it, so the cloud need not
     // be pre-wrapped; the indices are unaffected either way.
     template <std::size_t D>
-    KdTree(std::span<const double> points, const PeriodicBox<double, D>& box,
+    KdTree(std::span<const double> points,
+           const PeriodicBox<double, D>& box,
            KdTreeParams params = {})
         : KdTree(points, static_cast<int>(D), std::span<const double>{box.period}, params) {}
 
@@ -156,7 +157,9 @@ public:
     // when only the indices are wanted. Query points are wrapped into
     // the box. OpenMP-parallel over the queries, which is what SciPy's
     // `workers` does too.
-    void query(std::span<const double> q, int k, std::span<std::intptr_t> idx,
+    void query(std::span<const double> q,
+               int k,
+               std::span<std::intptr_t> idx,
                std::span<double> dist = {}) const;
 
     // The same, centred on the cloud's own points, in its own order.
@@ -176,7 +179,9 @@ public:
 
 private:
     // period is empty in the open plane, else one side length per axis.
-    KdTree(std::span<const double> points, int ndim, std::span<const double> period,
+    KdTree(std::span<const double> points,
+           int ndim,
+           std::span<const double> period,
            KdTreeParams params);
 
     std::span<const double> points() const;  // the cloud, as stored

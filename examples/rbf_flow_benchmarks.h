@@ -77,7 +77,9 @@ struct shear_modes {
     T nu;
     std::array<T, 2> drift;  // uniform velocity carrying the pattern
 
-    shear_modes(PeriodicBox<T, 2> box, std::vector<mode<T>> modes, T nu,
+    shear_modes(PeriodicBox<T, 2> box,
+                std::vector<mode<T>> modes,
+                T nu,
                 std::array<T, 2> drift = {})
         : box(box), modes(std::move(modes)), nu(nu), drift(drift) {
         assert(box_ok(box) && "box sides must be positive");
@@ -177,7 +179,12 @@ private:
 
 // One shear wave along the mode (nx, ny) with velocity amplitude u0
 template <typename T>
-shear_modes<T> shear_wave(PeriodicBox<T, 2> box, int nx, int ny, T u0, T nu, T phase = {},
+shear_modes<T> shear_wave(PeriodicBox<T, 2> box,
+                          int nx,
+                          int ny,
+                          T u0,
+                          T nu,
+                          T phase = {},
                           std::array<T, 2> drift = {}) {
     return shear_modes<T>(box, {{u0, nx, ny, phase}}, nu, drift);
 }
@@ -189,7 +196,11 @@ shear_modes<T> shear_wave(PeriodicBox<T, 2> box, int nx, int ny, T u0, T nu, T p
 // with kx, ky the wave numbers of |nx|, |ny|; the signs of the mode
 // numbers do not matter.
 template <typename T>
-shear_modes<T> taylor_green(PeriodicBox<T, 2> box, int nx, int ny, T u0, T nu,
+shear_modes<T> taylor_green(PeriodicBox<T, 2> box,
+                            int nx,
+                            int ny,
+                            T u0,
+                            T nu,
                             std::array<T, 2> drift = {}) {
     assert(nx != 0 && ny != 0 && "Taylor-Green needs both mode numbers");
     nx = std::abs(nx);
@@ -215,8 +226,15 @@ struct acoustic_wave {
     int nx, ny;
     T delta, nu, nu_bulk, csqr, rho0, phase;
 
-    acoustic_wave(PeriodicBox<T, 2> box, int nx, int ny, T delta, T nu,
-                  std::optional<T> nu_bulk = {}, T csqr = T(1.0) / 3, T rho0 = T(1.0), T phase = {})
+    acoustic_wave(PeriodicBox<T, 2> box,
+                  int nx,
+                  int ny,
+                  T delta,
+                  T nu,
+                  std::optional<T> nu_bulk = {},
+                  T csqr = T(1.0) / 3,
+                  T rho0 = T(1.0),
+                  T phase = {})
         : box(box),
           nx(nx),
           ny(ny),
@@ -302,8 +320,13 @@ struct barotropic_vortex {
     std::array<T, 2> center;
     T Rc, eps, rho0, csqr;
 
-    barotropic_vortex(PeriodicBox<T, 2> box, T U0, std::array<T, 2> center, T Rc, T eps,
-                      T rho0 = T(1.0), T csqr = T(1.0) / 3 /* D2Q9, lattice units */)
+    barotropic_vortex(PeriodicBox<T, 2> box,
+                      T U0,
+                      std::array<T, 2> center,
+                      T Rc,
+                      T eps,
+                      T rho0 = T(1.0),
+                      T csqr = T(1.0) / 3 /* D2Q9, lattice units */)
         : box(box), U0(U0), center(center), Rc(Rc), eps(eps), rho0(rho0), csqr(csqr) {
         assert(box_ok(box) && "box sides must be positive");
         assert(Rc > 0 && "vortex radius must be positive");

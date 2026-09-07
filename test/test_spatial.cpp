@@ -67,7 +67,9 @@ static double dist(const Box<D>& b, const double* p, const double* q) {
 
 // The k nearest, by sorting every point of the cloud.
 template <std::size_t D>
-static std::vector<int> brute_knn(const Box<D>& b, std::span<const double> pts, const double* q,
+static std::vector<int> brute_knn(const Box<D>& b,
+                                  std::span<const double> pts,
+                                  const double* q,
                                   int k) {
     std::vector<int> p(pts.size() / D);
     std::iota(p.begin(), p.end(), 0);
@@ -84,8 +86,11 @@ static std::vector<int> brute_knn(const Box<D>& b, std::span<const double> pts, 
 // The brute-force row is sorted, so matching it entry by entry also
 // checks that the tree's row is.
 template <std::size_t D>
-static void check_row(const Box<D>& b, std::span<const double> pts, const double* q,
-                      const std::int32_t* got, int k) {
+static void check_row(const Box<D>& b,
+                      std::span<const double> pts,
+                      const double* q,
+                      const std::int32_t* got,
+                      int k) {
     const auto want = brute_knn<D>(b, pts, q, k);
     for (int j = 0; j < k; ++j) {
         const double dg = dist<D>(b, &pts[got[j] * D], q);

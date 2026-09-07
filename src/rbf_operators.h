@@ -28,7 +28,8 @@ using GELS = Solver<T, cs::function::gels, NT, NRHS, ARCH>;
 
 // Test function assembling a single kernel
 template <class GESV_solver>
-__device__ void solve_system_AB(typename GESV_solver::a_data_type* A, int* ipiv,
+__device__ void solve_system_AB(typename GESV_solver::a_data_type* A,
+                                int* ipiv,
                                 typename GESV_solver::b_data_type* B,
                                 typename GESV_solver::status_type* info) {
     static_assert(GESV_solver::is_block_execution, "assumes block configuration");
@@ -153,7 +154,12 @@ __host__ __device__ void fill_matrix(T* M, const T* xs, const T* ys, int tid, in
 // B is nt x NRHS, col-major, ldb = nt. Column j is the right-hand side for
 // evaluation point (xc[j], yc[j]) in the same local frame as xs/ys.
 template <int N, int P, int NRHS, int Q = 3, typename T>
-__host__ __device__ void fill_rhs(T* B, const T* xs, const T* ys, const T* xc, const T* yc, int tid,
+__host__ __device__ void fill_rhs(T* B,
+                                  const T* xs,
+                                  const T* ys,
+                                  const T* xc,
+                                  const T* yc,
+                                  int tid,
                                   int nthreads) {
     constexpr PolyBasis<P> monomials{};
     constexpr int NP = decltype(monomials)::np;
@@ -310,10 +316,14 @@ struct interp_config {
 //    <<<nstencils, Config::block_dim, Config::shared_memory_size()>>>
 //
 template <class Config, typename T = typename Config::value_type>
-__global__ void assemble_interp_weights(const int nstencils, const T* __restrict__ x,
-                                        const T* __restrict__ y, const int* __restrict__ ja,
-                                        T* const* __restrict__ A, const T* __restrict__ xc,
-                                        const T* __restrict__ yc, int* __restrict__ info) {
+__global__ void assemble_interp_weights(const int nstencils,
+                                        const T* __restrict__ x,
+                                        const T* __restrict__ y,
+                                        const int* __restrict__ ja,
+                                        T* const* __restrict__ A,
+                                        const T* __restrict__ xc,
+                                        const T* __restrict__ yc,
+                                        int* __restrict__ info) {
     CUSOLVERDX_SKIP_IF_NOT_APPLICABLE_SM(typename Config::solver);
 
     constexpr auto N = Config::N;  // stencil size

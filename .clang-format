@@ -9,6 +9,13 @@ IndentWidth: 4
 AccessModifierOffset: -4
 ColumnLimit: 100
 
+# Parameters that do not fit on one line go one per line, not packed,
+# and not all together on a continuation line either. Arguments at the
+# call site stay packed.
+BinPackParameters: OnePerLine
+AllowAllParametersOfDeclarationOnNextLine: false
+PenaltyReturnTypeOnItsOwnLine: 1000
+
 # Google derives pointer alignment per file; fix it instead.
 DerivePointerAlignment: false
 PointerAlignment: Left
