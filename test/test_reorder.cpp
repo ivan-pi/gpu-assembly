@@ -9,20 +9,15 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <fstream>
 #include <span>
 #include <vector>
 
-#include "rbf_reorder.h"
+#include "rbf_io.h"
 #include "rbf_nodeset.h"
+#include "rbf_reorder.h"
 
-static int failures = 0;
+#include "check.h"
 
-#define CHECK(cond) \
-    do { if (!(cond)) { \
-        std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
-        ++failures; \
-    } } while (0)
 
 // Reference Morton key: interleave the ndiv low bits of the cell
 // coordinates, x in the even (low) positions.
@@ -147,13 +142,13 @@ static void test_renumber_stencils() {
 static void test_nodeset() {
     // 4x4 grid, edge nodes flagged as boundary
     {
-        std::ofstream f("grid.node");
-        f << "16 2 0 1\n";
+        std::vector<double> x, y;
+        grid4(x, y);
+        std::vector<int> flag(16);
         for (int j = 0; j < 4; ++j)
-            for (int i = 0; i < 4; ++i) {
-                const int b = (i == 0 || i == 3 || j == 0 || j == 3);
-                f << j * 4 + i << ' ' << i + 0.5 << ' ' << j + 0.5 << ' ' << b << '\n';
-            }
+            for (int i = 0; i < 4; ++i)
+                flag[j * 4 + i] = (i == 0 || i == 3 || j == 0 || j == 3);
+        rbf::io::write_nodes("grid.node", 16, x.data(), y.data(), flag.data());
     }
 
     rbf::NodeSet<double> ns("grid.node");
@@ -206,10 +201,5 @@ int main() {
     test_renumber_stencils();
     test_nodeset();
 
-    if (failures == 0) {
-        std::printf("all tests passed\n");
-        return 0;
-    }
-    std::printf("%d check(s) failed\n", failures);
-    return 1;
+    return report("reorder");
 }

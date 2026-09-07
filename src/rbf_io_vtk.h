@@ -7,16 +7,13 @@
 //   write_lbm_vtk_polydata   the lattice-Boltzmann special case: Density, Velocity
 //
 // A node is written as one vertex, so the cloud renders as points, and every
-// field lands in POINT_DATA under the name given. Values are written at full
-// precision for T. Files should be given the .vtk extension.
+// field lands in POINT_DATA under the name given. Files should be given the
+// .vtk extension.
 //
 // Assisted-by: Claude Fable 5.1
 
 #include <cassert>
 #include <cstddef>
-#include <fstream>
-#include <initializer_list>
-#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -40,10 +37,6 @@ template <> constexpr const char* vtk_type_name<double>() { return "double"; }
 
 } // namespace detail
 
-// A named per-node scalar: v[i * stride] is the value at node i.
-template <class T>
-using VtkScalar = Column<T>;
-
 // A named per-node 2-d vector: (x[i * stride], y[i * stride]) at node i; the
 // z component is written as 0. Interleaved {ux0, uy0, ux1, ...} storage is
 // {name, vel, vel + 1, 2}.
@@ -58,18 +51,22 @@ struct VtkVector {
 // Point cloud with fields as legacy VTK POLYDATA. Coordinates are
 // (x[i * point_stride], y[i * point_stride]) with z = 0, so interleaved
 // {x0, y0, x1, y1, ...} storage is written with x = p, y = p + 1,
-// point_stride = 2. Fields are the same length as the points.
+// point_stride = 2. Fields are the same length as the points and are given
+// as braced lists or containers of Column<T> and VtkVector<T>:
 //
-// T is deduced from the coordinates only (type_identity), so a vector of
-// fields converts to the span and a braced list converts to the
-// initializer_list below without either having to name T.
+//     write_vtk_polydata("u.vtk", n, x, y, {{"u", u}, {"residual", r}});
+//     write_vtk_polydata("flow.vtk", n, x, y, {{"p", p}}, {{"U", ux, uy}});
+//
+// T is deduced from the coordinates only (type_identity), so the lists need
+// not name it.
 template <class T>
 void write_vtk_polydata(const std::string& fname, std::size_t n,
                         const T* x, const T* y,
-                        std::span<const VtkScalar<std::type_identity_t<T>>> scalars,
-                        std::span<const VtkVector<std::type_identity_t<T>>> vectors = {},
+                        List<Column<std::type_identity_t<T>>> scalars,
+                        List<VtkVector<std::type_identity_t<T>>> vectors = {},
                         std::size_t point_stride = 1)
 {
+    using detail::num;
     assert(point_stride >= 1);
     for ([[maybe_unused]] const auto& s : scalars) {
         assert(detail::vtk_name_ok(s.name) && "scalar name empty or contains whitespace");
@@ -80,7 +77,6 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
         assert(v.x && v.y && v.stride >= 1);
     }
     auto out = detail::open_out(fname);
-    detail::full_precision<T>(out);
     const char* tn = detail::vtk_type_name<T>();
 
     out << "# vtk DataFile Version 2.0\n"
@@ -90,7 +86,7 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
 
     out << "POINTS " << n << ' ' << tn << '\n';
     for (std::size_t i = 0; i < n; ++i)
-        out << x[i * point_stride] << ' ' << y[i * point_stride] << " 0\n";
+        out << num(x[i * point_stride]) << ' ' << num(y[i * point_stride]) << " 0\n";
 
     // one vertex cell per point, else the cloud has no renderable geometry
     out << "VERTICES " << n << ' ' << 2 * n << '\n';
@@ -104,31 +100,13 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
         out << "SCALARS " << s.name << ' ' << tn << " 1\n"
                "LOOKUP_TABLE default\n";
         for (std::size_t i = 0; i < n; ++i)
-            out << s.v[i * s.stride] << '\n';
+            out << num(s.v[i * s.stride]) << '\n';
     }
     for (const auto& v : vectors) {
         out << "VECTORS " << v.name << ' ' << tn << '\n';
         for (std::size_t i = 0; i < n; ++i)
-            out << v.x[i * v.stride] << ' ' << v.y[i * v.stride] << " 0\n";
+            out << num(v.x[i * v.stride]) << ' ' << num(v.y[i * v.stride]) << " 0\n";
     }
-}
-
-// Same, with the fields listed in place:
-//
-//     write_vtk_polydata("u.vtk", n, x, y, {{"u", u}, {"residual", r}});
-//     write_vtk_polydata("flow.vtk", n, x, y, {{"p", p}}, {{"U", ux, uy}});
-//
-template <class T>
-void write_vtk_polydata(const std::string& fname, std::size_t n,
-                        const T* x, const T* y,
-                        std::initializer_list<VtkScalar<std::type_identity_t<T>>> scalars,
-                        std::initializer_list<VtkVector<std::type_identity_t<T>>> vectors = {},
-                        std::size_t point_stride = 1)
-{
-    write_vtk_polydata(fname, n, x, y,
-                       std::span<const VtkScalar<T>>{scalars.begin(), scalars.size()},
-                       std::span<const VtkVector<T>>{vectors.begin(), vectors.size()},
-                       point_stride);
 }
 
 // Lattice-Boltzmann output: density as "Density", velocity as "Velocity".

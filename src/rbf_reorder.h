@@ -19,8 +19,8 @@
 #include <numeric>
 #include <optional>
 #include <span>
-#include <type_traits>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "rbf_io.h"

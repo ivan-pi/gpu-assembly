@@ -22,7 +22,8 @@ typically a pair such as `poisson_32_21.points` and `poisson_32_21.graph`.
 
 Every reader exits with a message naming the file if it cannot be opened,
 and readers whose format announces a count check that they got that many.
-Every writer emits floating point with enough digits to round-trip exactly.
+Every writer emits numbers as the shortest text that reads back to the same
+value, so a file written here reproduces the values it was given.
 
 ## Points file
 
@@ -170,8 +171,7 @@ with 1-based indices, as the format requires, whatever the base of the CSR
 arrays passed in. `write_matrix_market_pattern` writes the `pattern`
 variant, with `i j` lines and no values, to compare sparsity structures
 without the weights. The format does not prescribe a precision for the
-values; we write 17 significant digits for `double` and 9 for `float`, so
-the file reproduces the matrix exactly.
+values; we write each as the shortest text that reads back exactly.
 
 ## VTK
 
@@ -215,7 +215,7 @@ plot 'macros.dat' using 1:2:3 with points palette     # rho over (x, y)
 plot 'macros.dat' using 1:2:4:5 with vectors          # velocity
 ```
 
-Values carry full precision for the type written. The points file and the
+Values read back exactly. The points file and the
 node file can be plotted the same way by skipping their header line:
 `plot 'case.points' skip 1 using 1:2`, and `plot 'case.node' skip 1 using
 2:3:4 with points palette` to colour by marker.

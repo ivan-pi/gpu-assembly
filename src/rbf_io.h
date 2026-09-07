@@ -15,26 +15,23 @@
 // Every reader checks that the file opened. Readers whose format carries a
 // count also check that they got that many, exiting with a message rather
 // than returning a short container.
-// Every writer emits full round-trip precision for floating point, so a file
-// written here reproduces the values it was given.
+// Every writer emits the shortest text that reads back to the same number,
+// so a file written here reproduces the values it was given.
 //
 // Assisted-by: Claude Fable 5.1
 
-#include <algorithm>
 #include <cassert>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
-#include <iomanip>
+#include <initializer_list>
 #include <iostream>
-#include <limits>
-#include <sstream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -43,141 +40,60 @@ namespace rbf::io {
 // Helpers shared by the readers and writers.
 namespace detail {
 
-inline std::ifstream open_in(const std::string& fname) {
-    std::ifstream in{fname};
-    if (!in) {
-        std::cerr << "rbf::io: cannot open " << fname << " for reading\n";
-        std::exit(1);
-    }
-    return in;
-}
-
-inline std::ofstream open_out(const std::string& fname) {
-    std::ofstream out{fname};
-    if (!out) {
-        std::cerr << "rbf::io: cannot open " << fname << " for writing\n";
-        std::exit(1);
-    }
-    return out;
-}
-
 [[noreturn]] inline void fail(const std::string& fname, const std::string& what) {
     std::cerr << "rbf::io: " << fname << ": " << what << '\n';
     std::exit(1);
 }
 
-// Enough significant digits to round-trip a T exactly.
-template <class T>
-std::ostream& full_precision(std::ostream& os) {
-    return os << std::setprecision(std::numeric_limits<T>::max_digits10);
+inline std::ifstream open_in(const std::string& fname) {
+    std::ifstream in{fname};
+    if (!in) fail(fname, "cannot open for reading");
+    return in;
 }
 
-// Nothing but whitespace remains: readers call this after consuming what
-// the header announced, so trailing data is reported, not ignored.
-inline void expect_end(std::istream& in, const std::string& fname,
-                       const std::string& what) {
-    in >> std::ws;
-    if (!in.eof()) detail::fail(fname, "unexpected data after " + what);
+inline std::ofstream open_out(const std::string& fname) {
+    std::ofstream out{fname};
+    if (!out) fail(fname, "cannot open for writing");
+    return out;
 }
 
-} // namespace detail
-
-// A named per-node column: v[i * stride] is the value at node i. The
-// writers that take fields (VTK, gnuplot columns) take lists of these.
-template <class T>
-struct Column {
-    std::string_view name;
-    const T* v;
-    std::size_t stride = 1;
-};
-
-// ---------------------------------------------------------------------------
-// Points file (.points)
-// ---------------------------------------------------------------------------
-
-// Coordinates as separate arrays (SoA), from a points file: the point count
-// on the first line, then one coordinate pair per line:
+// A number as the shortest text that reads back exactly (std::to_chars):
+// 0.1 is written as 0.1, not 0.10000000000000001, and integers as is.
 //
-//     n
-//     x0 y0
-//     x1 y1
-//     ...
-//
-// Returns {x, y}, the layout the assembly kernels take. The points file is
-// the companion of the graph file (read_graph_csr): one gives the point
-// cloud, the other the stencils, in the same numbering.
-template <class T = double>
-std::pair<std::vector<T>, std::vector<T>> read_points(const std::string& fname)
-{
-    auto in = detail::open_in(fname);
-    std::size_t n = 0;
-    if (!(in >> n)) detail::fail(fname, "missing or malformed point count");
-
-    std::vector<T> x, y;
-    x.reserve(n); y.reserve(n);
-    for (std::size_t i = 0; i < n; ++i) {
-        T px, py;
-        in >> px >> py;
-        x.push_back(px); y.push_back(py);
-    }
-    // One check: stream failure is sticky, so a short or malformed file fails
-    // here whether it broke on the first record or the last.
-    if (!in) detail::fail(fname, "expected " + std::to_string(n) + " points");
-    return {std::move(x), std::move(y)};
+//     out << num(x[i]) << ' ' << num(y[i]);
+template <class V> struct Num { V v; };
+template <class V> Num<V> num(V v) { return {v}; }
+template <class V>
+std::ostream& operator<<(std::ostream& os, Num<V> n) {
+    char buf[32];
+    const auto r = std::to_chars(buf, buf + sizeof buf, n.v);
+    return os.write(buf, r.ptr - buf);
 }
 
-// Same file, into an array of structs: std::vector<std::array<T,2>>,
-// std::vector<Point> with Point{T x, y;}, or any container whose value_type
-// is brace-constructible from two T. Preferred where a point is passed
-// around as a unit; the SoA form suits device upload.
-template <class ArrayOfStructs, class T = double>
-ArrayOfStructs read_points_aos(const std::string& fname)
-{
-    using Struct = typename ArrayOfStructs::value_type;
-    auto in = detail::open_in(fname);
-    std::size_t n = 0;
-    if (!(in >> n)) detail::fail(fname, "missing or malformed point count");
-
-    ArrayOfStructs xy;
-    xy.reserve(n);
-    for (std::size_t i = 0; i < n; ++i) {
-        T px, py;
-        in >> px >> py;
-        xy.push_back(Struct{px, py});
-    }
-    if (!in) detail::fail(fname, "expected " + std::to_string(n) + " points");
-    return xy;
-}
-
-// ---------------------------------------------------------------------------
-// Node file (.node), the Triangle format
-// ---------------------------------------------------------------------------
-
-namespace detail {
-
-// Tokens of one line, parsed with strtod/strtoll so that a line is one
-// null-terminated buffer and no stream is built per line.
+// Tokens of one line, parsed with std::from_chars: no stream is built per
+// line, integers are range-checked into their type, and a number must end
+// at whitespace or the end of the line, so "1.5" is not the integer 1.
 struct LineCursor {
     const char* p;
+    const char* end;
 
-    void skip_ws() { while (*p == ' ' || *p == '\t' || *p == '\r') ++p; }
-    bool at_end() { skip_ws(); return *p == '\0'; }
+    explicit LineCursor(std::string_view s) : p(s.data()), end(s.data() + s.size()) {}
 
-    bool real(double& v) {
-        char* e;
-        v = std::strtod(p, &e);
-        if (e == p) return false;
-        p = e;
+    static bool ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+    void skip_ws() { while (p != end && ws(*p)) ++p; }
+    bool at_end() { skip_ws(); return p == end; }
+
+    template <class V>
+    bool next(V& v) {
+        skip_ws();
+        const auto [q, ec] = std::from_chars(p, end, v);
+        if (ec != std::errc{} || (q != end && !ws(*q))) return false;
+        p = q;
         return true;
     }
-    // An integer must end at whitespace or end of line, so "1.5" is not 1.
-    bool integer(long long& v) {
-        char* e;
-        v = std::strtoll(p, &e, 10);
-        if (e == p || (*e != '\0' && *e != ' ' && *e != '\t' && *e != '\r')) return false;
-        p = e;
-        return true;
-    }
+
+    // The text at the cursor, for error messages.
+    std::string here() const { return std::string(std::string_view(p, end - p).substr(0, 16)); }
 };
 
 // Next line with content: '#' starts a comment, blank lines are skipped.
@@ -193,20 +109,96 @@ inline bool next_data_line(std::istream& in, std::string& line, std::size_t& lin
 
 } // namespace detail
 
-// Node file in the format of Triangle's .node file
-// (https://www.cs.cmu.edu/~quake/triangle.node.html):
+// A named per-node column: v[i * stride] is the value at node i. The
+// writers that take fields (VTK, gnuplot columns) take lists of these.
+template <class T>
+struct Column {
+    std::string_view name;
+    const T* v;
+    std::size_t stride = 1;
+};
+
+// A list argument for those writers: a braced list at the call site, or any
+// contiguous range of elements (vector, array, span).
+template <class E>
+struct List : std::span<const E> {
+    List() = default;
+    List(std::initializer_list<E> l) : std::span<const E>(l.begin(), l.size()) {}
+    template <class R>
+        requires std::constructible_from<std::span<const E>, const R&>
+    List(const R& r) : std::span<const E>(r) {}
+};
+
+// ---------------------------------------------------------------------------
+// Points file (.points)
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+// The points file: the point count on the first line, then one coordinate
+// pair per line. on_count(n) is called once, on_point(x, y) n times.
+template <class T, class OnCount, class OnPoint>
+void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_point)
+{
+    auto in = open_in(fname);
+    std::size_t n = 0;
+    if (!(in >> n)) fail(fname, "missing or malformed point count");
+    on_count(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        T px, py;
+        in >> px >> py;
+        on_point(px, py);
+    }
+    // One check: stream failure is sticky, so a short or malformed file fails
+    // here whether it broke on the first record or the last.
+    if (!in) fail(fname, "expected " + std::to_string(n) + " points");
+}
+
+} // namespace detail
+
+// Coordinates as separate arrays (SoA), the layout the assembly kernels
+// take. The points file is the companion of the graph file: one gives the
+// point cloud, the other the stencils, in the same numbering.
+template <class T = double>
+std::pair<std::vector<T>, std::vector<T>> read_points(const std::string& fname)
+{
+    std::vector<T> x, y;
+    detail::read_points_with<T>(fname,
+        [&](std::size_t n) { x.reserve(n); y.reserve(n); },
+        [&](T px, T py) { x.push_back(px); y.push_back(py); });
+    return {std::move(x), std::move(y)};
+}
+
+// Same file, into an array of structs: std::vector<std::array<T,2>>,
+// std::vector<Point> with Point{T x, y;}, or any container whose value_type
+// is brace-constructible from two T.
+template <class ArrayOfStructs, class T = double>
+ArrayOfStructs read_points_aos(const std::string& fname)
+{
+    using Struct = typename ArrayOfStructs::value_type;
+    ArrayOfStructs xy;
+    detail::read_points_with<T>(fname,
+        [&](std::size_t n) { xy.reserve(n); },
+        [&](T px, T py) { xy.push_back(Struct{px, py}); });
+    return xy;
+}
+
+// ---------------------------------------------------------------------------
+// Node file (.node), the Triangle format
+// ---------------------------------------------------------------------------
+
+// Node file in the format of Triangle's .node file:
 //
 //     n 2 nattr nmark            # vertices, dimension, attributes, marker column (0 or 1)
 //     i x y a0 ... a(nattr-1) [marker]
 //     ...
 //
-// '#' starts a comment and blank lines are allowed anywhere. Vertices are
-// numbered consecutively from 0 or from 1; either is accepted and the line
-// order is the node numbering. The marker is 0 for an interior node and
-// nonzero for a boundary node, which is NodeSet's flag; without a marker
-// column every node is interior. Attributes are per-node reals, returned
-// row-major, n x nattr, when a vector is passed for them, and skipped
-// otherwise. Returns n.
+// '#' starts a comment and blank lines are allowed anywhere; vertices are
+// numbered consecutively from 0 or from 1. x, y and marker are cleared and
+// filled in line order; without a marker column every marker is 0.
+// Attributes are returned row-major, n x nattr, when a vector is passed for
+// them, and skipped otherwise. Returns n. A malformed file is an error
+// reported with its line number.
 template <class T>
 std::size_t read_nodes(const std::string& fname,
                        std::vector<T>& x, std::vector<T>& y, std::vector<int>& marker,
@@ -218,54 +210,53 @@ std::size_t read_nodes(const std::string& fname,
 
     std::string line;
     std::size_t lineno = 0;
-    const auto where = [&] { return "line " + std::to_string(lineno) + ": "; };
+    const auto fail_here = [&](const std::string& what) {
+        detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
+    };
 
     if (!detail::next_data_line(in, line, lineno)) detail::fail(fname, "empty file");
-    long long n, dim, nattr, nmark;
+    std::size_t n, dim, nattr, nmark;
     {
-        detail::LineCursor c{line.c_str()};
-        if (!(c.integer(n) && c.integer(dim) && c.integer(nattr) && c.integer(nmark)) || !c.at_end())
-            detail::fail(fname, where() + "expected header \"n dim nattr nmark\"");
-        if (dim != 2) detail::fail(fname, where() + "dimension " + std::to_string(dim) + ", expected 2");
-        if (n < 0 || nattr < 0 || nmark < 0 || nmark > 1)
-            detail::fail(fname, where() + "bad header values");
+        detail::LineCursor c{line};
+        if (!(c.next(n) && c.next(dim) && c.next(nattr) && c.next(nmark)) || !c.at_end())
+            fail_here("expected header \"n dim nattr nmark\"");
+        if (dim != 2) fail_here("dimension " + std::to_string(dim) + ", expected 2");
+        if (nmark > 1) fail_here("marker column count must be 0 or 1");
     }
     x.reserve(n); y.reserve(n); marker.reserve(n);
     if (attributes) attributes->reserve(n * nattr);
 
-    long long first = 0;
-    for (long long i = 0; i < n; ++i) {
+    std::size_t first = 0;
+    for (std::size_t i = 0; i < n; ++i) {
         if (!detail::next_data_line(in, line, lineno))
             detail::fail(fname, "header says " + std::to_string(n) + " vertices, found "
                                 + std::to_string(i));
-        detail::LineCursor c{line.c_str()};
-        long long idx;
+        detail::LineCursor c{line};
+        std::size_t idx;
         double px, py;
-        if (!(c.integer(idx) && c.real(px) && c.real(py)))
-            detail::fail(fname, where() + "expected \"index x y ...\"");
+        if (!(c.next(idx) && c.next(px) && c.next(py))) fail_here("expected \"index x y ...\"");
         if (i == 0) {
-            if (idx != 0 && idx != 1)
-                detail::fail(fname, where() + "vertex numbering must start at 0 or 1");
+            if (idx > 1) fail_here("vertex numbering must start at 0 or 1");
             first = idx;
         } else if (idx != first + i) {
-            detail::fail(fname, where() + "vertex number " + std::to_string(idx)
-                                + ", expected " + std::to_string(first + i));
+            fail_here("vertex number " + std::to_string(idx) + ", expected "
+                      + std::to_string(first + i));
         }
-        for (long long a = 0; a < nattr; ++a) {
+        for (std::size_t a = 0; a < nattr; ++a) {
             double v;
-            if (!c.real(v)) detail::fail(fname, where() + "expected " + std::to_string(nattr) + " attributes");
+            if (!c.next(v)) fail_here("expected " + std::to_string(nattr) + " attributes");
             if (attributes) attributes->push_back(static_cast<T>(v));
         }
-        long long m = 0;
-        if (nmark && !c.integer(m)) detail::fail(fname, where() + "expected a boundary marker");
-        if (!c.at_end()) detail::fail(fname, where() + "unexpected data after the record");
+        int m = 0;
+        if (nmark && !c.next(m)) fail_here("expected a boundary marker");
+        if (!c.at_end()) fail_here("unexpected data after the record");
         x.push_back(static_cast<T>(px));
         y.push_back(static_cast<T>(py));
-        marker.push_back(static_cast<int>(m));
+        marker.push_back(m);
     }
     if (detail::next_data_line(in, line, lineno))
-        detail::fail(fname, where() + "unexpected data after vertex " + std::to_string(n - 1));
-    return static_cast<std::size_t>(n);
+        fail_here("unexpected data after vertex " + std::to_string(n - 1));
+    return n;
 }
 
 // Inverse of read_nodes, numbered from 0. A null marker leaves the marker
@@ -275,13 +266,13 @@ void write_nodes(const std::string& fname, std::size_t n,
                  const T* x, const T* y, const int* marker = nullptr,
                  std::size_t nattr = 0, const T* attributes = nullptr)
 {
+    using detail::num;
     assert(nattr == 0 || attributes);
     auto out = detail::open_out(fname);
-    detail::full_precision<T>(out);
     out << n << " 2 " << nattr << ' ' << (marker ? 1 : 0) << '\n';
     for (std::size_t i = 0; i < n; ++i) {
-        out << i << ' ' << x[i] << ' ' << y[i];
-        for (std::size_t a = 0; a < nattr; ++a) out << ' ' << attributes[i * nattr + a];
+        out << i << ' ' << num(x[i]) << ' ' << num(y[i]);
+        for (std::size_t a = 0; a < nattr; ++a) out << ' ' << num(attributes[i * nattr + a]);
         if (marker) out << ' ' << marker[i];
         out << '\n';
     }
@@ -291,55 +282,19 @@ void write_nodes(const std::string& fname, std::size_t n,
 // Graph file (.graph)
 // ---------------------------------------------------------------------------
 
-namespace detail {
-
-// Parse every integer in text into ja; returns how many were found.
-// Anything that is not whitespace or an integer is an error, reported
-// under the given context ("row 3").
-template <class I>
-std::size_t parse_ints(std::string_view text, std::vector<I>& ja,
-                       const std::string& fname, const std::string& context)
-{
-    std::size_t count = 0;
-    const char* p = text.data();
-    const char* const end = p + text.size();
-    for (;;) {
-        while (p != end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) ++p;
-        if (p == end) return count;
-        I j;
-        const auto [next, ec] = std::from_chars(p, end, j);
-        if (ec != std::errc{})
-            fail(fname, context + ": bad index at \""
-                        + std::string(p, std::min<std::size_t>(end - p, 16)) + "\"");
-        ja.push_back(j);
-        ++count;
-        p = next;
-    }
-}
-
-} // namespace detail
-
 // Adjacency graph in compressed sparse row form, from a graph file: a
-// "rows nnz" header followed by one line of stencil indices per node:
+// "n nnz" header, then one line of 0-based stencil indices per node:
 //
 //     n nnz
 //     j00 j01 j02 ...
 //     j10 j11 ...
 //     ...
 //
-// Each line is one row; rows may have different lengths. Every row must
-// list at least one neighbour: a
-// node with no neighbours gives a singular system, so an empty row is an
-// error, as are a short file, an entry count that disagrees with nnz, and
-// data after the n-th row.
-//
-// With k > 0 every row is required to hold exactly k entries, as for
-// k-nearest-neighbour stencils; the header must satisfy nnz == n * k and a
-// row of any other length is an error. Same file format, stronger checks.
-//
-// Indices are 0-based, as in every graph file produced so far: a value
-// outside [0, n) is an error, which also catches a 1-based file. Returns
-// {ia, ja} with ia 0-based.
+// Rows may have different lengths, but every row must have at least one
+// entry (a node with no neighbours gives a singular system), every index
+// must lie in [0, n), the entry count must match nnz, and nothing may
+// follow the n-th row. With k > 0 every row must hold exactly k entries and
+// the header must satisfy nnz == n * k. Returns {ia, ja} with ia 0-based.
 template <class I = std::int32_t>
 std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fname,
                                                          int k = 0)
@@ -347,25 +302,38 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
     assert(k >= 0 && "k must be 0 (ragged rows) or the row length");
     auto in = detail::open_in(fname);
 
+    std::string line;
     std::size_t n = 0, nnz = 0;
-    if (!(in >> n >> nnz)) detail::fail(fname, "malformed header, expected: rows nnz");
-
-    std::vector<I> ia, ja;
-    ia.reserve(n + 1);
-    ia.push_back(0);
-
+    {
+        std::getline(in, line);
+        detail::LineCursor c{line};
+        if (!(c.next(n) && c.next(nnz)) || !c.at_end())
+            detail::fail(fname, "malformed header, expected: n nnz");
+    }
     if (k > 0 && nnz != n * static_cast<std::size_t>(k))
         detail::fail(fname, "header says " + std::to_string(n) + " rows and "
                             + std::to_string(nnz) + " entries, inconsistent with k="
                             + std::to_string(k));
+
+    std::vector<I> ia, ja;
+    ia.reserve(n + 1);
+    ia.push_back(0);
     ja.reserve(nnz);
-    std::string line;
-    std::getline(in, line);   // rest of the header line
+
     for (std::size_t i = 0; i < n; ++i) {
         if (!std::getline(in, line))
             detail::fail(fname, "header says " + std::to_string(n)
                                 + " rows, found " + std::to_string(i));
-        const std::size_t len = detail::parse_ints(line, ja, fname, "row " + std::to_string(i));
+        detail::LineCursor c{line};
+        std::size_t len = 0;
+        for (I j; !c.at_end(); ++len) {
+            if (!c.next(j))
+                detail::fail(fname, "row " + std::to_string(i) + ": bad index at \"" + c.here() + "\"");
+            if (j < 0 || static_cast<std::size_t>(j) >= n)
+                detail::fail(fname, "row " + std::to_string(i) + ": index " + std::to_string(j)
+                                    + " outside [0, " + std::to_string(n) + "); indices are 0-based");
+            ja.push_back(j);
+        }
         if (len == 0)
             detail::fail(fname, "row " + std::to_string(i) + " has no entries");
         if (k > 0 && len != static_cast<std::size_t>(k))
@@ -376,12 +344,8 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
     if (ja.size() != nnz)
         detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
                             + std::to_string(ja.size()));
-    detail::expect_end(in, fname, "row " + std::to_string(n - 1));
-    for (std::size_t p = 0; p < ja.size(); ++p)
-        if (ja[p] < 0 || static_cast<std::size_t>(ja[p]) >= n)
-            detail::fail(fname, "entry " + std::to_string(p) + " is index "
-                                + std::to_string(ja[p]) + ", outside [0, "
-                                + std::to_string(n) + "); indices are 0-based");
+    in >> std::ws;
+    if (!in.eof()) detail::fail(fname, "unexpected data after row " + std::to_string(n - 1));
     return {std::move(ia), std::move(ja)};
 }
 
@@ -389,11 +353,10 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
 // Ordering file (.iperm)
 // ---------------------------------------------------------------------------
 
-// A permutation of the nodes in the METIS ordering-file format (manual
-// 5.1.0, section 4.2.2): one integer per line, no header, read to end of
-// file. Line i holds the new index of node i, so the file is the inverse
-// permutation iperm, old -> new, 0-based. Permutation::read and write in
-// rbf_reorder.h wrap these two for a Permutation.
+// A permutation of the nodes in the METIS ordering-file format: one integer
+// per line, no header, read to end of file. Line i holds the new index of
+// node i, so the file is the inverse permutation iperm, old -> new, 0-based.
+// Permutation::read and write in rbf_reorder.h wrap these two.
 //
 // The values must form a permutation of 0 .. n-1: an index out of range or
 // listed twice is an error.
@@ -442,55 +405,45 @@ void write_ordering(const std::string& fname, std::size_t n, const I* iperm)
 // column must lie in [csr_base, csr_base + cols); all of this is asserted,
 // since a violation would write a file that solvers reject or misread.
 // The entry count is taken from ia, so the header can never disagree with
-// the body. I is deduced from ia and ja alone, so rows, cols and csr_base
-// can be plain integer literals whatever the index type.
+// the body.
 //
 // Pass a == nullptr to write the sparsity pattern alone, as Matrix Market's
 // "pattern" value type: (row, col) entries with no values. Useful before
 // assembly, or to compare stencil graphs without the weights.
-//
-// Values, when written, carry max_digits10 significant digits, so the file
-// round-trips exactly; the stream default of 6 would quietly truncate
-// weights well above the accuracy the assembly is tested to.
 template <class T, class I>
 void write_matrix_market(const std::string& fname,
-                         std::type_identity_t<I> rows, std::type_identity_t<I> cols,
+                         std::size_t rows, std::size_t cols,
                          const I* ia, const I* ja, const T* a,
-                         std::type_identity_t<I> csr_base = 0)
+                         int csr_base = 0)
 {
+    using detail::num;
     assert((csr_base == 0 || csr_base == 1) && "csr_base must be 0 or 1");
-    assert(rows >= 0 && cols >= 0);
     assert(ia[0] == csr_base && "ia does not start at the declared csr_base");
 #ifndef NDEBUG
-    for (I i = 0; i < rows; ++i) {
+    for (std::size_t i = 0; i < rows; ++i) {
         assert(ia[i + 1] >= ia[i] && "ia is not non-decreasing");
         for (I k = ia[i] - csr_base; k < ia[i + 1] - csr_base; ++k)
-            assert(ja[k] >= csr_base && ja[k] - csr_base < cols && "ja column out of range");
+            assert(ja[k] >= csr_base && static_cast<std::size_t>(ja[k] - csr_base) < cols
+                   && "ja column out of range");
     }
 #endif
     auto out = detail::open_out(fname);
-    const I nnz = ia[rows] - ia[0];
-    out << "%%MatrixMarket matrix coordinate " << (a ? "real" : "pattern")
-        << " general\n";
-    out << rows << ' ' << cols << ' ' << nnz << '\n';
-    if (a) {
-        detail::full_precision<T>(out);
-        for (I i = 0; i < rows; ++i)
-            for (I k = ia[i] - csr_base; k < ia[i + 1] - csr_base; ++k)
-                out << (i + 1) << ' ' << (ja[k] - csr_base + 1) << ' ' << a[k] << '\n';
-    } else {
-        for (I i = 0; i < rows; ++i)
-            for (I k = ia[i] - csr_base; k < ia[i + 1] - csr_base; ++k)
-                out << (i + 1) << ' ' << (ja[k] - csr_base + 1) << '\n';
-    }
+    out << "%%MatrixMarket matrix coordinate " << (a ? "real" : "pattern") << " general\n";
+    out << rows << ' ' << cols << ' ' << (ia[rows] - ia[0]) << '\n';
+    for (std::size_t i = 0; i < rows; ++i)
+        for (I k = ia[i] - csr_base; k < ia[i + 1] - csr_base; ++k) {
+            out << (i + 1) << ' ' << (ja[k] - csr_base + 1);
+            if (a) out << ' ' << num(a[k]);
+            out << '\n';
+        }
 }
 
 // Sparsity pattern only, without having to name a value type at the call site.
 template <class I>
 void write_matrix_market_pattern(const std::string& fname,
-                                 std::type_identity_t<I> rows, std::type_identity_t<I> cols,
+                                 std::size_t rows, std::size_t cols,
                                  const I* ia, const I* ja,
-                                 std::type_identity_t<I> csr_base = 0)
+                                 int csr_base = 0)
 {
     write_matrix_market<double, I>(fname, rows, cols, ia, ja, nullptr, csr_base);
 }
