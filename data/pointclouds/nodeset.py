@@ -269,7 +269,11 @@ class NodeSet:
         if labels:
             for i, (x, y) in enumerate(xy):
                 ax.annotate(
-                    str(i), (x, y), xytext=(2, 2), textcoords="offset points", fontsize=6
+                    str(i),
+                    (x, y),
+                    xytext=(2, 2),
+                    textcoords="offset points",
+                    fontsize=6,
                 )
         for s, (i, members) in enumerate(stencils):
             self._plot_stencil(ax, i, members, self.PALETTE[s % len(self.PALETTE)])
