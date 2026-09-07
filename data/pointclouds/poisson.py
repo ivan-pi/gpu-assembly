@@ -18,32 +18,30 @@ first in the result:
 
 It is the generator's business to scale the result to lattice units.
 
-The algorithm (Bridson, 2007, "Fast Poisson disk sampling in arbitrary
-dimensions", SIGGRAPH sketches): a grid of cells of side r / sqrt(2), so
-that a cell holds at most one point, and a queue of active points. A
-point is taken off the queue at random and throws `ncandidates`
-candidates into the annulus between r and 2r around it, uniformly over
-its area; a candidate that lands in the rectangle and finds no point
-within r in the 5x5 cells around its own is kept and queued. The first
-point is drawn uniformly, unless there are seeds. The result is maximal
-up to what the candidates missed: the packing holds about 0.62 / r^2
-points per unit area with 30 candidates, 0.56 with 10.
+Bridson's algorithm (2007): a grid of cells of side at most r / sqrt(2),
+so that a cell holds one point at most, and a queue of the points that
+still have candidates to throw. A queued point throws `ncandidates`
+candidates into the annulus between r and 2r around it; a candidate that
+finds no point within r in the 5x5 cells around its own is kept and
+queued. A filled rectangle holds about 0.62 / r^2 points per unit area
+with 30 candidates, 0.56 with 10.
 
-The scalar loop descends from the Python one of Connor Johnson (2015),
-"Poisson Disk Sampling", <http://connor-johnson.com/2015/04/08/poisson-
-disk-sampling/>, by way of a periodic version of it that once lived in
-data/tools. Along a periodic axis the cells tile the box exactly, so the
-wrapped search reaches at least r across the seam; with a partial last
-cell it reached less, which let points closer than r through.
+Along a periodic axis the search wraps: the cell index is taken modulo
+the cell count, and a difference of coordinates through the nearer of
+the two sides. The cells tile the extent exactly along such an axis,
+which makes them a little smaller than r / sqrt(2). With a partial last
+cell instead, the two cells beyond the seam would span less than r, the
+search would stop short of it, and points closer than r could face each
+other across the seam: the defect a sample that is wrapped afterwards
+shows, and the reason the sampler is periodic itself.
 
-The interface follows scipy.stats.qmc.PoissonDisk where it can: `random`
-draws up to n more points, `fill_space` draws until nothing fits, `reset`
-goes back to the start, and the same seed gives the same points. Numba
-compiles the loop on the first call of a process, which takes a few
-seconds, and caches the result next to this module.
-
-Run as a script, the module draws a sample of the unit square and shows
-it triangulated, with a function interpolated over it.
+The interface follows scipy.stats.qmc.PoissonDisk: `random` draws up to
+n more points, `fill_space` draws until nothing fits, `reset` goes back
+to the start, and a seed makes a sample reproducible. The loop, after
+Connor Johnson (2015), "Poisson Disk Sampling",
+<http://connor-johnson.com/2015/04/08/poisson-disk-sampling/>, is
+compiled by Numba on the first call of a process and cached next to this
+module. Run as a script, the module draws and shows a sample.
 """
 
 from collections import namedtuple
