@@ -26,11 +26,12 @@ Scripts that produced a case go in `gen/`.
   refined towards the walls in three levels, as a `.node` file with
   markers for the four walls and the corners. Needs numpy; `--plot`
   needs matplotlib.
-- `gen/perturbed_grid.py`: the unit square with the nodes of a Cartesian
-  grid of spacing `h = 1/N` displaced by up to `sigma h`, periodic on
-  both sides or a channel with walls at `y = 0` and `y = 1`, as a
-  `.points` file or a `.node` file with wall markers, together with the
-  `.graph` of the stencils, whose search wraps around the periodic
-  sides. `--realizations` writes a numbered series to average over and
+- `gen/perturbed_grid.py`: an `N` by `N` box in lattice units, spacing
+  `h = 1`, with every node of the Cartesian grid displaced by up to
+  `sigma` spacings; periodic on both sides, or a channel with walls at
+  `y = 0` and `y = N`. Writes a `.points` file or a `.node` file with
+  wall markers, together with the `.graph` of the stencils, whose search
+  wraps around the periodic sides. `--size` rescales the box to other
+  units, `--realizations` writes a numbered series to average over and
   `--seed` makes it repeatable. Needs numpy and scipy; `--plot` needs
   matplotlib.

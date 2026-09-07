@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Point clouds for the unit square whose nodes are those of a Cartesian
-grid moved by a small random amount, with the periodic stencil graph that
-goes with them.
+"""Point clouds whose nodes are those of a Cartesian grid moved by a small
+random amount, with the periodic stencil graph that goes with them.
 
     python3 perturbed_grid.py -n 40 tg_40
     python3 perturbed_grid.py -n 40 --sigma 0.02 --knn 21 tg_40
@@ -11,16 +10,26 @@ goes with them.
 The node layout of Strzelczyk and Matyka (2022), "How nodes layout,
 refinement and velocity discretization influence convergence of the
 meshless lattice Boltzmann method", <https://ssrn.com/abstract=4070398>,
-Figs. 4 and 8. An N by N grid of spacing h = 1/N is laid on the unit
-square with its lowest node at the origin, and every coordinate is then
-displaced by an amount drawn uniformly from [-sigma h, sigma h]. The
-reference uses sigma = 0, 0.02 and 0.2; a node stays in its own cell for
-sigma < 0.5. Two geometries differ in what happens at the sides:
+Figs. 4 and 8. An N by N grid is laid on the box with its lowest node at
+the origin, and every coordinate is then displaced by an amount drawn
+uniformly from [-sigma h, sigma h], with h the spacing. The reference
+uses sigma = 0, 0.02 and 0.2; a node stays in its own cell for
+sigma < 0.5.
+
+Everything is in lattice units: the box is N by N and the spacing is
+h = 1, so the coordinates are the lattice sites the LBM works on and a
+distance is a number of spacings. `--size L` scales the box to L by L,
+which gives h = L/N; `--size 1` is the unit square of the reference. The
+nodes sit on the lattice rather than at cell centres, so a Cartesian
+sigma = 0 grid runs from 0 to N - h rather than from h/2 to N - h/2; on a
+periodic box the two differ by a shift.
+
+Two geometries differ in what happens at the sides:
 
   periodic  Both sides are periodic, as in the Taylor-Green test. A node
-            that leaves the square is wrapped back in through the
-            opposite side, so the cloud stays N by N.
-  channel   Periodic in x, walls at y = 0 and y = 1, as in the Poiseuille
+            that leaves the box is wrapped back in through the opposite
+            side, so the cloud stays N by N.
+  channel   Periodic in x, walls at y = 0 and y = N, as in the Poiseuille
             test. The grid has N + 1 rows, the first on the bottom wall
             and the last on the top; the wall nodes slide along their
             wall but do not leave it.
@@ -32,7 +41,7 @@ The stencil of a node is the set of nodes it interpolates from: its k
 nearest neighbours by default, the nodes within a given distance with
 --radius, or those within a square with --square. The search knows which
 sides are periodic, so a stencil next to a periodic side reaches around
-it. Distances are given in spacings h, and every stencil starts with the
+it. Distances are given in spacings, and every stencil starts with the
 node itself.
 
 Random grids are meant to be averaged over, so a run generates one
@@ -48,7 +57,7 @@ file, with a comment line naming the command and a marker per node
 
     0  interior
     1  bottom wall, y = 0
-    3  top wall, y = 1
+    3  top wall, y = N
 
 The two walls are numbered as in cavity_refined.py, counter-clockwise
 from the bottom, which leaves 2 and 4 for the east and west walls: those
@@ -64,15 +73,10 @@ from scipy.spatial import cKDTree
 
 INTERIOR, SOUTH, NORTH = 0, 1, 3
 
-# A periodic box more than twice as wide as the data never wraps, which is
-# how the channel gets a periodic x and an open y from one k-d tree.
-OPEN = 3.0
 
-
-def grid(n, geometry):
-    """The Cartesian nodes and their markers: N by N on the periodic
-    square, N by N + 1 on the channel, whose last row is the top wall."""
-    h = 1.0 / n
+def grid(n, h, geometry):
+    """The Cartesian nodes and their markers: N by N on the periodic box,
+    N by N + 1 on the channel, whose last row is the top wall."""
     x = np.arange(n) * h
     y = np.arange(n if geometry == "periodic" else n + 1) * h
     xv, yv = np.meshgrid(x, y)                   # row by row, x fastest
@@ -83,34 +87,36 @@ def grid(n, geometry):
     return pts, m
 
 
-def perturb(pts, m, n, sigma, geometry, rng):
+def perturb(pts, m, h, size, sigma, geometry, rng):
     """Every coordinate displaced by up to sigma spacings, except the one
     across the wall, which would take a wall node off its wall."""
-    d = rng.uniform(-sigma / n, sigma / n, pts.shape)
+    d = rng.uniform(-sigma * h, sigma * h, pts.shape)
     d[m != INTERIOR, 1] = 0.0
     pts = pts + d
-    pts[:, 0] = wrap(pts[:, 0])
+    pts[:, 0] = wrap(pts[:, 0], size)
     if geometry == "periodic":
-        pts[:, 1] = wrap(pts[:, 1])
+        pts[:, 1] = wrap(pts[:, 1], size)
     else:
-        pts[:, 1] = np.clip(pts[:, 1], 0.0, 1.0)     # only reached by sigma >= 1
+        pts[:, 1] = np.clip(pts[:, 1], 0.0, size)    # only reached by sigma >= 1
     return pts
 
 
-def wrap(z):
-    """Into [0, 1) through the periodic side."""
-    z = np.mod(z, 1.0)
-    z[z >= 1.0] = 0.0                            # np.mod rounds up to 1.0
+def wrap(z, size):
+    """Into [0, size) through the periodic side."""
+    z = np.mod(z, size)
+    z[z >= size] = 0.0                           # np.mod rounds up to size
     return z
 
 
-def stencils(pts, n, geometry, knn, radius, square):
+def stencils(pts, h, size, geometry, knn, radius, square):
     """The stencil of every node, as lists of node indices."""
-    tree = cKDTree(pts, boxsize=[1.0, 1.0 if geometry == "periodic" else OPEN])
+    # A periodic box more than twice as wide as the data never wraps, which
+    # is how the channel gets a periodic x and an open y from one k-d tree.
+    tree = cKDTree(pts, boxsize=[size, size if geometry == "periodic" else 3.0 * size])
     if radius is not None:
-        adj = tree.query_ball_point(pts, radius / n)
+        adj = tree.query_ball_point(pts, radius * h)
     elif square is not None:
-        adj = tree.query_ball_point(pts, square / n, p=np.inf)   # the max norm
+        adj = tree.query_ball_point(pts, square * h, p=np.inf)   # the max norm
     else:
         adj = tree.query(pts, knn)[1].tolist()
     rows = [[i] + [j for j in row if j != i] for i, row in enumerate(adj)]
@@ -155,9 +161,10 @@ def plot(pts, m, rows):
 
 HELP = __doc__.split("\n\n")[0] + """
 
-Distances are in spacings h = 1/N; markers are 0 interior, 1 bottom wall,
-3 top wall. The docstring at the top of the script describes the two
-geometries and the series of realizations."""
+Lengths are in lattice units, in which the box is N by N and the spacing
+is h = 1; distances are in spacings. Markers are 0 interior, 1 bottom
+wall, 3 top wall. The docstring at the top of the script describes the
+two geometries and the series of realizations."""
 
 
 def main():
@@ -167,13 +174,16 @@ def main():
                     "file next to it, or a node file with the markers and the "
                     "graph if the name ends in .node")
     ap.add_argument("-n", "--nodes", type=int, required=True, metavar="N",
-                    help="nodes across the unit square; the spacing is h = 1/N")
+                    help="nodes across the box")
+    ap.add_argument("--size", type=float, metavar="L",
+                    help="side of the box, in the same units as the coordinates "
+                         "(default: N, which makes the spacing h = 1)")
     ap.add_argument("-s", "--sigma", type=float, default=0.2, metavar="SIGMA",
                     help="displacement of a node, in spacings: uniform on "
                          "[-SIGMA h, SIGMA h] (default: 0.2)")
     ap.add_argument("-g", "--geometry", choices=("periodic", "channel"),
                     default="periodic",
-                    help="periodic on both sides, or walls at y = 0 and y = 1 "
+                    help="periodic on both sides, or walls at y = 0 and y = N "
                          "and periodic in x (default: periodic)")
 
     stencil = ap.add_mutually_exclusive_group()
@@ -199,6 +209,10 @@ def main():
     n, sigma = args.nodes, args.sigma
     if n < 2:
         sys.exit("-n must be at least 2")
+    size = float(n) if args.size is None else args.size    # lattice units by default
+    if size <= 0.0:
+        sys.exit("--size must be positive")
+    h = size / n
     if sigma < 0.0:
         sys.exit("--sigma must not be negative")
     if sigma >= 0.5:
@@ -228,17 +242,19 @@ def main():
     stencil_flag = (f"--knn {args.knn}" if args.knn is not None else
                     f"--radius {args.radius:g}" if args.radius is not None else
                     f"--square {args.square:g}")
+    size_flag = "" if args.size is None else f"--size {size:g} "
 
-    pts0, m = grid(n, args.geometry)
+    pts0, m = grid(n, h, args.geometry)
     if args.knn is not None and not 1 <= args.knn <= len(pts0):
         sys.exit(f"--knn must be at least 1 and at most {len(pts0)}, the number of nodes")
 
     for i, stream in enumerate(streams):
         stem = base if args.realizations == 1 else f"{base}_{i:0{width}d}"
-        pts = perturb(pts0, m, n, sigma, args.geometry, np.random.default_rng(stream))
+        pts = perturb(pts0, m, h, size, sigma, args.geometry,
+                      np.random.default_rng(stream))
 
         if node_file:
-            command = (f"perturbed_grid.py -n {n} --sigma {sigma:g} "
+            command = (f"perturbed_grid.py -n {n} {size_flag}--sigma {sigma:g} "
                        f"--geometry {args.geometry} {stencil_flag} --seed {seed}")
             if args.realizations > 1:
                 command += f" --realizations {args.realizations}, number {i}"
@@ -248,7 +264,8 @@ def main():
 
         rows = None
         if not args.no_graph:
-            rows = stencils(pts, n, args.geometry, args.knn, args.radius, args.square)
+            rows = stencils(pts, h, size, args.geometry,
+                            args.knn, args.radius, args.square)
             write_graph(stem + ".graph", rows)
 
         walls = f", {np.count_nonzero(m)} of them on a wall" if args.geometry == "channel" else ""
