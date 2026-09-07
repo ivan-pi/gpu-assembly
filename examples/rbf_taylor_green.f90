@@ -1,11 +1,13 @@
 ! Taylor-Green vortex on a lattice grid: nx by ny cells with the field
-! sampled at the cell centres (i - 1/2, j - 1/2), i.e. in lattice units.
-! Arrays are laid out as (y, x). The formulas come from the point-based
-! taylor_green case of rbf_benchmarks; this module only adds the grid.
+! sampled at the cell centres (i - 1/2, j - 1/2), i.e. in lattice units,
+! so the box is nx by ny and the modes (mx, my) are the fundamental
+! (1, 1) by default. Arrays are laid out as (y, x). The formulas come
+! from the taylor_green() case of rbf_benchmarks; this module only adds
+! the grid.
 module rbf_taylor_green
 
    use rbf_precision, only: wp
-   use rbf_benchmarks, only: taylor_green, pi
+   use rbf_benchmarks, only: shear_modes, taylor_green, periodic_box, pi
 
    implicit none
    private
@@ -15,7 +17,7 @@ module rbf_taylor_green
 
    type :: taylor_green_t
       integer :: nx, ny
-      type(taylor_green) :: point   ! the point-based case on this grid
+      type(shear_modes) :: point   ! the point-based case on this grid
    contains
       procedure :: eval => taylor_green_eval
       procedure :: time_constant => taylor_green_time_constant
@@ -28,14 +30,19 @@ module rbf_taylor_green
 
 contains
 
-   function taylor_green_t_constructor(nx,ny,kx,ky,umax,nu) result(this)
+   function taylor_green_t_constructor(nx,ny,umax,nu,mx,my) result(this)
       integer, intent(in) :: nx, ny
-      real(wp), intent(in) :: kx, ky, umax, nu
+      real(wp), intent(in) :: umax, nu
+      integer, intent(in), optional :: mx, my
       type(taylor_green_t) :: this
+      integer :: mx_, my_
+
+      mx_ = 1; if (present(mx)) mx_ = mx
+      my_ = 1; if (present(my)) my_ = my
 
       this%nx = nx
       this%ny = ny
-      this%point = taylor_green(kx=kx, ky=ky, nu=nu, u0=umax)
+      this%point = taylor_green(periodic_box(real(nx,wp), real(ny,wp)), mx_, my_, umax, nu)
    end function
 
    ! Time constant 1/(nu*(kx^2 + ky^2)) of the velocity decay
