@@ -31,7 +31,7 @@ def adjacency_of(ia, ja):
     return adjacency
 
 
-def rcm(adjacency):
+def rcm(adjacency, **kwargs):
     """Return the new index of every node by reverse Cuthill-McKee."""
     from scipy.sparse.csgraph import reverse_cuthill_mckee
 
@@ -39,7 +39,7 @@ def rcm(adjacency):
     return np.argsort(perm)
 
 
-def nd(adjacency, seed=None):
+def nd(adjacency, seed=None, **kwargs):
     """Return the new index of every node by METIS nested dissection.
 
     The seed drives the random matching of the coarsening; METIS has a
@@ -59,7 +59,7 @@ def nd(adjacency, seed=None):
     return np.asarray(iperm, dtype=int)  # perm is the other direction, argsort(iperm)
 
 
-def amd(adjacency):
+def amd(adjacency, **kwargs):
     """Return the new index of every node by approximate minimum degree."""
     try:
         from sksparse.amd import amd as suitesparse_amd
@@ -71,16 +71,7 @@ def amd(adjacency):
     return np.argsort(perm)
 
 
-METHODS = ("rcm", "nd", "amd")
-
-
-def order(method, adjacency, seed):
-    """Return the new index of every node by the named method."""
-    if method == "rcm":
-        return rcm(adjacency)
-    if method == "nd":
-        return nd(adjacency, seed)
-    return amd(adjacency)
+METHODS = {"rcm": rcm, "nd": nd, "amd": amd}  # all take the options they ignore
 
 
 def bandwidth(ia, ja, iperm):
@@ -130,7 +121,7 @@ def parse_args():
     ap.add_argument(
         "-m",
         "--method",
-        choices=METHODS,
+        choices=METHODS.keys(),
         default="rcm",
         help="rcm: reverse Cuthill-McKee (default); nd: METIS nested dissection; "
         "amd: SuiteSparse approximate minimum degree",
@@ -162,7 +153,7 @@ def main():
         file=sys.stderr,
     )
 
-    iperm = order(args.method, adjacency, args.seed)
+    iperm = METHODS[args.method](adjacency, seed=args.seed)
     assert np.array_equal(np.sort(iperm), np.arange(n))
 
     identity = np.arange(n)

@@ -19,13 +19,9 @@ examples:
   poisson_box.py --size 64 64 --hole 20 cylinder_64.node
   poisson_box.py --size 32 32 --tile 4 4 tg_128
 
-Lengths are in lattice units. A hole makes the unit cell of a square
-array of cylinders, with the nodes on its circle first and marked 6;
-tiling lays copies of the sample side by side, which join without a
-seam, and searches the stencils over the whole tiling. The earlier
-poisson_32_21 case has its nodes 0.9 apart, which --distance 0.9
-reproduces. The output is a points file and a graph file in the same
-numbering, or a node file with the markers if named so
+Lengths are in lattice units. The nodes on the circle of a hole come
+first, marked 6. The output is a points file and a graph file in the
+same numbering, or a node file with the markers if named so
 (docs/file_formats.md)."""
 
 
