@@ -38,10 +38,8 @@ Both have whole-point forms taking and returning a `std::array<T, D>`.
 The Fortran type `periodic_box` in `src/rbf_periodic_box.f90` is the 2-d
 case, and is what the [periodic benchmarks](periodic_benchmarks.md) use.
 The two agree except for a displacement of exactly half a period, where
-the images are equidistant: `minimum_image` uses `std::rint` and takes
-the even one, Fortran's `anint` the one away from zero. `rint` is an
-instruction where `std::round` is a libm call, which is worth more in an
-assembly inner loop than agreeing on an arbitrary tie.
+the images are equidistant and `minimum_image` (`std::rint`) takes the
+even one, Fortran's `anint` the one away from zero; the header says why.
 
 ## The k-d tree
 
@@ -95,14 +93,12 @@ tree.query(q, k, idx, d);           // d may be left empty
 
 Distances are true Euclidean distances, minimum-image in a periodic box.
 
-Both entry points are OpenMP-parallel over the query points, in blocks.
-That is safe because `query_knn` takes the tree by const pointer and
-keeps every scrap of query state local: the node pool, both heaps and
-the wrapped query point are locals of `query_single_point`, and the only
-static in the file is a function-local constant. SciPy leans on the same
-property -- `cKDTree.query`'s `workers` splits the query points into
-contiguous ranges and calls `query_knn` on the shared tree from several
-threads with the GIL released.
+Both entry points are OpenMP-parallel over the query points. That is
+safe because `query_knn` keeps all of its state local to the query, the
+same property `cKDTree.query`'s `workers` relies on; the argument is
+spelled out next to the pragma in `rbf_spatial.cpp`. `stencils` narrows
+to the requested index type per block inside that loop, so the result
+never exists as an `intptr_t` array.
 
 `KdTreeParams` (leaf size, median vs. midpoint splitting, whether node
 boxes are shrunk onto their points) tunes the build. It trades build

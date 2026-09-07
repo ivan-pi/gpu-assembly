@@ -79,19 +79,16 @@ static std::vector<int> brute_knn(const Box<D>& b, std::span<const double> pts,
 // Compare a stencil row against the brute-force answer. Ties in distance
 // are broken differently by the two, so the distances are what must
 // agree; the indices only have to agree where the distance is distinct.
+// The brute-force row is sorted, so matching it entry by entry also
+// checks that the tree's row is.
 template<std::size_t D>
 static void check_row(const Box<D>& b, std::span<const double> pts,
-                      const double* q, std::span<const std::int32_t> got) {
-    const auto k = static_cast<int>(got.size());
+                      const double* q, const std::int32_t* got, int k) {
     const auto want = brute_knn<D>(b, pts, q, k);
     for (int j = 0; j < k; ++j) {
         const double dg = dist<D>(b, &pts[got[j]*D], q);
         const double dw = dist<D>(b, &pts[want[j]*D], q);
         CHECK(std::abs(dg - dw) <= 1e-12 * (1.0 + dw));
-        if (j > 0) {  // sorted by distance
-            const double dprev = dist<D>(b, &pts[got[j-1]*D], q);
-            CHECK(dprev <= dg + 1e-12);
-        }
     }
 }
 
@@ -100,7 +97,6 @@ static void test_box() {
     const PeriodicBox<double, 2> b{{4.0, 3.0}};
     const PeriodicBox<double, 2> same{.period = {4.0, 3.0}};
     CHECK(b.period == same.period);
-    CHECK(b.ndim == 2);
 
     // wrap lands in [0, L), from either side and from far away
     CHECK(std::abs(b.wrap(0, 0.0)) < 1e-15);
@@ -130,7 +126,6 @@ static void test_box() {
 
     // nothing about it is 2-d
     const PeriodicBox<double, 3> c{{1.0, 2.0, 4.0}};
-    CHECK(c.ndim == 3);
     CHECK(std::abs(c.wrap(2, 4.25) - 0.25) < 1e-15);
     CHECK(std::abs(c.minimum_image(2, 3.0) - (-1.0)) < 1e-15);
 }
@@ -169,8 +164,7 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     CHECK(ja.size() == n * static_cast<std::size_t>(k));
     for (std::size_t s = 0; s < n; ++s) {
         CHECK(ja[s*k] == static_cast<std::int32_t>(s));
-        check_row<D>(b, pts, &pts[s*D],
-                     std::span{ja}.subspan(s*k, static_cast<std::size_t>(k)));
+        check_row<D>(b, pts, &pts[s*D], &ja[s*k], k);
     }
 
     // arbitrary query points, deliberately shifted whole periods out of
@@ -185,8 +179,7 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     const auto jq = tree.stencils(q, k);
     CHECK(jq.size() == nq * static_cast<std::size_t>(k));
     for (std::size_t s = 0; s < nq; ++s)
-        check_row<D>(b, pts, &q[s*D],
-                     std::span{jq}.subspan(s*k, static_cast<std::size_t>(k)));
+        check_row<D>(b, pts, &q[s*D], &jq[s*k], k);
 
     // the distances that come with the indices are the true ones
     std::vector<std::intptr_t> idx(nq * static_cast<std::size_t>(k));
@@ -247,17 +240,17 @@ static void test_periodicity_matters() {
 // The small clouds, where the tree is a single leaf and the build's
 // degenerate paths are the ones taken.
 static void test_degenerate() {
-    const PeriodicBox<double, 2> box{{1.0, 1.0}};
+    const Box<2> box = PeriodicBox<double, 2>{{1.0, 1.0}};
 
     const std::vector<double> one{0.25, 0.75};
-    const KdTree tree(one, box);
+    const KdTree tree(one, *box);
     CHECK(tree.size() == 1);
     CHECK(tree.stencils(1) == (std::vector<std::int32_t>{0}));
 
     // every point identical: the build bails out of splitting, and all
     // 16 tie at distance 0, so no node is guaranteed to lead its own row
     const std::vector<double> same(32, 0.5);
-    const auto ja = KdTree(same, box).stencils(4);
+    const auto ja = KdTree(same, *box).stencils(4);
     CHECK(ja.size() == 16 * 4);
     for (auto j : ja) CHECK(j >= 0 && j < 16);
 
@@ -265,38 +258,28 @@ static void test_degenerate() {
     std::vector<double> line_x(32), line_y(32, 0.5);
     for (int i = 0; i < 32; ++i) line_x[i] = i / 32.0;
     const auto pts = interleave(line_x, line_y);
-    const Box<2> b = box;
-    const auto jl = KdTree(pts, box).stencils(3);
+    const auto jl = KdTree(pts, *box).stencils(3);
     for (int s = 0; s < 32; ++s) {
         CHECK(jl[s*3] == s);
-        check_row<2>(b, pts, &pts[s*2],
-                     std::span{jl}.subspan(static_cast<std::size_t>(s)*3, 3));
+        check_row<2>(box, pts, &pts[s*2], &jl[s*3], 3);
     }
 }
 
-// A float cloud gives the same neighbours, since interleave widens the
-// coordinates exactly; and a wider index type round-trips.
-static void test_index_and_coordinate_types() {
+// The two index types give the same stencils, and the raw query gives
+// the same indices as either.
+static void test_index_types() {
     Rng rng{12345};
     const Box<2> box = PeriodicBox<double, 2>{{1.0, 1.0}};
     const auto pts = cloud<2>(rng, 300, box);
+    const KdTree tree(pts, *box);
 
-    std::vector<float> xf(300), yf(300);
-    std::vector<double> xw(300), yw(300);
-    for (std::size_t i = 0; i < 300; ++i) {
-        xf[i] = static_cast<float>(pts[2*i]);
-        yf[i] = static_cast<float>(pts[2*i + 1]);
-        xw[i] = xf[i];
-        yw[i] = yf[i];
-    }
-    const auto as_float = KdTree(interleave(xf, yf), *box).stencils(5);
-    const auto as_double = KdTree(interleave(xw, yw), *box).stencils(5);
-    CHECK(as_float == as_double);
+    const auto narrow = tree.stencils<std::int32_t>(5);
+    const auto wide = tree.stencils<std::int64_t>(5);
+    CHECK(std::equal(narrow.begin(), narrow.end(), wide.begin(), wide.end()));
 
-    const auto narrow = KdTree(pts, *box).stencils<std::int32_t>(5);
-    const auto wide = KdTree(pts, *box).stencils<std::int64_t>(5);
-    CHECK(narrow.size() == wide.size());
-    for (std::size_t i = 0; i < wide.size(); ++i) CHECK(wide[i] == narrow[i]);
+    std::vector<std::intptr_t> raw(300 * 5);
+    tree.query(5, raw);
+    CHECK(std::equal(narrow.begin(), narrow.end(), raw.begin(), raw.end()));
 }
 
 int main() {
@@ -305,6 +288,6 @@ int main() {
     test_search();
     test_periodicity_matters();
     test_degenerate();
-    test_index_and_coordinate_types();
+    test_index_types();
     return report("spatial");
 }

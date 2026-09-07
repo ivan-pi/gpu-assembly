@@ -26,6 +26,7 @@
 #include <memory>
 #include <ranges>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace rbf::spatial {
@@ -57,19 +58,18 @@ struct PeriodicBox {
 
     std::array<T, D> period{};  // side lengths, all positive
 
-    static constexpr std::size_t ndim = D;
-
     // The coordinate mapped into the box.
     T wrap(std::size_t d, T x) const { return detail::fold(x, period[d]); }
 
     // The shortest of the displacement and its periodic images.
     //
-    // rint, not round: this runs in the assembly inner loop, and
-    // std::round is a libm call on both compilers at the baseline ISA
-    // while std::rint is an instruction. They differ only for a
-    // displacement of exactly half a period, where the two images are
-    // equidistant and either answer is as good -- rint takes the even
-    // one, Fortran's anint the one away from zero.
+    // rint, not round: this runs in the assembly inner loop. std::round
+    // is a libm call on gcc at every -march, std::rint an instruction
+    // on gcc at the baseline ISA and on both compilers from SSE4.1
+    // (-march=x86-64-v2) up. They differ only for a displacement of
+    // exactly half a period, where the two images are equidistant and
+    // either answer is as good -- rint takes the even one, Fortran's
+    // anint the one away from zero.
     T minimum_image(std::size_t d, T dx) const {
         return dx - period[d] * std::rint(dx / period[d]);
     }
@@ -168,44 +168,45 @@ public:
 
     // Fixed-k stencils as ja(k, nq) in Fortran order: the k neighbours
     // of query s are contiguous at ja[s*k], sorted by distance. I is the
-    // index type of the CsrMatrix<T, I> they will feed.
+    // index type of the CsrMatrix<T, I> they will feed, int32_t or
+    // int64_t; the narrowing happens per block inside the parallel
+    // query, so there is no intptr_t copy of the result.
     template<typename I = std::int32_t>
     std::vector<I> stencils(std::span<const double> q, int k) const {
-        const std::size_t nq = q.size() / static_cast<std::size_t>(ndim());
-        std::vector<std::intptr_t> idx(nq * static_cast<std::size_t>(k));
-        query(q, k, idx);
-        return narrow<I>(idx);
+        std::vector<I> ja(q.size() / static_cast<std::size_t>(ndim())
+                          * static_cast<std::size_t>(k));
+        query_into<I>(q, k, ja);
+        return ja;
     }
 
     // Stencils centred on the cloud's own points, so ja[s*k] == s as
     // long as the cloud has no coincident points: a node is its own
     // nearest neighbour at distance zero, and a duplicate ties with it.
     template<typename I = std::int32_t>
-    std::vector<I> stencils(int k) const {
-        std::vector<std::intptr_t> idx(size() * static_cast<std::size_t>(k));
-        query(k, idx);
-        return narrow<I>(idx);
-    }
+    std::vector<I> stencils(int k) const { return stencils<I>(points(), k); }
 
 private:
     // period is empty in the open plane, else one side length per axis.
     KdTree(std::span<const double> points, int ndim,
            std::span<const double> period, KdTreeParams params);
 
-    template<typename I>
-    static std::vector<I> narrow(const std::vector<std::intptr_t>& idx) {
-        std::vector<I> ja(idx.size());
-        for (std::size_t i = 0; i < idx.size(); ++i) {
-            assert(static_cast<std::intptr_t>(static_cast<I>(idx[i])) == idx[i] &&
-                   "stencil index does not fit the requested index type");
-            ja[i] = static_cast<I>(idx[i]);
-        }
-        return ja;
-    }
+    std::span<const double> points() const;  // the cloud, as stored
 
+    template<typename I>
+    void query_into(std::span<const double> q, int k, std::span<I> ja) const;
+
+    // The ckdtree struct lives behind this pointer for two reasons: its
+    // header defines global names (struct ckdtree, ckdtree_fabs and
+    // friends) that should not reach every includer, and it points into
+    // buffers Impl owns, so Impl must never move.
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+extern template void KdTree::query_into<std::int32_t>(
+    std::span<const double>, int, std::span<std::int32_t>) const;
+extern template void KdTree::query_into<std::int64_t>(
+    std::span<const double>, int, std::span<std::int64_t>) const;
 
 } // namespace rbf::spatial
 
