@@ -50,9 +50,10 @@ cavity, different boundary data: the lid velocity meets the wall's no-slip.
 Whoever assembles the boundary conditions decides what a corner gets;
 `NodeSet::indices_with(5)` picks them out.
 
-The output file is a node file, which carries the markers; its first
-line is a comment with the command that produced it. A name ending in
-`.points` gives a points file instead; that format has neither.
+The output file is a node file. Its first line is a comment with the
+command that produced it, and every node carries its marker. A name
+ending in `.points` gives a points file instead. The points format has
+no comment line and no markers: only the coordinates are written.
 """
 
 import argparse
