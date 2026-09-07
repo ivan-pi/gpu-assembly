@@ -3,35 +3,24 @@
 Batched RBF-FD operator assembly on the GPU, with the node handling,
 renumbering and file I/O it needs on the host.
 
-The project is mixed-language. The host library is C++ headers over a few
-Fortran modules -- the space-filling-curve keys (`rbf_ordering.F90`), the
-working precision (`rbf_precision.f90`) and the periodic box
-(`rbf_periodic_box.f90`) -- which meet through the ISO C binding: the
-Fortran entry points are `bind(c)` and the C++ side declares them
-`extern "C"`, so nothing depends on a compiler's name mangling. The GPU
-parts come in both languages too, as CUDA C++ (`rbf_operators.h`,
-`lbm/d2q9_kernels.cu`) and CUDA Fortran (`main.f90`, `rbf_cuda.f90`,
-`lbm/d2q9_kernels.cuf`).
+The project is mixed-language, C++ and Fortran.
 
 ## Requirements
 
 The host library and its tests:
 
 - CMake 3.23 or newer
-- A C++20 compiler (gcc, clang, nvc++). The headers use `std::span`
-  throughout and constrain a few templates with `requires`, so C++17 is
-  not enough.
-- A Fortran compiler with the 2008 bit intrinsics; gfortran 13, ifx and
-  nvfortran 23 and newer are known to work, and older nvfortran is
-  covered by a fallback in `rbf_ordering.F90`.
-- OpenMP, optional. The stencil search and the key kernels use it when
-  the toolchain has it and run serially when it does not.
+- A C++20 compiler (gcc, clang, nvc++)
+- A Fortran 2008 compiler (gfortran, ifx, nvfortran)
+- (optional) OpenMP, for host parallelism and, in a future version,
+  target offload
+- [nanoflann](https://github.com/jlblancoc/nanoflann), vendored under
+  `third_party/`, so there is nothing to install
 
-[nanoflann](https://github.com/jlblancoc/nanoflann) is vendored under
-`third_party/`, so there is nothing to install for the k-d tree. The GPU
-parts additionally need the NVHPC toolchain (`nvc++`, `nvfortran`) and
-MathDx for cuSolverDx; the CUDA Fortran sources build with nvfortran only
-and are skipped with a warning under any other Fortran compiler.
+The GPU parts additionally:
+
+- The NVHPC toolchain, `nvc++` and `nvfortran`
+- [MathDx](https://docs.nvidia.com/cuda/cusolverdx/), for cuSolverDx
 
 ## Building
 
