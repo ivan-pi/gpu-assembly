@@ -35,7 +35,7 @@ from pointclouds import stencils
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_graph, write_node, write_points
 from pointclouds.poisson import PoissonDisk, wrap
-from pointclouds.stencils import Markers
+from pointclouds.stencils import MARKERS
 
 
 def circle(radius, centre, d):
@@ -60,8 +60,8 @@ def sample(extent, d, candidates, hole, seed):
     inside = np.hypot(*(pts - centre).T) < (hole or 0.0)
     inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
     pts = pts[~inside]
-    m = np.full(len(pts), Markers.interior)
-    m[: len(seeds)] = Markers.hole
+    m = np.full(len(pts), MARKERS.interior)
+    m[: len(seeds)] = MARKERS.hole
     return pts, m
 
 
@@ -74,7 +74,7 @@ def tiled(pts, m, extent, tiles):
     pts = np.vstack([pts + extent * shift for shift in shifts])
     m = np.tile(m, len(shifts))
     order = np.concatenate(
-        (np.flatnonzero(m != Markers.interior), np.flatnonzero(m == Markers.interior))
+        (np.flatnonzero(m != MARKERS.interior), np.flatnonzero(m == MARKERS.interior))
     )
     return wrap(pts[order], extent * tiles), m[order]
 
@@ -82,7 +82,7 @@ def tiled(pts, m, extent, tiles):
 def plot(pts, m, graph, extent, tiles):
     import matplotlib.pyplot as plt
 
-    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **Markers.style)
+    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKERS.style)
     if graph:  # one stencil, to see it wrap
         ia, ja = graph
         middle = ja[ia[len(pts) // 2] : ia[len(pts) // 2 + 1]]

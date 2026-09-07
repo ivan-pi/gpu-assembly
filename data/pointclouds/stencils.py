@@ -23,30 +23,36 @@ checks it against its box, and selects the stencils of the cloud:
     ia, ja = select_stencils(pts, extent, periodic, method, value)
 
 The module also fixes the boundary markers of the node files, the
-convention the generators share, as the class Markers.
+convention the generators share, as MARKERS.
 """
 
 import argparse
+from dataclasses import dataclass, field
 
 import numpy as np
 
 METHODS = ("knn", "radius", "range")
 
 
+@dataclass(frozen=True)
 class Markers:
     """The boundary markers of the node files: 0 for an interior node,
     the walls numbered counter-clockwise from the bottom, then the
     corners of a cavity, then a hole in the interior; and the style that
-    colours them the same in the --plot of every generator."""
+    colours them the same in the --plot of every generator. MARKERS is
+    the one instance, and frozen: its fields cannot be reassigned."""
 
-    interior = 0
-    south = 1
-    east = 2
-    north = 3
-    west = 4
-    corner = 5
-    hole = 6
-    style = dict(cmap="tab10", vmin=0, vmax=9)
+    interior: int = 0
+    south: int = 1
+    east: int = 2
+    north: int = 3
+    west: int = 4
+    corner: int = 5
+    hole: int = 6
+    style: dict = field(default_factory=lambda: dict(cmap="tab10", vmin=0, vmax=9))
+
+
+MARKERS = Markers()
 
 
 def add_option(ap, default):

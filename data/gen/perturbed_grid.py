@@ -70,7 +70,7 @@ from pointclouds import stencils
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_graph, write_node, write_points
 from pointclouds.poisson import wrap
-from pointclouds.stencils import Markers
+from pointclouds.stencils import MARKERS
 
 
 def grid(n, periodic):
@@ -80,9 +80,9 @@ def grid(n, periodic):
     y = np.arange(float(n if periodic else n + 1))
     xv, yv = np.meshgrid(x, y)  # row by row, x fastest
     pts = np.column_stack((xv.ravel(), yv.ravel()))
-    m = np.full(len(pts), Markers.interior)
+    m = np.full(len(pts), MARKERS.interior)
     if not periodic:
-        m[:n], m[len(pts) - n :] = Markers.south, Markers.north
+        m[:n], m[len(pts) - n :] = MARKERS.south, MARKERS.north
     return pts, m
 
 
@@ -90,7 +90,7 @@ def perturb(pts, m, sigma, box, periodic, rng):
     """Every coordinate displaced by up to sigma spacings, except the one
     across the wall, which would take a wall node off its wall."""
     d = rng.uniform(-sigma, sigma, pts.shape)
-    d[m != Markers.interior, 1] = 0.0
+    d[m != MARKERS.interior, 1] = 0.0
     pts = pts + d
     pts[:, 0] = wrap(pts[:, 0], box)
     if periodic:
@@ -103,7 +103,7 @@ def perturb(pts, m, sigma, box, periodic, rng):
 def plot(pts, m, graph):
     import matplotlib.pyplot as plt
 
-    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **Markers.style)
+    plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKERS.style)
     if graph:  # one stencil, to see it wrap
         ia, ja = graph
         middle = ja[ia[len(pts) // 2] : ia[len(pts) // 2 + 1]]
@@ -208,7 +208,7 @@ def main():
             stem,
             pts,
             m,
-            f"perturbed grid, n={n}, sigma={sigma:g}, {args.geometry}, size={n}x{n}",
+            f"perturbed grid, size={n}x{n}, n={n}, sigma={sigma:g}, {args.geometry}",
         )
     else:
         write_points(stem, pts)

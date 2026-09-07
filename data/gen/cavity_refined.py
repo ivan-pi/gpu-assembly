@@ -68,7 +68,7 @@ import numpy as np
 
 from pointclouds.cli import number, output_stem
 from pointclouds.io import write_node, write_points
-from pointclouds.stencils import Markers
+from pointclouds.stencils import MARKERS
 
 SPACINGS = (1.0, 1.5, 2.5)  # at the wall, in the second band, in the middle
 
@@ -145,16 +145,16 @@ def graded_coordinate(L, levels):
 def grid(Lx, Ly, levels):
     x, y = np.meshgrid(graded_coordinate(Lx, levels), graded_coordinate(Ly, levels))
     pts = np.column_stack((x.ravel(), y.ravel()))
-    on_wall = markers(pts, Lx, Ly) != Markers.interior
+    on_wall = markers(pts, Lx, Ly) != MARKERS.interior
     return np.vstack((pts[on_wall], pts[~on_wall]))
 
 
 def markers(pts, Lx, Ly):
     x, y = pts[:, 0], pts[:, 1]
     s, e, n, w = y < TOL, x > Lx - TOL, y > Ly - TOL, x < TOL
-    m = np.full(len(pts), Markers.interior)
-    m[s], m[e], m[n], m[w] = Markers.south, Markers.east, Markers.north, Markers.west
-    m[(s | n) & (e | w)] = Markers.corner
+    m = np.full(len(pts), MARKERS.interior)
+    m[s], m[e], m[n], m[w] = MARKERS.south, MARKERS.east, MARKERS.north, MARKERS.west
+    m[(s | n) & (e | w)] = MARKERS.corner
     return m
 
 
@@ -226,7 +226,7 @@ def main():
             stem,
             pts,
             m,
-            f"refined cavity, {args.distribution}, size={Lx:g}x{Ly:g}, steps={args.steps}",
+            f"refined cavity, size={Lx:g}x{Ly:g}, {args.distribution}, steps={args.steps}",
         )
 
     counts = np.bincount(m, minlength=6)
@@ -239,7 +239,7 @@ def main():
     if args.plot:
         import matplotlib.pyplot as plt
 
-        plt.scatter(pts[:, 0], pts[:, 1], c=m, s=4, **Markers.style)
+        plt.scatter(pts[:, 0], pts[:, 1], c=m, s=4, **MARKERS.style)
         plt.axis("equal")
         plt.show()
 
