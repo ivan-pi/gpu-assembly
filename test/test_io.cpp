@@ -329,18 +329,16 @@ static void test_vtk_polydata() {
     const auto i = read_vtk("i.vtk");
     CHECK(i.blocks.empty() && i.npoints == n);
 
-    // the LBM wrappers: SoA and interleaved give byte-identical files
+    // interleaved points and vectors through the strides give the same file
     std::vector<double> p(2 * n), vel(2 * n);
     for (std::size_t i = 0; i < n; ++i) {
         p[2*i] = x[i]; p[2*i + 1] = y[i];
         vel[2*i] = ux[i]; vel[2*i + 1] = uy[i];
     }
-    rbf::io::write_lbm_vtk_polydata("lbm1.vtk", n, x.data(), y.data(), u.data(), ux.data(), uy.data());
-    rbf::io::write_lbm_vtk_polydata("lbm2.vtk", n, p.data(), u.data(), vel.data());
-    CHECK(same_file("lbm1.vtk", "lbm2.vtk"));
-    auto l = read_vtk("lbm1.vtk");
-    CHECK(l.blocks.size() == 2 && l.blocks[0].name == "Density" && l.blocks[1].name == "Velocity");
-    CHECK(l.blocks[0].v == u);
+    rbf::io::write_vtk_polydata("s1.vtk", n, x.data(), y.data(), {{"u", u.data()}}, {{"U", ux.data(), uy.data()}});
+    rbf::io::write_vtk_polydata("s2.vtk", n, p.data(), p.data() + 1, {{"u", u.data()}},
+                                {{"U", vel.data(), vel.data() + 1, 2}}, 2);
+    CHECK(same_file("s1.vtk", "s2.vtk"));
 
     // float labels its arrays as float and round-trips at float precision
     rbf::io::write_vtk_polydata("k.vtk", awkward_f.size(), awkward_f.data(), awkward_f.data(),
@@ -350,7 +348,7 @@ static void test_vtk_polydata() {
     for (std::size_t q = 0; q < awkward_f.size(); ++q)
         CHECK(static_cast<float>(k.blocks[0].v[q]) == awkward_f[q]);
 
-    for (const char* fn : {"f.vtk", "g.vtk", "h.vtk", "i.vtk", "lbm1.vtk", "lbm2.vtk", "k.vtk"})
+    for (const char* fn : {"f.vtk", "g.vtk", "h.vtk", "i.vtk", "s1.vtk", "s2.vtk", "k.vtk"})
         std::remove(fn);
 }
 

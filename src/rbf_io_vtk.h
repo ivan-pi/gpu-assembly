@@ -3,8 +3,7 @@
 
 // Legacy (ASCII, non-XML) VTK output for point clouds.
 //
-//   write_vtk_polydata       points + any number of named scalar and vector fields
-//   write_lbm_vtk_polydata   the lattice-Boltzmann special case: Density, Velocity
+//   write_vtk_polydata   points + any number of named scalar and vector fields
 //
 // A node is written as one vertex, so the cloud renders as points, and every
 // field lands in POINT_DATA under the name given. Files should be given the
@@ -107,27 +106,6 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
         for (std::size_t i = 0; i < n; ++i)
             out << num(v.x[i * v.stride]) << ' ' << num(v.y[i * v.stride]) << " 0\n";
     }
-}
-
-// Lattice-Boltzmann output: density as "Density", velocity as "Velocity".
-//
-// SoA form: x, y, rho, ux, uy are arrays of n.
-template <class T>
-void write_lbm_vtk_polydata(const std::string& fname, std::size_t n,
-                            const T* x, const T* y,
-                            const T* rho, const T* ux, const T* uy)
-{
-    write_vtk_polydata(fname, n, x, y, {{"Density", rho}}, {{"Velocity", ux, uy}});
-}
-
-// Interleaved form: p and vel are arrays of 2n laid out as
-// {x0, y0, x1, y1, ...} and {ux0, uy0, ux1, uy1, ...}; rho is n.
-template <class T>
-void write_lbm_vtk_polydata(const std::string& fname, std::size_t n,
-                            const T* p, const T* rho, const T* vel)
-{
-    write_vtk_polydata(fname, n, p, p + 1,
-                       {{"Density", rho}}, {{"Velocity", vel, vel + 1, 2}}, 2);
 }
 
 } // namespace rbf::io

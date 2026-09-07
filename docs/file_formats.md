@@ -13,7 +13,7 @@ here.
 | [Node file](#node-file) | `.node` | `read_nodes`, `NodeSet(fname)` | `write_nodes`, `NodeSet::write` |
 | [Ordering file](#ordering-file) | `.iperm` | `Permutation::read`, `read_ordering` | `Permutation::write`, `write_ordering` |
 | [Matrix Market](#matrix-market) | `.mtx` | | `write_matrix_market`, `write_matrix_market_pattern` |
-| [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata`, `write_lbm_vtk_polydata` |
+| [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata` |
 | [Columns](#columns) | `.dat` | | `write_columns` |
 
 The points file and the graph file go together: one gives the point cloud,
@@ -188,9 +188,7 @@ rbf::io::write_vtk_polydata("flow.vtk", n, x, y, {{"p", p}}, {{"U", ux, uy}});
 
 Scalars are written as `SCALARS name type 1`, 2-d vectors as `VECTORS name
 type` with a zero third component. Names are single tokens: legacy VTK
-reads them up to the next whitespace. `write_lbm_vtk_polydata` is the
-lattice-Boltzmann special case, with the fields named `Density` and
-`Velocity`.
+reads them up to the next whitespace.
 
 
 ## Columns
