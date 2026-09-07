@@ -39,8 +39,10 @@ namespace detail {
 template <typename T>
 T fold(T x, T L) {
     x -= L * std::floor(x / L);
-    while (x >= L) x -= L;
-    while (x < 0) x += L;
+    while (x >= L)
+        x -= L;
+    while (x < 0)
+        x += L;
     return x;
 }
 
@@ -74,12 +76,14 @@ struct PeriodicBox {
     }
 
     std::array<T, D> wrap(std::array<T, D> p) const {
-        for (std::size_t d = 0; d < D; ++d) p[d] = wrap(d, p[d]);
+        for (std::size_t d = 0; d < D; ++d)
+            p[d] = wrap(d, p[d]);
         return p;
     }
 
     std::array<T, D> minimum_image(std::array<T, D> dx) const {
-        for (std::size_t d = 0; d < D; ++d) dx[d] = minimum_image(d, dx[d]);
+        for (std::size_t d = 0; d < D; ++d)
+            dx[d] = minimum_image(d, dx[d]);
         return dx;
     }
 };
@@ -99,7 +103,8 @@ std::vector<double> interleave(const Axis& x, const Rest&... rest) {
     std::size_t d = 0;
     const auto take = [&](const auto& axis) {
         const auto* a = std::ranges::data(axis);
-        for (std::size_t i = 0; i < n; ++i) out[i * D + d] = static_cast<double>(a[i]);
+        for (std::size_t i = 0; i < n; ++i)
+            out[i * D + d] = static_cast<double>(a[i]);
         ++d;
     };
     take(x);

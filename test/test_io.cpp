@@ -83,7 +83,8 @@ static void test_read_points() {
 
 static void test_node_file() {
     std::vector<double> x = awkward, y = awkward;
-    for (auto& v : y) v = -v;
+    for (auto& v : y)
+        v = -v;
     const std::vector<int> marker{0, 1, 0, 2, 0, 1};
     const std::vector<double> attr{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};  // 6 x 2
 
@@ -132,7 +133,8 @@ static void test_node_file() {
     CHECK(rbf::io::read_nodes("f.node", fx, fy, fm) == awkward_f.size());
     CHECK(fx == awkward_f && fy == awkward_f);
 
-    for (const char* fn : {"a.node", "b.node", "c.node", "f.node"}) std::remove(fn);
+    for (const char* fn : {"a.node", "b.node", "c.node", "f.node"})
+        std::remove(fn);
 }
 
 static void test_read_graph_csr() {
@@ -183,7 +185,8 @@ static void test_ordering() {
     fo.permute(std::span{u});
     CHECK(u == ns.x);
 
-    for (const char* fn : {"o.iperm", "d.node", "d.iperm"}) std::remove(fn);
+    for (const char* fn : {"o.iperm", "d.node", "d.iperm"})
+        std::remove(fn);
 }
 
 // Parse a Matrix Market coordinate file back into header + triplets,
@@ -232,8 +235,10 @@ static void test_matrix_market() {
 
     // same matrix with 1-based ia/ja gives the same file
     std::vector<int> ia1 = ia, ja1 = ja;
-    for (auto& v : ia1) ++v;
-    for (auto& v : ja1) ++v;
+    for (auto& v : ia1)
+        ++v;
+    for (auto& v : ja1)
+        ++v;
     rbf::io::write_matrix_market("b.mtx", 3, 4, ia1.data(), ja1.data(), a.data(), 1);
     auto m1 = read_mtx("b.mtx");
     CHECK(m1.i == m.i && m1.j == m.j && m1.v == m.v);
@@ -287,11 +292,13 @@ static VtkFile read_vtk(const std::string& fname) {
         if (tok == "POINTS") {
             in >> f.npoints >> f.type;
             f.xyz.resize(3 * f.npoints);
-            for (auto& v : f.xyz) in >> v;
+            for (auto& v : f.xyz)
+                in >> v;
         } else if (tok == "VERTICES") {
             std::size_t size;
             in >> f.nverts >> size;
-            for (std::size_t i = 0; i < size; ++i) in >> tok;
+            for (std::size_t i = 0; i < size; ++i)
+                in >> tok;
         } else if (tok == "SCALARS" || tok == "VECTORS") {
             VtkBlock b;
             b.kind = tok;
@@ -300,7 +307,8 @@ static VtkFile read_vtk(const std::string& fname) {
                 in >> tok >> tok >> tok;
             }  // "1", LOOKUP_TABLE, default
             b.v.resize((b.kind == "SCALARS" ? 1 : 3) * f.npoints);
-            for (auto& v : b.v) in >> v;
+            for (auto& v : b.v)
+                in >> v;
             f.blocks.push_back(std::move(b));
         }
     }
@@ -437,7 +445,8 @@ static void test_gnuplot_columns() {
     rbf::io::write_columns("c.dat", n, x.data(), y.data(), cols);
     CHECK(first_line("c.dat") == "# x y rho");
 
-    for (const char* fn : {"m.dat", "a.dat", "b.dat", "c.dat"}) std::remove(fn);
+    for (const char* fn : {"m.dat", "a.dat", "b.dat", "c.dat"})
+        std::remove(fn);
 }
 
 int main() {

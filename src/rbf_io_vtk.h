@@ -105,7 +105,8 @@ void write_vtk_polydata(const std::string& fname,
 
     // one vertex cell per point, else the cloud has no renderable geometry
     out << "VERTICES " << n << ' ' << 2 * n << '\n';
-    for (std::size_t i = 0; i < n; ++i) out << "1 " << i << '\n';
+    for (std::size_t i = 0; i < n; ++i)
+        out << "1 " << i << '\n';
 
     if (scalars.empty() && vectors.empty()) return;
     out << "POINT_DATA " << n << '\n';
@@ -114,7 +115,8 @@ void write_vtk_polydata(const std::string& fname,
         out << "SCALARS " << s.name << ' ' << tn
             << " 1\n"
                "LOOKUP_TABLE default\n";
-        for (std::size_t i = 0; i < n; ++i) out << num(s.v[i * s.stride]) << '\n';
+        for (std::size_t i = 0; i < n; ++i)
+            out << num(s.v[i * s.stride]) << '\n';
     }
     for (const auto& v : vectors) {
         out << "VECTORS " << v.name << ' ' << tn << '\n';

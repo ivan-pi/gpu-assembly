@@ -51,7 +51,8 @@ template <std::size_t D>
 static std::vector<double> cloud(Rng& rng, std::size_t n, const Box<D>& b) {
     std::vector<double> p(n * D);
     for (std::size_t i = 0; i < n; ++i)
-        for (std::size_t d = 0; d < D; ++d) p[i * D + d] = (b ? b->period[d] : 1.0) * rng.next();
+        for (std::size_t d = 0; d < D; ++d)
+            p[i * D + d] = (b ? b->period[d] : 1.0) * rng.next();
     return p;
 }
 
@@ -180,11 +181,13 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     auto q = cloud<D>(rng, nq, b);
     if (b)
         for (std::size_t s = 0; s < nq; ++s)
-            for (std::size_t d = 0; d < D; ++d) q[s * D + d] += (d % 2 ? -2.0 : 3.0) * b->period[d];
+            for (std::size_t d = 0; d < D; ++d)
+                q[s * D + d] += (d % 2 ? -2.0 : 3.0) * b->period[d];
 
     const auto jq = tree.knn_stencils(q, k);
     CHECK(jq.size() == nq * static_cast<std::size_t>(k));
-    for (std::size_t s = 0; s < nq; ++s) check_row<D>(b, pts, &q[s * D], &jq[s * k], k);
+    for (std::size_t s = 0; s < nq; ++s)
+        check_row<D>(b, pts, &q[s * D], &jq[s * k], k);
 
     // the distances that come with the indices are the true ones
     std::vector<std::intptr_t> idx(nq * static_cast<std::size_t>(k));
@@ -253,11 +256,13 @@ static void test_degenerate() {
     const std::vector<double> same(32, 0.5);
     const auto ja = KdTree(same, *box).knn_stencils(4);
     CHECK(ja.size() == 16 * 4);
-    for (auto j : ja) CHECK(j >= 0 && j < 16);
+    for (auto j : ja)
+        CHECK(j >= 0 && j < 16);
 
     // collinear points, so one dimension has no spread at all
     std::vector<double> line_x(32), line_y(32, 0.5);
-    for (int i = 0; i < 32; ++i) line_x[i] = i / 32.0;
+    for (int i = 0; i < 32; ++i)
+        line_x[i] = i / 32.0;
     const auto pts = interleave(line_x, line_y);
     const auto jl = KdTree(pts, *box).knn_stencils(3);
     for (int s = 0; s < 32; ++s) {
@@ -310,7 +315,8 @@ static void test_move() {
     // cloud's own points
     const auto q = cloud<2>(rng, 50, box);
     const auto jq = c.knn_stencils(q, 6);
-    for (std::size_t s = 0; s < 50; ++s) check_row<2>(box, pts, &q[s * 2], &jq[s * 6], 6);
+    for (std::size_t s = 0; s < 50; ++s)
+        check_row<2>(box, pts, &q[s * 2], &jq[s * 6], 6);
 }
 
 int main() {

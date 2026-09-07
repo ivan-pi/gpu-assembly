@@ -44,7 +44,8 @@ struct PHS {
         const T r = sqrt(r2);
         T p = r;
 #pragma unroll
-        for (int i = 0; i < (Q - 1) / 2; ++i) p *= r2;
+        for (int i = 0; i < (Q - 1) / 2; ++i)
+            p *= r2;
         return p;
     }
 };
@@ -93,7 +94,8 @@ struct PolyBasis {
 #pragma unroll
         for (int d = 0; d <= P; ++d)
 #pragma unroll
-            for (int j = 0; j <= d; ++j) b[(k++) * inc] = X[d - j] * Y[j];
+            for (int j = 0; j <= d; ++j)
+                b[(k++) * inc] = X[d - j] * Y[j];
     }
 };
 

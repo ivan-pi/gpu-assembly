@@ -110,7 +110,8 @@ public:
     void permute(std::span<T> a) const {
         assert(a.size() == p_.size());
         const std::vector<T> tmp(a.begin(), a.end());
-        for (size_t i = 0; i < p_.size(); ++i) a[i] = tmp[p_[i]];
+        for (size_t i = 0; i < p_.size(); ++i)
+            a[i] = tmp[p_[i]];
     }
 
     // Inverse application:  a_old[map()[i]] = a_new[i]
@@ -118,7 +119,8 @@ public:
     void unpermute(std::span<T> a) const {
         assert(a.size() == p_.size());
         const std::vector<T> tmp(a.begin(), a.end());
-        for (size_t i = 0; i < p_.size(); ++i) a[p_[i]] = tmp[i];
+        for (size_t i = 0; i < p_.size(); ++i)
+            a[p_[i]] = tmp[i];
     }
 
     // Composition: apply *this first, then q.
@@ -126,7 +128,8 @@ public:
     Permutation then(const Permutation& q) const {
         assert(size() == q.size());
         std::vector<I> r(p_.size());
-        for (size_t i = 0; i < p_.size(); ++i) r[i] = p_[q.p_[i]];
+        for (size_t i = 0; i < p_.size(); ++i)
+            r[i] = p_[q.p_[i]];
         return Permutation(std::move(r));
     }
 
@@ -144,7 +147,8 @@ private:
         }
 #endif
         std::vector<I> ip(p.size());
-        for (size_t i = 0; i < p.size(); ++i) ip[p[i]] = static_cast<I>(i);
+        for (size_t i = 0; i < p.size(); ++i)
+            ip[p[i]] = static_cast<I>(i);
         return ip;
     }
 
@@ -303,7 +307,8 @@ void renumber_csr(std::span<I> ia, std::span<I> ja, const Permutation<I>& p) {
         std::copy(ja_tmp.begin() + iaa, ja_tmp.begin() + iab, ja.begin() + ia[i]);
         ia[i + 1] = ia[i] + (iab - iaa);
     }
-    for (auto& j : ja) j = ip[j];
+    for (auto& j : ja)
+        j = ip[j];
 }
 
 // Explicit row pointer {0, k, 2k, ...} for a fixed-width graph -- the
@@ -311,7 +316,8 @@ void renumber_csr(std::span<I> ia, std::span<I> ja, const Permutation<I>& p) {
 template <typename I = std::int32_t>
 std::vector<I> make_row_ptr(I n, int k) {
     std::vector<I> ia(static_cast<size_t>(n) + 1);
-    for (size_t s = 0; s <= static_cast<size_t>(n); ++s) ia[s] = static_cast<I>(s * k);
+    for (size_t s = 0; s <= static_cast<size_t>(n); ++s)
+        ia[s] = static_cast<I>(s * k);
     return ia;
 }
 

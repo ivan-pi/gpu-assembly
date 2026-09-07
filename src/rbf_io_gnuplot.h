@@ -43,17 +43,20 @@ void write_columns(const std::string& fname,
                    std::size_t xy_stride = 1) {
     using detail::num;
     assert(xy_stride >= 1);
-    for ([[maybe_unused]] const auto& c : columns) assert(c.v && c.stride >= 1);
+    for ([[maybe_unused]] const auto& c : columns)
+        assert(c.v && c.stride >= 1);
 
     auto out = detail::open_out(fname);
 
     out << "# x y";
-    for (const auto& c : columns) out << ' ' << c.name;
+    for (const auto& c : columns)
+        out << ' ' << c.name;
     out << '\n';
 
     for (std::size_t i = 0; i < n; ++i) {
         out << num(x[i * xy_stride]) << ' ' << num(y[i * xy_stride]);
-        for (const auto& c : columns) out << ' ' << num(c.v[i * c.stride]);
+        for (const auto& c : columns)
+            out << ' ' << num(c.v[i * c.stride]);
         out << '\n';
     }
 }

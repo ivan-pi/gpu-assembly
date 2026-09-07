@@ -89,7 +89,8 @@ struct LineCursor {
 
     static bool ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
     void skip_ws() {
-        while (p != end && ws(*p)) ++p;
+        while (p != end && ws(*p))
+            ++p;
     }
     bool at_end() {
         skip_ws();
@@ -321,7 +322,8 @@ void write_nodes(const std::string& fname,
     out << n << " 2 " << nattr << ' ' << (marker ? 1 : 0) << '\n';
     for (std::size_t i = 0; i < n; ++i) {
         out << i << ' ' << num(x[i]) << ' ' << num(y[i]);
-        for (std::size_t a = 0; a < nattr; ++a) out << ' ' << num(attributes[i * nattr + a]);
+        for (std::size_t a = 0; a < nattr; ++a)
+            out << ' ' << num(attributes[i * nattr + a]);
         if (marker) out << ' ' << marker[i];
         out << '\n';
     }
@@ -421,7 +423,8 @@ std::vector<I> read_ordering(const std::string& fname) {
                   "index type must be a signed integer");
     auto in = detail::open_in(fname);
     std::vector<I> iperm;
-    for (I v; in >> v;) iperm.push_back(v);
+    for (I v; in >> v;)
+        iperm.push_back(v);
     if (!in.eof())
         detail::fail(fname, "line " + std::to_string(iperm.size() + 1) + ": not an integer");
 
@@ -454,7 +457,8 @@ void write_ordering(const std::string& fname, std::size_t n, const I* iperm) {
     }
 #endif
     auto out = detail::open_out(fname);
-    for (std::size_t i = 0; i < n; ++i) out << iperm[i] << '\n';
+    for (std::size_t i = 0; i < n; ++i)
+        out << iperm[i] << '\n';
 }
 
 // ---------------------------------------------------------------------------

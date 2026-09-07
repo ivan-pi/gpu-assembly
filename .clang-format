@@ -16,6 +16,10 @@ BinPackParameters: OnePerLine
 AllowAllParametersOfDeclarationOnNextLine: false
 PenaltyReturnTypeOnItsOwnLine: 1000
 
+# A short `if (pred) statement;` may stay on one line; a loop body goes
+# on its own line.
+AllowShortLoopsOnASingleLine: false
+
 # Google derives pointer alignment per file; fix it instead.
 DerivePointerAlignment: false
 PointerAlignment: Left
