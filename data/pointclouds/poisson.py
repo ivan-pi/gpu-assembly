@@ -2,17 +2,17 @@
 axis: no two points closer than a radius r, and no room left for another
 one, drawn by Bridson's algorithm with the inner loop compiled by Numba.
 
-    engine = PoissonDisk(0.02, boxsize=(1.0, 2.0))      # periodic box
+    engine = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=True)   # periodic box
     pts = engine.fill_space()
 
-    engine = PoissonDisk(0.02, extent=(1.0, 2.0), boxsize=(1.0, 0.0),
-                         seeds=walls, seed=1234)         # channel
-    pts = engine.fill_space()                            # walls, then the rest
+    engine = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=(True, False),
+                         seeds=walls, seed=1234)                  # channel
+    pts = engine.fill_space()                       # walls, then the rest
 
-The rectangle is [0, Lx) x [0, Ly). `boxsize` follows cKDTree: the period
-of each axis, zero for an aperiodic one, so a bare `extent` is a box with
-walls, a bare `boxsize` a periodic one and the mixture a channel. It is
-the generator's business to scale the result to lattice units.
+The rectangle is [0, Lx) x [0, Ly), and `periodic` says of each axis
+whether its two sides are one: neither for a box with walls, both for a
+periodic box, one for a channel. It is the generator's business to scale
+the result to lattice units.
 
 The algorithm (Bridson, 2007, "Fast Poisson disk sampling in arbitrary
 dimensions", SIGGRAPH sketches): a grid of cells of side r / sqrt(2), so
@@ -51,11 +51,8 @@ class PoissonDisk:
     """A Poisson disk sampler of the rectangle [0, Lx) x [0, Ly) with
     minimum distance `radius`.
 
-    extent       (Lx, Ly); defaults to `boxsize`, which must then have no
-                 zero in it
-    boxsize      the period of each axis, zero for an aperiodic axis, as
-                 for cKDTree; None for none; a scalar for both; a nonzero
-                 period must equal the extent of its axis
+    extent       (Lx, Ly), the rectangle [0, Lx) x [0, Ly)
+    periodic     whether each axis wraps around, one flag or a pair
     ncandidates  candidates a point throws before it is retired
     seed         anything numpy.random.default_rng accepts; None draws one
     seeds        points to start from, kept ahead of the drawn ones in
@@ -65,31 +62,19 @@ class PoissonDisk:
     `points` holds everything so far, seeds first, in the order drawn.
     """
 
-    def __init__(self, radius, extent=None, boxsize=None, ncandidates=30,
-                 seed=None, seeds=None):
+    def __init__(self, radius, extent=(1.0, 1.0), periodic=False,
+                 ncandidates=30, seed=None, seeds=None):
         if radius <= 0:
             raise ValueError("radius must be positive")
-        if boxsize is None:
-            boxsize = (0.0, 0.0)
-        boxsize = np.broadcast_to(np.asarray(boxsize, float), 2).copy()
-        if np.any(boxsize < 0):
-            raise ValueError("boxsize must not be negative")
-        if extent is None:
-            if np.any(boxsize == 0):
-                raise ValueError("an aperiodic axis needs its extent")
-            extent = boxsize
         extent = np.asarray(extent, float)
         if extent.shape != (2,) or np.any(extent <= 0):
             raise ValueError("extent must be two positive lengths")
-        periodic = boxsize > 0
-        if np.any(boxsize[periodic] != extent[periodic]):
-            raise ValueError("the period of a periodic axis must be its extent")
+        periodic = np.broadcast_to(np.asarray(periodic, bool), 2).copy()
         if ncandidates < 1:
             raise ValueError("ncandidates must be at least 1")
 
         self.radius = float(radius)
         self.extent = extent
-        self.boxsize = boxsize
         self.periodic = periodic
         self.ncandidates = int(ncandidates)
         self.seed = seed
