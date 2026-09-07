@@ -10,7 +10,7 @@ described here.
 | [Node file](#node-file) | `.nodes` | `read_nodes`, `read_nodes_aos` | |
 | [Graph file](#graph-file) | `.graph` | `read_graph_csr` | |
 | [NodeSet file](#nodeset-file) | | `read_nodeset`, `NodeSet(fname)` | `write_nodeset`, `NodeSet::write` |
-| [Ordering file](#ordering-file) | `.iperm` | `read_ordering` | `write_ordering`, `NodeSet::write_ordering` |
+| [Ordering file](#ordering-file) | `.iperm` | `Permutation::read`, `read_ordering` | `Permutation::write`, `write_ordering` |
 | [Matrix Market](#matrix-market) | `.mtx` | | `write_matrix_market`, `write_matrix_market_pattern` |
 | [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata`, `write_lbm_vtk_polydata` |
 
@@ -123,18 +123,21 @@ Line `i` holds the new index of node `i`, 0-based, so the file is the
 inverse permutation `iperm`: old index to new index. The values must be a
 permutation of `0 .. n-1`, which the reader checks.
 
-`NodeSet::write_ordering` writes the renumbering a NodeSet has applied
-since it was read, with `i` the position in the file it was read from.
-Per-node data kept in file order can then be brought into the same
-numbering elsewhere:
+`Permutation::write` stores a permutation this way and `Permutation::read`
+gets it back. `NodeSet::file_order()` is the renumbering a NodeSet has
+applied since it was read, with `i` the position in the file it was read
+from, so writing it lets per-node data kept in file order be brought into
+the same numbering elsewhere:
 
 ```cpp
-auto p = rbf::Permutation<int>::from_inverse(rbf::io::read_ordering<int>("case.iperm"));
+ns.file_order().write("case.iperm");
+...
+auto p = rbf::Permutation<int>::read("case.iperm");
 p.permute(std::span{u});   // u: file order -> current numbering
 ```
 
-`Permutation::inv()` is what `write_ordering` takes; `Permutation::map()`
-is the other direction and does not go in this file.
+`read_ordering` and `write_ordering` in `rbf::io` handle the raw vector,
+which is `Permutation::inv()`, the old-to-new direction.
 
 ## Matrix Market
 

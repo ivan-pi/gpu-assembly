@@ -284,8 +284,8 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
 // A permutation of the nodes in the METIS ordering-file format (manual
 // 5.1.0, section 4.2.2): one integer per line, no header, read to end of
 // file. Line i holds the new index of node i, so the file is the inverse
-// permutation iperm, old -> new, 0-based. Permutation<I>::from_inverse
-// turns it into a Permutation; Permutation::inv() is what to write.
+// permutation iperm, old -> new, 0-based. Permutation::read and write in
+// rbf_reorder.h wrap these two for a Permutation.
 //
 // The values must form a permutation of 0 .. n-1: an index out of range or
 // listed twice is an error.

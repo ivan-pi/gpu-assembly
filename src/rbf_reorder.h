@@ -10,7 +10,8 @@
 // The curve keys (Morton/Hilbert) are computed by the Fortran module
 // rbf_ordering.F90; link it into any target that uses morton_order,
 // hilbert_order, or the *_keys functions. Everything else in this
-// header is self-contained.
+// header is self-contained, apart from Permutation::read and write,
+// which use the ordering-file functions in rbf_io.h.
 
 #include <algorithm>
 #include <cassert>
@@ -19,7 +20,10 @@
 #include <optional>
 #include <span>
 #include <type_traits>
+#include <string>
 #include <vector>
+
+#include "rbf_io.h"
 
 namespace rbf {
 
@@ -75,13 +79,21 @@ public:
         return Permutation(std::move(v));
     }
 
-    // From the old -> new map, the form an ordering file (.iperm) stores:
-    // from_inverse(p.inv()) == p.
+    // From the old -> new map: from_inverse(p.inv()) == p.
     static Permutation from_inverse(std::vector<I> old_to_new) {
         Permutation p;
         p.p_ = make_inverse(old_to_new);
         p.ip_ = std::move(old_to_new);
         return p;
+    }
+
+    // Ordering file (.iperm), the METIS format: line i is the new index
+    // of item i, i.e. the file holds inv(). read(f).write(g) copies f.
+    static Permutation read(const std::string& fname) {
+        return from_inverse(io::read_ordering<I>(fname));
+    }
+    void write(const std::string& fname) const {
+        io::write_ordering(fname, ip_.size(), ip_.data());
     }
 
     size_t size() const { return p_.size(); }
