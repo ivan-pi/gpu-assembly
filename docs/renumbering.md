@@ -60,8 +60,8 @@ The curve orders subdivide a bounding box `ndiv` times (default 16, at
 most 31, since a level costs 2 bits of an `int64` key) and sort the points
 by key. `bbox` is computed from the points unless given; supplying one
 keeps the numbering comparable across point sets that share a domain.
-Points must lie inside it. All the builders are stable: ties — points in
-the same cell, nodes on the same side of the partition — keep their
+Points must lie inside it. All the builders are stable: ties -- points in
+the same cell, nodes on the same side of the partition -- keep their
 relative order. `morton_keys` and `hilbert_keys` expose the raw keys for
 inspection.
 
