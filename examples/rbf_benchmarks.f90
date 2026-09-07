@@ -1,34 +1,15 @@
 ! Analytic flow fields on a doubly periodic box, for verifying a lattice
-! Boltzmann implementation without boundary conditions. This is the
-! Fortran counterpart of rbf_flow_benchmarks.h and offers the same cases
-! with the same names.
+! Boltzmann implementation without boundary conditions. The physics and
+! the measurement recipes are in docs/periodic_benchmarks.md; the C++
+! header rbf_flow_benchmarks.h offers the same cases.
 !
-! The box comes first: periodic_box holds the side lengths and turns
-! integer mode numbers into wave numbers, so every field built on it is
-! periodic by construction.
-!
-! Common interface, on any case:
-!
-!     call case%fields(x, y, p, ux, uy [, time])
+!     call case%fields(x, y, p, ux, uy)         ! any case
+!     call case%fields(x, y, p, ux, uy, time)   ! time-dependent cases
 !
 ! evaluates the fields at the points (x(i), y(i)). The scalar p is the
-! pressure, or the density for the two cases defined through the density
-! (acoustic_wave, barotropic_vortex). All types extend benchmark_case,
-! whose deferred binding this is; the initial-condition cases accept the
-! time and ignore it.
-!
-! Cases:
-!   shear_modes       superposition of shear waves with one |k|: exact
-!                     decaying solution of the incompressible NS
-!                     equations; shear_wave() and taylor_green() build
-!                     the two classic instances; body_force holds it
-!                     steady (Kolmogorov flow, four-roll mill)
-!   acoustic_wave     standing sound wave, linear isothermal acoustics
-!   shear_layer       initial condition, roll-up of two tanh layers
-!   barotropic_vortex initial condition, convected Gaussian vortex
-!
-! The constructor functions stop with a message on parameters the
-! formulas cannot take (in C++ these are asserts).
+! pressure, or the density for acoustic_wave and barotropic_vortex. The
+! constructor functions stop with a message on parameters the formulas
+! cannot take (the C++ constructors assert the same).
 module rbf_benchmarks
 use rbf_precision, only: wp
 implicit none
@@ -36,8 +17,7 @@ private
 
 public :: pi
 public :: periodic_box
-public :: benchmark_case
-public :: mode, shear_modes, shear_wave, taylor_green
+public :: mode, shear_modes, shear_wave, taylor_green, lattice_fields
 public :: acoustic_wave
 public :: shear_layer
 public :: barotropic_vortex
@@ -45,8 +25,8 @@ public :: barotropic_vortex
 real(wp), parameter :: pi = 4.0_wp*atan(1.0_wp)
 
 !
-! [0, Lx) x [0, Ly) with periodic images. The wave number of the mode
-! (nx, ny) is (2 pi nx/Lx, 2 pi ny/Ly). In lattice units Lx = nx cells.
+! [0, Lx) x [0, Ly) with periodic images. The mode (nx, ny) has the wave
+! number (2 pi nx/Lx, 2 pi ny/Ly); in lattice units Lx = nx cells.
 !
 type :: periodic_box
     real(wp) :: Lx, Ly
@@ -56,46 +36,22 @@ contains
     procedure :: minimum_image => box_minimum_image
 end type
 
-type, abstract :: benchmark_case
-contains
-    procedure(fields_interface), deferred, pass(case) :: fields
-end type
-
-abstract interface
-    subroutine fields_interface(case,x,y,p,ux,uy,time)
-        import :: benchmark_case, wp
-        class(benchmark_case), intent(in) :: case
-        real(wp), intent(in) :: x(:), y(:)
-        real(wp), intent(out) :: p(:), ux(:), uy(:)
-        real(wp), intent(in), optional :: time
-    end subroutine
+interface periodic_box
+    module procedure :: periodic_box_constructor
 end interface
 
 !
-! SHEAR MODES
+! SHEAR MODES: shear waves sharing one |k|, an exact decaying solution
+! of the incompressible Navier-Stokes equations,
 !
-! A superposition of transverse plane waves on the box,
+!     u = U + exp(-nu |k|^2 t) sum_m a_m sin(k_m.(x - U t) + phi_m) e_m,
+!     e_m = (-ky, kx)/|k|,
+!     p = -(|u - U|^2 + (sum_m a_m cos(...))^2)/2 + mean.
 !
-!     u(x,t) = U + exp(-nu |k|^2 t) sum_m a_m sin(k_m.(x - U t) + phi_m) e_m
-!
-! with e_m = (-ky, kx)/|k| perpendicular to k_m, so every mode is
-! divergence free, and all modes sharing the same |k|^2. Then the
-! vorticity is |k|^2 times the stream function, the nonlinear term is a
-! gradient absorbed by the pressure, and the field is an exact solution
-! of the incompressible Navier-Stokes equations that decays with the
-! time constant 1/(nu |k|^2). The pressure is
-!
-!     p = -(|u - U|^2 + (sum_m a_m cos(k_m.x + phi_m))^2)/2 + mean
-!
-! decaying at twice the rate, normalized to zero mean, which assumes
-! the modes have distinct wave vectors (k_m /= +-k_n, checked). The
-! uniform drift U (zero by default) moves the pattern without changing
-! it, which a Galilean invariant scheme must reproduce.
-!
-! One mode is the shear wave, the classic viscosity measurement; two
-! modes (nx, ny) and (nx, -ny) are the Taylor-Green vortex. Applying
-! body_force holds the time-zero field steady: with one mode along y
-! that is Kolmogorov flow, with the Taylor-Green pair the four-roll mill.
+! One mode is the shear wave, the pair (nx, ny), (nx, -ny) the
+! Taylor-Green vortex; see shear_wave() and taylor_green() below.
+! body_force gives the force that holds the time-zero field steady
+! (Kolmogorov flow, four-roll mill).
 !
 type :: mode
     real(wp) :: amplitude       ! velocity amplitude
@@ -103,20 +59,19 @@ type :: mode
     real(wp) :: phase = 0.0_wp
 end type
 
-type, extends(benchmark_case) :: shear_modes
+type :: shear_modes
     type(periodic_box) :: box
     type(mode), allocatable :: modes(:)
     real(wp) :: nu
-    real(wp) :: drift(2) = 0.0_wp
+    real(wp) :: drift(2) = 0.0_wp   ! uniform velocity carrying the pattern
 contains
-    procedure, pass(case) :: fields => shear_modes_fields
-    procedure, pass(case) :: stress_tensor => shear_modes_stress_tensor
-    procedure, pass(case) :: body_force => shear_modes_body_force
-    procedure, pass(case) :: ksqr => shear_modes_ksqr
-    procedure, pass(case) :: time_constant => shear_modes_time_constant
-    procedure, pass(case) :: decay => shear_modes_decay
-    procedure, pass(case) :: decay_time => shear_modes_decay_time
-    procedure, pass(case) :: viscosity => shear_modes_viscosity
+    procedure :: fields => shear_modes_fields
+    procedure :: stress_tensor => shear_modes_stress_tensor
+    procedure :: body_force => shear_modes_body_force
+    procedure :: ksqr => shear_modes_ksqr
+    procedure :: time_constant => shear_modes_time_constant
+    procedure :: decay => shear_modes_decay
+    procedure :: decay_time => shear_modes_decay_time
 end type
 
 interface shear_modes
@@ -124,23 +79,16 @@ interface shear_modes
 end interface
 
 !
-! ACOUSTIC WAVE
+! ACOUSTIC WAVE: standing sound wave released from rest, in linear
+! isothermal acoustics (p = cs^2 rho, delta << 1),
 !
-! A standing sound wave released from rest, in linear isothermal
-! acoustics with the equation of state p = cs^2 rho:
+!     rho = rho0 (1 + delta cos(k.x + phi) e^{-gamma t} (cos Wt + gamma/W sin Wt))
+!     u   = delta cs^2 |k|/W e^{-gamma t} sin Wt sin(k.x + phi) k/|k|
+!     gamma = (nu + nu_bulk) |k|^2/2,   W = sqrt(cs^2 |k|^2 - gamma^2)
 !
-!     rho = rho0 (1 + delta cos(k.x + phi) exp(-gamma t)
-!                          (cos(W t) + gamma/W sin(W t)))
-!     u   = delta cs^2 |k|/W exp(-gamma t) sin(W t) sin(k.x + phi) k/|k|
+! nu_bulk defaults to nu, the value of the BGK collision on D2Q9.
 !
-! with the damping rate gamma = (nu + nu_bulk) |k|^2/2 (two dimensions)
-! and the frequency W = sqrt(cs^2 |k|^2 - gamma^2). The period gives the
-! sound speed, the damping the sum of shear and bulk viscosity, so with
-! the shear viscosity from a shear wave it measures the bulk viscosity.
-! The BGK collision on D2Q9 has nu_bulk = nu, the default. Valid for
-! delta << 1; the velocity amplitude is about delta cs.
-!
-type, extends(benchmark_case) :: acoustic_wave
+type :: acoustic_wave
     type(periodic_box) :: box
     integer :: nx, ny
     real(wp) :: delta, nu, nu_bulk
@@ -148,13 +96,11 @@ type, extends(benchmark_case) :: acoustic_wave
     real(wp) :: rho0 = 1.0_wp
     real(wp) :: phase = 0.0_wp
 contains
-    procedure, pass(case) :: fields => acoustic_wave_fields
-    procedure, pass(case) :: ksqr => acoustic_wave_ksqr
-    procedure, pass(case) :: sound_speed => acoustic_wave_sound_speed
-    procedure, pass(case) :: damping_rate => acoustic_wave_damping_rate
-    procedure, pass(case) :: frequency => acoustic_wave_frequency
-    procedure, pass(case) :: period => acoustic_wave_period
-    procedure, pass(case) :: longitudinal_viscosity => acoustic_wave_longitudinal_viscosity
+    procedure :: fields => acoustic_wave_fields
+    procedure :: ksqr => acoustic_wave_ksqr
+    procedure :: damping_rate => acoustic_wave_damping_rate
+    procedure :: frequency => acoustic_wave_frequency
+    procedure :: period => acoustic_wave_period
 end type
 
 interface acoustic_wave
@@ -162,31 +108,34 @@ interface acoustic_wave
 end interface
 
 !
-! Doubly periodic shear layer: two tanh layers of thickness ~1/k at
-! y/Ly = 1/4 and 3/4, perturbed by a sinusoidal uy of amplitude delta
-! (Minion & Brown, 1997). Initial condition only; p is returned as zero.
+! SHEAR LAYER (Minion & Brown, 1997): two tanh layers at y/Ly = 1/4 and
+! 3/4 of thickness ~1/k, perturbed by uy = u0 delta sin(2 pi (x/Lx + 1/4)).
+! Initial condition only; p is returned as zero.
 !
-type, extends(benchmark_case) :: shear_layer
+type :: shear_layer
     type(periodic_box) :: box
     real(wp) :: u0
     real(wp) :: k = 80.0_wp
     real(wp) :: delta = 0.05_wp
 contains
-    procedure, pass(case) :: fields => shear_layer_fields
+    procedure :: fields => shear_layer_fields
 end type
 
 !
-! Barotropic vortex of Wissocq, Boussuge & Sagaut (2020),
-! Phys. Rev. E 101, 043306. Initial condition only; returns the density
-! in place of the pressure (p = cs^2 rho), csqr being the squared sound
-! speed of the lattice.
+! BAROTROPIC VORTEX (Wissocq, Boussuge & Sagaut, Phys. Rev. E 101,
+! 043306 (2020), Eqs. 3, 4, 20): Gaussian vortex of radius Rc and
+! strength eps convected at U0, with the density in balance with the
+! athermal equation of state p = cs^2 rho. Initial condition only; p
+! holds the density. Distances to the centre are taken through the
+! periodic images.
 !
-type, extends(benchmark_case) :: barotropic_vortex
-    real(wp) :: U0, cx, cy, Rc, eps
+type :: barotropic_vortex
+    type(periodic_box) :: box
+    real(wp) :: U0, center(2), Rc, eps
     real(wp) :: rho0 = 1.0_wp
     real(wp) :: csqr = 1.0_wp/3.0_wp  ! D2Q9 in lattice units
 contains
-    procedure, pass(case) :: fields => barotropic_vortex_fields
+    procedure :: fields => barotropic_vortex_fields
 end type
 
 contains
@@ -194,6 +143,14 @@ contains
     !
     ! PERIODIC BOX
     !
+
+    function periodic_box_constructor(Lx,Ly) result(box)
+        real(wp), intent(in) :: Lx, Ly
+        type(periodic_box) :: box
+        if (Lx <= 0 .or. Ly <= 0) error stop "periodic_box: box sides must be positive"
+        box%Lx = Lx
+        box%Ly = Ly
+    end function
 
     pure function box_wavenumber(box,nx,ny) result(k)
         class(periodic_box), intent(in) :: box
@@ -207,7 +164,8 @@ contains
         class(periodic_box), intent(in) :: box
         real(wp), intent(in) :: xy(2)
         real(wp) :: w(2)
-        w = xy - [box%Lx, box%Ly]*floor(xy/[box%Lx, box%Ly])
+        w(1) = xy(1) - box%Lx*floor(xy(1)/box%Lx)
+        w(2) = xy(2) - box%Ly*floor(xy(2)/box%Ly)
     end function
 
     ! The shortest of the displacement and its periodic images
@@ -215,7 +173,8 @@ contains
         class(periodic_box), intent(in) :: box
         real(wp), intent(in) :: d(2)
         real(wp) :: m(2)
-        m = d - [box%Lx, box%Ly]*anint(d/[box%Lx, box%Ly])
+        m(1) = d(1) - box%Lx*anint(d(1)/box%Lx)
+        m(2) = d(2) - box%Ly*anint(d(2)/box%Ly)
     end function
 
     !
@@ -232,7 +191,6 @@ contains
         integer :: m, n
         real(wp) :: ksqr
 
-        if (box%Lx <= 0 .or. box%Ly <= 0) error stop "shear_modes: box sides must be positive"
         if (nu <= 0) error stop "shear_modes: viscosity must be positive"
         if (size(modes) == 0) error stop "shear_modes: at least one mode"
 
@@ -250,7 +208,7 @@ contains
                     (modes(m)%nx == -modes(n)%nx .and. modes(m)%ny == -modes(n)%ny)) &
                     error stop "shear_modes: wave vectors must be distinct up to sign"
             end do
-            if (abs(ksqr_of(box,modes(m)) - ksqr) > 1.0e-12_wp*ksqr) &
+            if (abs(ksqr_of(box,modes(m)) - ksqr) > 8*epsilon(ksqr)*ksqr) &
                 error stop "shear_modes: all modes must share the same |k|^2"
         end do
     end function
@@ -268,10 +226,12 @@ contains
         case = shear_modes(box, [mode(u0, nx, ny, ph)], nu, drift)
     end function
 
-    ! Taylor-Green vortex with the mode numbers (nx, ny) on the box:
+    ! Taylor-Green vortex, the mode pair (nx, ny), (nx, -ny), which is
     !   ux = -u0 sqrt(ky/kx) cos(kx x) sin(ky y)
     !   uy =  u0 sqrt(kx/ky) sin(kx x) cos(ky y)
     !   p  = -u0^2/4 (ky/kx cos(2 kx x) + kx/ky cos(2 ky y))
+    ! with kx, ky the wave numbers of |nx|, |ny|; the signs of the mode
+    ! numbers do not matter.
     function taylor_green(box,nx,ny,u0,nu,drift) result(case)
         type(periodic_box), intent(in) :: box
         integer, intent(in) :: nx, ny
@@ -279,13 +239,10 @@ contains
         real(wp), intent(in), optional :: drift(2)
         type(shear_modes) :: case
         real(wp) :: k(2), a
-        ! the amplitudes take sqrt(ky/kx), sqrt(kx/ky) and sqrt(kx*ky)
-        if (nx*ny <= 0) error stop "taylor_green: mode numbers must be nonzero and of the same sign"
-        k = box%wavenumber(nx,ny)
-        ! cos(kx x) cos(ky y) = [cos(kx x + ky y) + cos(kx x - ky y)]/2; the
-        ! sign carries the convention above, which flips with (kx, ky)
-        a = sign(u0, real(nx,wp))*sqrt((k(1)**2 + k(2)**2)/(4*k(1)*k(2)))
-        case = shear_modes(box, [mode(a, nx, ny), mode(a, nx, -ny)], nu, drift)
+        if (nx == 0 .or. ny == 0) error stop "taylor_green: needs both mode numbers"
+        k = box%wavenumber(abs(nx),abs(ny))
+        a = u0*sqrt((k(1)**2 + k(2)**2)/(4*k(1)*k(2)))
+        case = shear_modes(box, [mode(a, abs(nx), abs(ny)), mode(a, abs(nx), -abs(ny))], nu, drift)
     end function
 
     pure function ksqr_of(box,m) result(ksqr)
@@ -324,34 +281,45 @@ contains
         t = -case%time_constant()*log(frac)
     end function
 
-    ! Viscosity recovered from the velocity amplitudes a0 and a1 measured
-    ! at the times t0 and t1: nu = -ln(a1/a0) / (|k|^2 (t1 - t0))
-    pure function shear_modes_viscosity(case,a0,a1,t0,t1) result(nu)
-        class(shear_modes), intent(in) :: case
-        real(wp), intent(in) :: a0, a1, t0, t1
-        real(wp) :: nu
-        nu = -log(a1/a0)/(case%ksqr()*(t1 - t0))
-    end function
-
-    ! Undecayed velocity of the modes and c = sum_m a_m cos(theta_m),
-    ! followed along the drift
-    pure subroutine shear_modes_pattern(case,x,y,time,ux,uy,c)
+    ! Undecayed sums over the modes, without the drift, followed along
+    ! it: velocity (ux, uy), c = sum_m a_m cos(theta_m), and the strain
+    ! rate (sxx, sxy); each output only when asked for
+    pure subroutine shear_modes_evaluate(case,x,y,time,ux,uy,c,sxx,sxy)
         class(shear_modes), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:), time
-        real(wp), intent(out) :: ux(:), uy(:), c(:)
-        real(wp) :: k(2), knorm
-        integer :: m
+        real(wp), intent(out), optional :: ux(:), uy(:), c(:), sxx(:), sxy(:)
+
+        integer :: i, m, nm
+        real(wp) :: knorm, k(2), th, sn, cs, s1, s2, s3, s4, s5
+        real(wp), dimension(size(case%modes)) :: kx, ky, ex, ey, a, ph
+
+        nm = size(case%modes)
         knorm = sqrt(case%ksqr())
-        ux = 0; uy = 0; c = 0
-        do m = 1, size(case%modes)
+        do m = 1, nm
             k = case%box%wavenumber(case%modes(m)%nx,case%modes(m)%ny)
-            associate(a => case%modes(m)%amplitude, &
-                      th => k(1)*(x - case%drift(1)*time) + k(2)*(y - case%drift(2)*time) &
-                            + case%modes(m)%phase)
-                ux = ux - a*sin(th)*k(2)/knorm
-                uy = uy + a*sin(th)*k(1)/knorm
-                c  = c  + a*cos(th)
-            end associate
+            kx(m) = k(1); ky(m) = k(2)
+            a(m) = case%modes(m)%amplitude
+            ph(m) = case%modes(m)%phase
+            ex(m) = -a(m)*ky(m)/knorm
+            ey(m) =  a(m)*kx(m)/knorm
+        end do
+
+        do i = 1, size(x)
+            s1 = 0; s2 = 0; s3 = 0; s4 = 0; s5 = 0
+            do m = 1, nm
+                th = kx(m)*(x(i) - case%drift(1)*time) + ky(m)*(y(i) - case%drift(2)*time) + ph(m)
+                sn = sin(th); cs = cos(th)
+                s1 = s1 + sn*ex(m)
+                s2 = s2 + sn*ey(m)
+                s3 = s3 + cs*a(m)
+                s4 = s4 - cs*a(m)*kx(m)*ky(m)/knorm
+                s5 = s5 + cs*a(m)*(kx(m)**2 - ky(m)**2)/(2*knorm)
+            end do
+            if (present(ux)) ux(i) = s1
+            if (present(uy)) uy(i) = s2
+            if (present(c)) c(i) = s3
+            if (present(sxx)) sxx(i) = s4
+            if (present(sxy)) sxy(i) = s5
         end do
     end subroutine
 
@@ -363,8 +331,8 @@ contains
         real(wp) :: t, d, mean
         t = time_or_zero(time)
         d = case%decay(t)
-        mean = sum(case%modes%amplitude**2)/2   ! of (|u|^2 + c^2)/2 over the box
-        call shear_modes_pattern(case,x,y,t,ux,uy,p)
+        mean = sum(case%modes%amplitude**2)/2
+        call shear_modes_evaluate(case,x,y,t,ux=ux,uy=uy,c=p)
         p  = d*d*(-(ux**2 + uy**2 + p**2)/2 + mean)
         ux = case%drift(1) + d*ux
         uy = case%drift(2) + d*uy
@@ -376,36 +344,45 @@ contains
         real(wp), intent(in) :: x(:), y(:)
         real(wp), intent(out) :: sxx(:), sxy(:), syy(:)
         real(wp), intent(in), optional :: time
-        real(wp) :: t, d, k(2), knorm
-        integer :: m
+        real(wp) :: t, d
         t = time_or_zero(time)
         d = case%decay(t)
-        knorm = sqrt(case%ksqr())
-        sxx = 0; sxy = 0
-        do m = 1, size(case%modes)
-            k = case%box%wavenumber(case%modes(m)%nx,case%modes(m)%ny)
-            associate(c => case%modes(m)%amplitude/knorm*cos( &
-                      k(1)*(x - case%drift(1)*t) + k(2)*(y - case%drift(2)*t) + case%modes(m)%phase))
-                sxx = sxx - c*k(1)*k(2)
-                sxy = sxy + c*(k(1)**2 - k(2)**2)/2
-            end associate
-        end do
+        call shear_modes_evaluate(case,x,y,t,sxx=sxx,sxy=sxy)
         sxx = d*sxx
         sxy = d*sxy
         syy = -sxx
     end subroutine
 
-    ! Body force that holds the time-zero field steady (in the frame
-    ! drifting with U): f = nu |k|^2 (u(x, 0) - U) followed along the drift
+    ! Body force holding the time-zero field steady in the drifting
+    ! frame: f = nu |k|^2 (u(x, 0) - U), followed along the drift
     subroutine shear_modes_body_force(case,x,y,fx,fy,time)
         class(shear_modes), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:)
         real(wp), intent(out) :: fx(:), fy(:)
         real(wp), intent(in), optional :: time
-        real(wp) :: c(size(x))
-        call shear_modes_pattern(case,x,y,time_or_zero(time),fx,fy,c)
-        fx = case%nu*case%ksqr()*fx
-        fy = case%nu*case%ksqr()*fy
+        real(wp) :: f
+        call shear_modes_evaluate(case,x,y,time_or_zero(time),ux=fx,uy=fy)
+        f = case%nu*case%ksqr()
+        fx = f*fx
+        fy = f*fy
+    end subroutine
+
+    ! The case sampled at the cell centres (i - 1/2, j - 1/2) of a
+    ! lattice in lattice units, arrays laid out as (y, x) with the shape
+    ! of p; the strain rate S(:,:,1:3) = (sxx, sxy, syy) when asked for
+    subroutine lattice_fields(case,time,p,ux,uy,S)
+        type(shear_modes), intent(in) :: case
+        real(wp), intent(in) :: time
+        real(wp), intent(out) :: p(:,:), ux(:,:), uy(:,:)
+        real(wp), intent(out), optional :: S(:,:,:)
+        integer :: i, j
+        real(wp), dimension(size(p,1)) :: xx, yy
+        yy = [(j - 0.5_wp, j = 1, size(p,1))]
+        do i = 1, size(p,2)
+            xx = i - 0.5_wp
+            call case%fields(xx,yy,p(:,i),ux(:,i),uy(:,i),time)
+            if (present(S)) call case%stress_tensor(xx,yy,S(:,i,1),S(:,i,2),S(:,i,3),time)
+        end do
     end subroutine
 
     !
@@ -419,7 +396,6 @@ contains
         real(wp), intent(in), optional :: nu_bulk, csqr, rho0, phase
         type(acoustic_wave) :: case
 
-        if (box%Lx <= 0 .or. box%Ly <= 0) error stop "acoustic_wave: box sides must be positive"
         if (nx == 0 .and. ny == 0) error stop "acoustic_wave: mode numbers must not both be zero"
         if (delta <= 0) error stop "acoustic_wave: relative density amplitude must be positive"
         if (nu <= 0) error stop "acoustic_wave: viscosity must be positive"
@@ -435,8 +411,9 @@ contains
         if (present(rho0)) case%rho0 = rho0
         if (present(phase)) case%phase = phase
 
-        if (case%csqr <= 0) error stop "acoustic_wave: squared sound speed must be positive"
-        if (case%rho0 <= 0) error stop "acoustic_wave: reference density must be positive"
+        if (case%nu_bulk < 0) error stop "acoustic_wave: bulk viscosity must not be negative"
+        if (case%csqr <= 0 .or. case%rho0 <= 0) &
+            error stop "acoustic_wave: sound speed and density must be positive"
         if (case%csqr*case%ksqr() <= case%damping_rate()**2) &
             error stop "acoustic_wave: wave must be underdamped"
     end function
@@ -446,12 +423,6 @@ contains
         real(wp) :: ksqr, k(2)
         k = case%box%wavenumber(case%nx,case%ny)
         ksqr = k(1)**2 + k(2)**2
-    end function
-
-    pure function acoustic_wave_sound_speed(case) result(cs)
-        class(acoustic_wave), intent(in) :: case
-        real(wp) :: cs
-        cs = sqrt(case%csqr)
     end function
 
     pure function acoustic_wave_damping_rate(case) result(gamma)
@@ -472,108 +443,63 @@ contains
         tp = 2*pi/case%frequency()
     end function
 
-    ! Sum of shear and bulk viscosity from a measured damping rate
-    pure function acoustic_wave_longitudinal_viscosity(case,gamma) result(nul)
-        class(acoustic_wave), intent(in) :: case
-        real(wp), intent(in) :: gamma
-        real(wp) :: nul
-        nul = 2*gamma/case%ksqr()
-    end function
-
     ! p holds the density
     subroutine acoustic_wave_fields(case,x,y,p,ux,uy,time)
         class(acoustic_wave), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:)
         real(wp), intent(out) :: p(:), ux(:), uy(:)
         real(wp), intent(in), optional :: time
-        real(wp) :: t, k(2), knorm, g, w, e, u(size(x))
+        real(wp) :: t, k(2), g, w, e, ct, st, th, u
+        integer :: i
         t = time_or_zero(time)
         k = case%box%wavenumber(case%nx,case%ny)
-        knorm = sqrt(case%ksqr())
         g = case%damping_rate()
         w = case%frequency()
         e = exp(-g*t)
-        associate(th => k(1)*x + k(2)*y + case%phase)
-            p = case%rho0*(1 + case%delta*cos(th)*e*(cos(w*t) + g/w*sin(w*t)))
-            u = case%delta*case%csqr*knorm/w*e*sin(w*t)*sin(th)
-        end associate
-        ux = u*k(1)/knorm
-        uy = u*k(2)/knorm
+        ct = e*(cos(w*t) + g/w*sin(w*t))
+        st = case%delta*case%csqr/w*e*sin(w*t)   ! |k| cancels against k/|k|
+        do i = 1, size(x)
+            th = k(1)*x(i) + k(2)*y(i) + case%phase
+            p(i) = case%rho0*(1 + case%delta*cos(th)*ct)
+            u = st*sin(th)
+            ux(i) = u*k(1)
+            uy(i) = u*k(2)
+        end do
     end subroutine
 
     !
     ! SHEAR LAYER
     !
 
-    subroutine shear_layer_fields(case,x,y,p,ux,uy,time)
+    subroutine shear_layer_fields(case,x,y,p,ux,uy)
         class(shear_layer), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:)
         real(wp), intent(out) :: p(:), ux(:), uy(:)
-        real(wp), intent(in), optional :: time  ! initial condition only, ignored
-
-        uy = vely(x/case%box%Lx,case%u0,case%delta)
-        ux = velx(y/case%box%Ly,case%u0,case%k)
+        associate(yd => y/case%box%Ly)
+            ux = case%u0*tanh(case%k*merge(yd - 0.25_wp, 0.75_wp - yd, yd <= 0.5_wp))
+        end associate
+        uy = case%u0*case%delta*sin(2*pi*(x/case%box%Lx + 0.25_wp))
         p = 0.0_wp
-
-        if (present(time)) continue  ! silences the unused-argument warning
-
-    contains
-
-        elemental function velx(y,u0,k)
-            real(wp), intent(in) :: y, u0, k
-            real(wp) :: velx
-            if (y <= 0.5_wp) then
-                velx = u0*tanh(k*(y - 0.25_wp))
-            else
-                velx = u0*tanh(k*(0.75_wp - y))
-            end if
-        end function
-
-        elemental function vely(x,u0,delta)
-            real(wp), intent(in) :: x, u0, delta
-            real(wp) :: vely
-            vely = u0*delta*sin(2*pi*(x + 0.25_wp))
-        end function
-
     end subroutine
 
     !
     ! BAROTROPIC VORTEX
     !
 
-    subroutine barotropic_vortex_fields(case,x,y,p,ux,uy,time)
+    ! p holds the density
+    subroutine barotropic_vortex_fields(case,x,y,p,ux,uy)
         class(barotropic_vortex), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:)
-        real(wp), intent(out) :: p(:), ux(:), uy(:)  ! p holds the density
-        real(wp), intent(in), optional :: time  ! initial condition only, ignored
-
-        real(wp) :: ssqr, mach
-
-        associate(xc => x - case%cx, yc => y - case%cy)
-
-            ssqr = 2*case%rc**2
-            ux  = case%U0 - case%eps * (yc/case%rc) * bell(xc,yc,sigmasqr=ssqr)
-            uy  =           case%eps * (xc/case%rc) * bell(xc,yc,sigmasqr=ssqr)
-
-            mach = case%eps / sqrt(case%csqr)  ! Ma = eps / cs
-
-            !
-            ! \rho(r) = \rho_0 * \exp(-eps^2/(2 c_s^2) \exp(-r^2/R_c^2))
-            !
-            p = case%rho0 * exp(-0.5_wp * mach**2 * bell(xc,yc,sigmasqr=ssqr/2.0_wp))
-
-        end associate
-
-        if (present(time)) continue  ! silences the unused-argument warning
-
-    contains
-
-        elemental function bell(x,y,sigmasqr)
-            real(wp), intent(in) :: x, y, sigmasqr
-            real(wp) :: bell
-            bell = exp(-(x**2 + y**2) / sigmasqr )
-        end function
-
+        real(wp), intent(out) :: p(:), ux(:), uy(:)
+        real(wp) :: r(2), g
+        integer :: i
+        do i = 1, size(x)
+            r = case%box%minimum_image([x(i), y(i)] - case%center)
+            g = exp(-(r(1)**2 + r(2)**2)/(2*case%Rc**2))
+            ux(i) = case%U0 - case%eps*(r(2)/case%Rc)*g
+            uy(i) =           case%eps*(r(1)/case%Rc)*g
+            p(i) = case%rho0*exp(-case%eps**2/case%csqr*g*g/2)
+        end do
     end subroutine
 
     !
