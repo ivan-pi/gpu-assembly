@@ -14,6 +14,8 @@ the same in every generator, so they are here too.
 
 import argparse
 
+from .stencils import KNN
+
 
 def number(kind, *, least=None, above=None):
     """An argparse type that also carries a bound."""
@@ -50,8 +52,8 @@ class Pair(argparse.Action):
 def add_graph_options(ap):
     """How the stencil graph is selected, one of --knn-graph K,
     --radius-graph R and --range-graph S, as args.graph = (method, value)
-    for NodeSet.stencils, or None for --no-graph. The 18 nearest nodes
-    unless given: the 6 terms of a second-order polynomial plus 12."""
+    for NodeSet.stencils, or None for --no-graph; the KNN nearest nodes of
+    pointclouds.stencils unless given."""
     group = ap.add_mutually_exclusive_group()
     pair = dict(dest="graph", action=Pair)
     group.add_argument(
@@ -61,7 +63,7 @@ def add_graph_options(ap):
         const="knn",
         type=number(int, least=2),
         metavar="K",
-        help="the stencil of a node is its K nearest nodes (default: 18)",
+        help=f"the stencil of a node is its K nearest nodes (default: {KNN})",
     )
     group.add_argument(
         "-R",
@@ -88,7 +90,7 @@ def add_graph_options(ap):
         const=None,
         help="write the coordinates only, without the stencil graph",
     )
-    ap.set_defaults(graph=("knn", 18))
+    ap.set_defaults(graph=("knn", KNN))
 
 
 def show(cloud, graph=None):

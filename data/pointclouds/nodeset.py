@@ -2,7 +2,7 @@
 generators build, the tools read, and both write, search and draw.
 
     cloud = NodeSet.read("case.node")          # or a child from pointclouds.generators
-    ia, ja = cloud.stencils("knn", 18)         # the stencil graph, CSR
+    ia, ja = cloud.stencils()                  # the stencil graph, CSR
     cloud.write("case", ".node", (ia, ja))     # case.node and case.graph
 
 The box is [0, Lx) x [0, Ly), and `periodic` says of each axis whether
@@ -20,7 +20,7 @@ from scipy.spatial import cKDTree
 
 from .io import read_nodes, write_graph, write_node, write_points
 from .periodic import minimum_image, wrap
-from .stencils import select_stencils
+from .stencils import KNN, select_stencils
 
 
 @dataclass(frozen=True)
@@ -80,7 +80,7 @@ class NodeSet:
             *read_nodes(fname), extent=extent, periodic=periodic, title=f"from {fname}"
         )
 
-    def stencils(self, method, value):
+    def stencils(self, method="knn", value=KNN):
         """The stencil graph in CSR form, (ia, ja), with the stencil of
         node i at ja[ia[i]:ia[i + 1]]; see pointclouds.stencils."""
         return select_stencils(self.points, self.boxsize, method, value)

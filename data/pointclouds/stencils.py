@@ -10,7 +10,8 @@ then its neighbours nearest first, and the stencils come back in the
 CSR form the readers use: (ia, ja), with the stencil of node i at
 ja[ia[i]:ia[i + 1]].
 
-    ia, ja = select_stencils(pts, boxsize, "knn", 18)
+    ia, ja = select_stencils(pts, boxsize)          # the KNN nearest
+    ia, ja = select_stencils(pts, boxsize, "radius", 2.5)
 
 `boxsize` gives the side of the box along every periodic axis, around
 which the search wraps, and 0 for an axis that does not; NodeSet passes
@@ -22,8 +23,10 @@ the box, where a node meets its own image.
 import numpy as np
 from scipy.spatial import cKDTree
 
+KNN = 18  # the default stencil: the 6 terms of a second-order polynomial plus 12
 
-def select_stencils(pts, boxsize, method, value):
+
+def select_stencils(pts, boxsize, method="knn", value=KNN):
     n = len(pts)
     tree = cKDTree(pts, boxsize=boxsize)
 
