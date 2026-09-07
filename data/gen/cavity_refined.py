@@ -47,8 +47,7 @@ Boundary markers (docs/file_formats.md, node file):
 The walls are numbered counter-clockwise from the bottom. The corners get
 their own marker because a corner node belongs to two walls with, in the
 cavity, different boundary data: the lid velocity meets the wall's no-slip.
-Whoever assembles the boundary conditions decides what a corner gets;
-`NodeSet::indices_with(5)` picks them out.
+Whoever assembles the boundary conditions decides what a corner gets.
 
 The output file is a node file. Its first line is a comment with the
 command that produced it, and every node carries its marker. A name
