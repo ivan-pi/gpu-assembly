@@ -54,7 +54,8 @@ public:
 
     // Reads a node file (.node, the Triangle format; see rbf::io::read_nodes).
     // The boundary marker becomes the flag; a file without markers gives
-    // all-interior nodes.
+    // all-interior nodes. Attributes are skipped: read them with
+    // rbf::io::read_nodes directly and permute with file_order() if needed.
     explicit NodeSet(const std::string& fname) {
         num_points_ = io::read_nodes(fname, x, y, flag);
         rebuild_bnd();

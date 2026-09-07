@@ -113,10 +113,11 @@ otherwise; `write_nodes` takes them the same way. The library itself does
 not use them.
 
 This is the file `NodeSet` is constructed from, with the marker as its
-flag, and the file `NodeSet::write` produces. Renumbering
-(`NodeSet::renumber`) permutes the arrays in memory, and `NodeSet::write`
-saves the result in the new order, so a reordered file can be read back as
-is.
+flag, and the file `NodeSet::write` produces. NodeSet keeps coordinates and
+flags only: attributes in the file are skipped on reading and the file it
+writes has none. Renumbering (`NodeSet::renumber`) permutes the arrays in
+memory, and `NodeSet::write` saves the result in the new order, so a
+reordered file can be read back as is, minus any attributes it had.
 
 ## Ordering file
 
