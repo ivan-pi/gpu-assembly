@@ -1,6 +1,7 @@
-"""The files the generators in data/gen write, in the formats specified by
-docs/file_formats.md, which is where the details live: this module only
-puts them on disk.
+"""Writers for the files of docs/file_formats.md, which is where the
+details live: this module only puts them on disk. The generators in
+data/gen write the point, node and graph files, the tools in data/tools
+the ordering file.
 
 Every number is written as the shortest text that reads back to the same
 double, which is what `repr` gives, so a file reproduces the values it was
@@ -58,3 +59,10 @@ def write_graph(stem, rows):
         f.write(f"{len(rows)} {sum(len(row) for row in rows)}\n")
         for row in rows:
             f.write(" ".join(map(str, row)) + "\n")
+
+
+def write_ordering(stem, iperm):
+    """An ordering file: the new index of every node, one per line."""
+    with open_out(stem, ".iperm") as f:
+        for i in iperm.tolist():
+            f.write(f"{i}\n")

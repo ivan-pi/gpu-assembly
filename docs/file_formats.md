@@ -144,6 +144,9 @@ Line `i` holds the new index of node `i`, 0-based, so the file is the
 inverse permutation `iperm`: old index to new index. The values must be a
 permutation of `0 .. n-1`, which the reader checks.
 
+`data/tools/reorder_graph.py` computes one for a graph file, by reverse
+Cuthill-McKee or by METIS nested dissection.
+
 `Permutation::write` stores a permutation this way and `Permutation::read`
 gets it back. `NodeSet::file_order()` is the renumbering a NodeSet has
 applied since it was read, with `i` the position in the file it was read

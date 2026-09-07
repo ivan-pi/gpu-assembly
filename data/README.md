@@ -15,7 +15,9 @@ below. Node sets, which are a single `.node` file and carry no graph, are
 listed under [Extracted](#extracted).
 
 The Python here -- the generators in `gen/`, the tools in `tools/` -- may
-use numpy, scipy and matplotlib.
+use numpy, scipy and matplotlib; the nested dissection of the reordering
+tool needs pymetis as well. What the scripts share is the `pointclouds`
+package beside them.
 
 ## Cases
 
@@ -56,10 +58,10 @@ Marker 0 is an interior node in all of them.
 
 ## Generating
 
-Scripts that produced a case go in `gen/`, and what they share -- the
-writers for the formats above, the boundary-marker convention and the
-command-line conventions -- in the `gen/pointclouds` package beside them.
-The generators are:
+Scripts that produced a case go in `gen/`, and what they share with the
+tools -- the readers and writers for the formats above, the
+boundary-marker convention and the command-line conventions -- in the
+`pointclouds` package. The generators are:
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
@@ -102,4 +104,34 @@ options:
   --spy                draw the sparsity pattern of the graph, before and
                        after an ordering file
   --save FILE          write the figure to FILE instead of showing it
+```
+
+## Reordering
+
+`tools/reorder_graph.py` computes a renumbering of the nodes of a graph
+file and writes it as an [ordering file](../docs/file_formats.md#ordering-file),
+by reverse Cuthill-McKee from scipy, which reduces the bandwidth, or by
+the nested dissection of METIS through pymetis, which reduces the fill of
+a direct factorisation. It reports the bandwidth and the nonzeros of the
+Cholesky factor before and after, on standard error; `inspect_points.py
+case.graph case.iperm --spy` draws the two patterns.
+
+```
+usage: reorder_graph.py [-h] [-m {rcm,nd}] [-o FILE] [--seed SEED] GRAPH
+
+Renumber the nodes of a graph file to reduce bandwidth (rcm) or fill (nd) and
+write the ordering file (docs/file_formats.md).
+
+positional arguments:
+  GRAPH                 the .graph file to order
+
+options:
+  -h, --help            show this help message and exit
+  -m {rcm,nd}, --method {rcm,nd}
+                        rcm: reverse Cuthill-McKee (default); nd: METIS nested
+                        dissection
+  -o FILE, --output FILE
+                        the ordering file, default GRAPH with the extension
+                        .iperm; - writes to standard output
+  --seed SEED           the random seed of METIS, for nd
 ```

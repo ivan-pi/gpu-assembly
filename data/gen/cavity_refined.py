@@ -66,10 +66,12 @@ goes to standard error, so the stream carries the file alone.
 """
 
 import argparse
+import os
 import sys
 
 import numpy as np
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # data/, for pointclouds
 from pointclouds import (CORNER, EAST, INTERIOR, MARKER_STYLE, NORTH, SOUTH,
                          WEST, number, output_stem, write_node, write_points)
 
