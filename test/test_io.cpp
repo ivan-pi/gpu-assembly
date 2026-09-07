@@ -137,11 +137,6 @@ static void test_read_graph_csr() {
     CHECK(ia2 == (std::vector<std::int32_t>{0, 2, 4, 6}));
     CHECK(ia3 == ia2 && ja3 == ja2);
 
-    // with k the body is a flat list: line breaks carry no meaning
-    write_text("g.graph", "3 6\n0 1 1 2\n2 0\n");
-    auto [ia4, ja4] = rbf::io::read_graph_csr<std::int32_t>("g.graph", 2);
-    CHECK(ia4 == ia2 && ja4 == ja2);
-
     std::remove("g.graph");
 }
 

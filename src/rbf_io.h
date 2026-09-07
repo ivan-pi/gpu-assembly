@@ -69,19 +69,6 @@ std::ostream& full_precision(std::ostream& os) {
     return os << std::setprecision(std::numeric_limits<T>::max_digits10);
 }
 
-// Everything from the current position to the end of the stream, in one
-// read; the size comes from seeking, so this needs a real file.
-inline std::string read_rest(std::istream& in) {
-    const auto here = in.tellg();
-    assert(here != std::istream::pos_type(-1) && "stream is not seekable");
-    in.seekg(0, std::ios::end);
-    std::string body(static_cast<std::size_t>(in.tellg() - here), '\0');
-    in.seekg(here);
-    in.read(body.data(), static_cast<std::streamsize>(body.size()));
-    body.resize(static_cast<std::size_t>(in.gcount()));
-    return body;
-}
-
 // Nothing but whitespace remains: readers call this after consuming what
 // the header announced, so trailing data is reported, not ignored.
 inline void expect_end(std::istream& in, const std::string& fname,
@@ -199,7 +186,7 @@ namespace detail {
 
 // Parse every integer in text into ja; returns how many were found.
 // Anything that is not whitespace or an integer is an error, reported
-// under the given context ("row 3", "body").
+// under the given context ("row 3").
 template <class I>
 std::size_t parse_ints(std::string_view text, std::vector<I>& ja,
                        const std::string& fname, const std::string& context)
@@ -231,17 +218,15 @@ std::size_t parse_ints(std::string_view text, std::vector<I>& ja,
 //     j10 j11 ...
 //     ...
 //
-// With k == 0 (the default) row lengths may differ, and the line structure
-// says where each row ends. Every row must list at least one neighbour: a
+// Each line is one row; rows may have different lengths. Every row must
+// list at least one neighbour: a
 // node with no neighbours gives a singular system, so an empty row is an
 // error, as are a short file, an entry count that disagrees with nnz, and
 // data after the n-th row.
 //
-// With k > 0 every row is known to hold exactly k entries, as for k-nearest
-// neighbour stencils. The header must satisfy nnz == n * k, and the body is
-// then read as a flat list of n * k indices, line breaks carrying no
-// meaning. Use it when k is known: the check against the header is the
-// stronger one.
+// With k > 0 every row is required to hold exactly k entries, as for
+// k-nearest-neighbour stencils; the header must satisfy nnz == n * k and a
+// row of any other length is an error. Same file format, stronger checks.
 //
 // Indices are 0-based, as in every graph file produced so far: a value
 // outside [0, n) is an error, which also catches a 1-based file. Returns
@@ -260,37 +245,29 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
     ia.reserve(n + 1);
     ia.push_back(0);
 
-    if (k > 0) {
-        if (nnz != n * static_cast<std::size_t>(k))
-            detail::fail(fname, "header says " + std::to_string(n) + " rows and "
-                                + std::to_string(nnz) + " entries, inconsistent with k="
-                                + std::to_string(k));
-        ja.reserve(nnz);
-        const std::string body = detail::read_rest(in);
-        const std::size_t found = detail::parse_ints(body, ja, fname, "body");
-        if (found != nnz)
-            detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
-                                + std::to_string(found));
-        for (std::size_t i = 1; i <= n; ++i) ia.push_back(static_cast<I>(i * k));
-    } else {
-        ja.reserve(nnz);
-        std::string line;
-        std::getline(in, line);   // rest of the header line
-        for (std::size_t i = 0; i < n; ++i) {
-            if (!std::getline(in, line))
-                detail::fail(fname, "header says " + std::to_string(n)
-                                    + " rows, found " + std::to_string(i));
-            if (detail::parse_ints(line, ja, fname, "row " + std::to_string(i)) == 0)
-                detail::fail(fname, "row " + std::to_string(i) + " has no entries");
-            ia.push_back(static_cast<I>(ja.size()));
-        }
-        if (ja.size() != nnz)
-            detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
-                                + std::to_string(ja.size()));
-        // the flat path consumed the whole file above; only this one can
-        // leave data behind
-        detail::expect_end(in, fname, "row " + std::to_string(n - 1));
+    if (k > 0 && nnz != n * static_cast<std::size_t>(k))
+        detail::fail(fname, "header says " + std::to_string(n) + " rows and "
+                            + std::to_string(nnz) + " entries, inconsistent with k="
+                            + std::to_string(k));
+    ja.reserve(nnz);
+    std::string line;
+    std::getline(in, line);   // rest of the header line
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!std::getline(in, line))
+            detail::fail(fname, "header says " + std::to_string(n)
+                                + " rows, found " + std::to_string(i));
+        const std::size_t len = detail::parse_ints(line, ja, fname, "row " + std::to_string(i));
+        if (len == 0)
+            detail::fail(fname, "row " + std::to_string(i) + " has no entries");
+        if (k > 0 && len != static_cast<std::size_t>(k))
+            detail::fail(fname, "row " + std::to_string(i) + " has " + std::to_string(len)
+                                + " entries, expected k=" + std::to_string(k));
+        ia.push_back(static_cast<I>(ja.size()));
     }
+    if (ja.size() != nnz)
+        detail::fail(fname, "header says " + std::to_string(nnz) + " entries, found "
+                            + std::to_string(ja.size()));
+    detail::expect_end(in, fname, "row " + std::to_string(n - 1));
     for (std::size_t p = 0; p < ja.size(); ++p)
         if (ja[p] < 0 || static_cast<std::size_t>(ja[p]) >= n)
             detail::fail(fname, "entry " + std::to_string(p) + " is index "

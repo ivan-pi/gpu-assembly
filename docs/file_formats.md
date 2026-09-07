@@ -48,19 +48,20 @@ j10 j11 ...
 ...
 ```
 
-The header gives the node count and the total number of entries. Line `i`
-lists the stencil of node `i`: the indices of the nodes it depends on,
-including `i` itself, which comes first in the files produced so far. Rows
-may have different lengths, but every row must have at least one entry,
-since a node with no neighbours gives a singular system.
+The header gives the node count `n` and `nnz`, the number of edges of the
+stencil graph, which is also the number of nonzeros of the assembled
+matrix. Line `i` lists the stencil of node `i`: the indices of the nodes it
+depends on, including `i` itself, which comes first in the files produced
+so far. Rows may have different lengths, but every row must have at least
+one entry, since a node with no neighbours gives a singular system.
 
 Indices are 0-based. An index outside `[0, n)` is an error, which is also
 how a 1-based file is caught: its largest index equals `n`.
 
 `read_graph_csr(fname, k)` with `k > 0` declares that every row has exactly
-`k` entries, as for k-nearest-neighbour stencils. The header must then
-satisfy `nnz == n * k`, and the body is read as a flat list of `n * k`
-indices: line breaks carry no meaning on that path.
+`k` entries, as for k-nearest-neighbour stencils. The file format is the
+same; the reader additionally requires `nnz == n * k` and rejects a row of
+any other length.
 
 The layout follows the METIS graph file (METIS manual 5.1.0, section
 4.1.1, <https://github.com/KarypisLab/METIS>), but the two are not
@@ -68,7 +69,7 @@ interchangeable:
 
 - METIS numbers vertices from 1; we number from 0.
 - The METIS header is `n m`, with `m` the number of undirected edges, each
-  counted once; our second number is the total count of entries.
+  counted once; our `nnz` counts every directed edge, that is every entry.
 - METIS lines list the vertices adjacent to a vertex, in an undirected
   graph; our lines are stencils, which include the node itself and need not
   be symmetric: node `j` may be in the stencil of `i` without `i` being in
@@ -99,14 +100,10 @@ The order of the lines is the node numbering. Renumbering (`NodeSet::renumber`)
 permutes the arrays in memory, and `NodeSet::write` saves the result in the
 new order, so a reordered file can be read back as is.
 
-The file is taken to be complete. Reading stops at the first line that does
-not parse as two reals and an integer, without complaint.
-
-This is a stripped-down relative of the Triangle `.node` format
-(<https://www.cs.cmu.edu/~quake/triangle.node.html>): no header line, no
-vertex number column, always two dimensions, and the boundary marker is
-mandatory. A Triangle file needs the header and the first column removed to
-be read here.
+This resembles the Triangle `.node` format
+(<https://www.cs.cmu.edu/~quake/triangle.node.html>) but is not it: no
+header line, no vertex number column, no attributes, no comments, and the
+marker column is always present.
 
 ## Matrix Market
 
