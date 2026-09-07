@@ -21,6 +21,7 @@ for the scripts to find it. From the repository root:
 ```
 pip install -e data                # pointclouds and numpy, in place
 pip install scipy matplotlib       # neighbour search, rcm, and the figures
+pip install numba                  # the Poisson disk sampler
 pip install pymetis                # nested dissection
 pip install scikit-sparse          # minimum degree, and the fill-in count
 ```
@@ -38,11 +39,11 @@ On macOS:
 brew install suite-sparse
 ```
 
-The extras `tools` and `reorder` of the package pull in the same set
-in one go:
+The extras `tools`, `reorder` and `generate` of the package pull in
+the same set in one go:
 
 ```
-pip install -e "data[tools,reorder]"
+pip install -e "data[tools,reorder,generate]"
 ```
 
 The Python is formatted with [Black](https://black.readthedocs.io/) and
@@ -101,7 +102,13 @@ Scripts that produced a case go in `gen/`, and what they share with the
 tools in the `pointclouds` package, laid out like the C++ library:
 `pointclouds.io` reads and writes the formats above, `pointclouds.markers`
 fixes the boundary-marker convention, `pointclouds.cli` the command-line
-conventions. The generators are:
+conventions. `pointclouds.poisson` fills a rectangle with points no two
+of which are closer than a radius, with either axis periodic or neither,
+from seed points if given, in whatever units the extent and the radius
+come in; its interface follows `scipy.stats.qmc.PoissonDisk`, and
+Bridson's loop is compiled by numba, so a million points take a few
+seconds; `tools/poisson_demo.py` shows a sample of it. The generators
+are:
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
