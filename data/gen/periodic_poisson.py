@@ -12,9 +12,15 @@ stencil graph that goes with them.
 The box is [0, Lx) x [0, Ly) with both sides periodic, and the nodes are
 a Poisson disk sample of it (pointclouds.poisson): no two closer than a
 distance d, and no room left for another one, which makes them scattered
-but evenly spread, about 0.62 / d^2 of them per unit area with the
-default number of candidates and 0.56 with 10. The sampler is periodic
-itself, so the spacing holds across the sides as it does inside.
+but evenly spread. The sampler is periodic itself, so the spacing holds
+across the sides as it does inside.
+
+How tightly they pack is set by the candidates a node throws before it
+is retired, --candidates: about 0.65 / d^2 nodes per unit area with the
+default 100, 0.62 with 30, 0.68 with 300, where it levels off, at a
+sampling time that grows with the count. The distance is the stronger
+lever: the earlier cases (poisson_32_21) have their nodes 0.9 apart and
+0.81 of them per unit area, which --distance 0.9 reproduces.
 
 Everything is in lattice units: the box is Lx by Ly and d is 1 unless
 --distance says otherwise, so every length below -- the distance, the
@@ -189,10 +195,10 @@ def main():
     ap.add_argument(
         "--candidates",
         type=number(int, least=1),
-        default=30,
+        default=100,
         metavar="K",
         help="candidates a node throws before it is retired: more "
-        "of them pack the nodes tighter, up to a point (default: 30)",
+        "of them pack the nodes tighter, up to a point (default: 100)",
     )
 
     hole = ap.add_mutually_exclusive_group()
