@@ -168,7 +168,7 @@ def main():
         "(default: 1 1, the sample alone)",
     )
 
-    stencils.add_option(ap, default="knn=21")
+    stencils.add_option(ap)
     ap.add_argument(
         "--seed", type=int, help="seed of the sample (default: drawn and reported)"
     )

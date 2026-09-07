@@ -37,8 +37,8 @@ The nodes are written row by row from y = 0 upwards, x fastest, so the
 wall nodes of a channel are the first N and the last N lines of the file.
 
 The stencil of a node is the set of nodes it interpolates from,
-selected by --graph: its k nearest neighbours (`knn=K`, the default
-with the 15 of the reference), the nodes within a distance
+selected by --graph: its k nearest neighbours (`knn=K`, 18 by
+default; the reference uses 15), the nodes within a distance
 (`radius=R`), or the nodes within a square (`range=S`). The search knows which
 sides are periodic, so a stencil next to a periodic side reaches around
 it, and every stencil starts with the node itself.
@@ -162,7 +162,7 @@ def main():
         "and periodic in x (default: periodic)",
     )
 
-    stencils.add_option(ap, default="knn=15")
+    stencils.add_option(ap)
     ap.add_argument(
         "--seed", type=int, help="seed of the grid (default: drawn and reported)"
     )

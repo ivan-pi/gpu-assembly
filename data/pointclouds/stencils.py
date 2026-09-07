@@ -13,7 +13,7 @@ ja[ia[i]:ia[i + 1]].
 A generator offers the choice as one option, --graph METHOD=VALUE,
 checks it against its box, and selects the stencils of the cloud:
 
-    add_option(parser, default="knn=15")
+    add_option(parser)
     ...
     method, value = args.graph
     problem = check(method, value, extent, periodic)
@@ -32,6 +32,10 @@ from dataclasses import dataclass, field
 import numpy as np
 
 METHODS = ("knn", "radius", "range")
+
+# The default stencil: 18 nodes, the 6 terms of a second-order polynomial
+# plus 12, for every generator.
+DEFAULT_GRAPH = "knn=18"
 
 
 @dataclass(frozen=True)
@@ -55,9 +59,9 @@ class Markers:
 MARKERS = Markers()
 
 
-def add_option(ap, default):
+def add_option(ap, default=DEFAULT_GRAPH):
     """--graph METHOD=VALUE on the parser, `default` being the text used
-    when it is not given, "knn=21" say."""
+    when it is not given."""
     ap.add_argument(
         "--graph",
         type=parse_graph,
