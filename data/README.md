@@ -24,16 +24,14 @@ Scripts that produced a case go in `gen/`.
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
-  markers for the four walls and the corners. In lattice units the
-  spacing is 1 at the wall, 1.5 and 2.5 further in, and `--steps N`
-  gives a cavity of `10 N`; `--size` scales it to other units. Needs
-  numpy; `--plot` needs matplotlib.
-- `gen/perturbed_grid.py`: an `N` by `N` box in lattice units, spacing
-  `h = 1`, with every node of the Cartesian grid displaced by up to
-  `sigma` spacings; periodic on both sides, or a channel with walls at
-  `y = 0` and `y = N`. Writes a `.points` file or a `.node` file with
-  wall markers, together with the `.graph` of the stencils, whose search
-  wraps around the periodic sides. `--size` rescales the box to other
-  units, `--realizations` writes a numbered series to average over and
-  `--seed` makes it repeatable. Needs numpy and scipy; `--plot` needs
-  matplotlib.
+  markers for the four walls and the corners. Needs numpy; `--plot`
+  needs matplotlib.
+- `gen/perturbed_grid.py`: a Cartesian grid with every node displaced by
+  a small random amount, periodic on both sides or a channel with walls
+  at the top and bottom, as a `.points` or a `.node` file together with
+  the `.graph` of its stencils, whose search wraps around the periodic
+  sides. `--realizations` writes the numbered series such a random case
+  is averaged over. Needs numpy and scipy; `--plot` needs matplotlib.
+
+Both work in lattice units, in which the spacing is 1, and take `--size`
+to scale a case to other units. `--help` describes the rest.

@@ -17,12 +17,12 @@ incompressible flows", Int. J. Numer. Meth. Fluids 91, 198-211, which
 shows the point distribution without specifying it.
 
 `--size LX LY` scales the cavity to that size, which is what makes the
-spacing something other than 1: `--size 1 1` is the unit
-square of the figure, with h = 0.1/N at the wall. The shorter side is
-always the one the bands fill exactly; a longer one gets a middle at the
-coarsest spacing. `--steps N` refines or coarsens all three bands
-together: on its own it widens the cavity, since the wall spacing stays
-1, and with `--size` fixed it refines the same cavity.
+spacing something other than 1: `--size 1 1` is the unit square of the
+figure, with h = 0.1/N at the wall. The shorter side is always the one
+the bands fill exactly; a longer one gets a middle at the coarsest
+spacing. `--steps N` refines or coarsens all three bands together: on
+its own it widens the cavity, since the wall spacing stays 1, and with
+`--size` fixed it refines the same cavity.
 
 Two distributions realise the spacings and give different clouds:
 
@@ -55,13 +55,14 @@ their own marker because a corner node belongs to two walls with, in the
 cavity, different boundary data: the lid velocity meets the wall's no-slip.
 Whoever assembles the boundary conditions decides what a corner gets.
 
-The output file is a node file. Its first line is a comment with the
-command that produced it, and every node carries its marker. A name
-ending in `.points` gives a points file instead. The points format has
-no comment line and no markers: only the coordinates are written. The
-name `-` writes the node file to standard output, `-- -.points` the
-points file, after the option separator since the name starts with a
-dash; the report then goes to standard error.
+The output file is a node file, named after the argument with `.node`
+appended if it is not there already. Its first line is a comment with
+the command that produced it, and every node carries its marker. A name
+ending in `.points` gives a points file instead, a format with no
+comment line and no markers: only the coordinates are written. The name
+`-` writes to standard output, `-- -.points` the points file there,
+after the option separator since the name starts with a dash. The report
+goes to standard error, so the stream carries the file alone.
 """
 
 import argparse
@@ -172,21 +173,23 @@ def markers(pts, Lx, Ly):
     return m
 
 
-def open_out(fname):
-    """The named file, or standard output for `-`, which stays open."""
-    return open(fname, "w") if fname != "-" else contextlib.nullcontext(sys.stdout)
+def open_out(stem, ext):
+    """The file this stem and extension name, or standard output for `-`,
+    which stays open."""
+    return (contextlib.nullcontext(sys.stdout) if stem == "-"
+            else open(stem + ext, "w"))
 
 
-def write_node(fname, pts, m, provenance):
-    with open_out(fname) as f:
+def write_node(stem, pts, m, provenance):
+    with open_out(stem, ".node") as f:
         f.write(f"# {provenance}\n")
         f.write(f"{len(pts)} 2 0 1\n")
         for i, ((x, y), mi) in enumerate(zip(pts.tolist(), m.tolist())):
             f.write(f"{i} {x!r} {y!r} {mi}\n")     # repr: shortest round-trip text
 
 
-def write_points(fname, pts):
-    with open_out(fname) as f:
+def write_points(stem, pts):
+    with open_out(stem, ".points") as f:
         f.write(f"{len(pts)}\n")
         for x, y in pts.tolist():
             f.write(f"{x!r} {y!r}\n")
@@ -219,31 +222,30 @@ def main():
     ap.add_argument("--plot", action="store_true", help="show the cloud, coloured by marker")
     args = ap.parse_args()
     span = 2 * args.steps * sum(SPACINGS)        # the bands from both walls
-    Lx, Ly = (float(span), float(span)) if args.size is None else args.size
+    Lx, Ly = (span, span) if args.size is None else args.size
     scale = min(Lx, Ly) / span                   # the shorter side holds the bands
 
-    piped = args.output in ("-", "-.node", "-.points")
-    report = sys.stderr if piped else sys.stdout
+    suffix = ".points" if args.output.endswith(".points") else ".node"
+    stem = args.output.removesuffix(suffix)
 
-    if args.distribution == "rings":
-        pts = rings(Lx, Ly, levels(args.steps, scale, for_rings=True))
-    else:
-        pts = grid(Lx, Ly, levels(args.steps, scale, for_rings=False))
+    for_rings = args.distribution == "rings"
+    lv = levels(args.steps, scale, for_rings)
+    pts = rings(Lx, Ly, lv) if for_rings else grid(Lx, Ly, lv)
     pts = np.round(pts, 12) + 0.0            # 0.1 + 0.2 style noise, and no -0.0
     m = markers(pts, Lx, Ly)
 
-    name = "-" if piped else args.output
-    if args.output.endswith(".points"):
-        write_points(name, pts)                  # the format has no comments or markers
+    if suffix == ".points":
+        write_points(stem, pts)                  # the format has no comments or markers
     else:
-        write_node(name, pts, m,
+        write_node(stem, pts, m,
                    f"produced by cavity_refined.py --distribution {args.distribution} "
                    f"--size {Lx:g} {Ly:g} --steps {args.steps}")
 
     counts = np.bincount(m, minlength=6)
-    print(f"{'standard output' if piped else args.output}: {len(pts)} nodes, "
+    written = "standard output" if stem == "-" else stem + suffix
+    print(f"{written}: {len(pts)} nodes, "
           f"{counts[0]} interior, S {counts[1]} E {counts[2]} N {counts[3]} "
-          f"W {counts[4]}, {counts[5]} corners", file=report)
+          f"W {counts[4]}, {counts[5]} corners", file=sys.stderr)
 
     if args.plot:
         import matplotlib.pyplot as plt

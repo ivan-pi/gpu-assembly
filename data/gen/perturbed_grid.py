@@ -56,8 +56,8 @@ file, with a comment line naming the command and a marker per node
 (docs/file_formats.md). The name `-` writes to standard output, and
 `-- -.node` a node file there, after the option separator since the name
 starts with a dash. Only one file fits down a pipe, so both take
---no-graph and a single realization, and the report goes to standard
-error instead. The markers are:
+--no-graph and a single realization. The report goes to standard error,
+so the stream carries the file alone. The markers are:
 
     0  interior
     1  bottom wall, y = 0
@@ -70,7 +70,6 @@ sides are periodic here and carry no nodes of their own.
 
 import argparse
 import contextlib
-import os
 import sys
 
 import numpy as np
@@ -93,27 +92,27 @@ def number(kind, least=None, above=None):
     return parse
 
 
-def grid(n, h, geometry):
+def grid(n, h, periodic):
     """The Cartesian nodes and their markers: N by N on the periodic box,
     N by N + 1 on the channel, whose last row is the top wall."""
     x = np.arange(n) * h
-    y = np.arange(n if geometry == "periodic" else n + 1) * h
+    y = np.arange(n if periodic else n + 1) * h
     xv, yv = np.meshgrid(x, y)                   # row by row, x fastest
     pts = np.column_stack((xv.ravel(), yv.ravel()))
     m = np.full(len(pts), INTERIOR)
-    if geometry == "channel":
+    if not periodic:
         m[: n], m[len(pts) - n :] = SOUTH, NORTH
     return pts, m
 
 
-def perturb(pts, m, h, size, sigma, geometry, rng):
-    """Every coordinate displaced by up to sigma spacings, except the one
-    across the wall, which would take a wall node off its wall."""
-    d = rng.uniform(-sigma * h, sigma * h, pts.shape)
+def perturb(pts, m, jitter, size, periodic, rng):
+    """Every coordinate displaced by up to jitter, except the one across
+    the wall, which would take a wall node off its wall."""
+    d = rng.uniform(-jitter, jitter, pts.shape)
     d[m != INTERIOR, 1] = 0.0
     pts = pts + d
     pts[:, 0] = wrap(pts[:, 0], size)
-    if geometry == "periodic":
+    if periodic:
         pts[:, 1] = wrap(pts[:, 1], size)
     else:
         pts[:, 1] = np.clip(pts[:, 1], 0.0, size)    # only reached by sigma >= 1
@@ -127,51 +126,45 @@ def wrap(z, size):
     return z
 
 
-def stencils(pts, h, size, geometry, knn, radius, square):
-    """The stencil of every node, as lists of node indices."""
-    # A periodic box more than twice as wide as the data never wraps, which
-    # is how the channel gets a periodic x and an open y from one k-d tree.
-    tree = cKDTree(pts, boxsize=[size, size if geometry == "periodic" else 3.0 * size])
-    if radius is not None:
-        adj = tree.query_ball_point(pts, radius * h)
-    elif square is not None:
-        adj = tree.query_ball_point(pts, square * h, p=np.inf)   # the max norm
-    else:
-        adj = tree.query(pts, knn)[1].tolist()
-    rows = [[i] + [j for j in row if j != i] for i, row in enumerate(adj)]
-    if knn is not None and any(len(row) != knn for row in rows):
-        sys.exit("a node is not its own nearest neighbour: two nodes coincide, "
-                 "which takes a --sigma of about 0.5 or more")
-    return rows
+def stencils(pts, h, size, periodic, kind, reach):
+    """The stencil of every node, as lists of node indices. A zero side
+    leaves that axis aperiodic, which is what the channel wants in y."""
+    tree = cKDTree(pts, boxsize=[size, size if periodic else 0.0])
+    if kind == "knn":
+        adj = tree.query(pts, reach)[1]
+        if not np.array_equal(adj[:, 0], np.arange(len(pts))):
+            sys.exit("a node is not its own nearest neighbour: two nodes coincide, "
+                     "which takes a --sigma of about 0.5 or more")
+        return adj.tolist()                      # the node itself opens each row
+    norm = np.inf if kind == "square" else 2     # the max norm bounds a square
+    adj = tree.query_ball_point(pts, reach * h, p=norm)
+    return [[i] + [j for j in row if j != i] for i, row in enumerate(adj)]
 
 
-def out_name(stem, ext):
-    """What this stem and extension name, or `-` for standard output."""
-    return "-" if stem == "-" else stem + ext
+def open_out(stem, ext):
+    """The file this stem and extension name, or standard output for `-`,
+    which stays open."""
+    return (contextlib.nullcontext(sys.stdout) if stem == "-"
+            else open(stem + ext, "w"))
 
 
-def open_out(fname):
-    """The named file, or standard output for `-`, which stays open."""
-    return open(fname, "w") if fname != "-" else contextlib.nullcontext(sys.stdout)
-
-
-def write_points(fname, pts):
-    with open_out(fname) as f:
+def write_points(stem, pts):
+    with open_out(stem, ".points") as f:
         f.write(f"{len(pts)}\n")
         for x, y in pts.tolist():
             f.write(f"{x!r} {y!r}\n")            # repr: shortest round-trip text
 
 
-def write_node(fname, pts, m, provenance):
-    with open_out(fname) as f:
+def write_node(stem, pts, m, provenance):
+    with open_out(stem, ".node") as f:
         f.write(f"# {provenance}\n")
         f.write(f"{len(pts)} 2 0 1\n")
         for i, ((x, y), mi) in enumerate(zip(pts.tolist(), m.tolist())):
             f.write(f"{i} {x!r} {y!r} {mi}\n")
 
 
-def write_graph(fname, rows):
-    with open_out(fname) as f:
+def write_graph(stem, rows):
+    with open_out(stem, ".graph") as f:
         f.write(f"{len(rows)} {sum(len(row) for row in rows)}\n")
         for row in rows:
             f.write(" ".join(map(str, row)) + "\n")
@@ -236,27 +229,30 @@ def main():
                     help="show the first grid, coloured by marker, with one stencil")
     args = ap.parse_args()
 
-    n, sigma = args.nodes, args.sigma
+    n, sigma, periodic = args.nodes, args.sigma, args.geometry == "periodic"
     size = float(n) if args.size is None else args.size    # lattice units by default
     h = size / n
     if sigma >= 0.5:
         print(f"warning: --sigma {sigma:g} moves a node out of its own cell, "
               f"and nodes may end up on top of each other", file=sys.stderr)
-    if args.knn is None and args.radius is None and args.square is None and not args.no_graph:
-        args.knn = 15
-    for flag, reach in (("--radius", args.radius), ("--square", args.square)):
-        if reach is not None and reach > 0.5 * n:
-            # Beyond half the box a node is its own neighbour through the
-            # periodic side, which the stencil of a node cannot hold twice.
-            ap.error(f"{flag} reaches more than half way around the box: at most "
-                     f"{0.5 * n:g} spacings for -n {n}")
+
+    if args.radius is not None:
+        kind, reach = "radius", args.radius
+    elif args.square is not None:
+        kind, reach = "square", args.square
+    else:
+        kind, reach = "knn", 15 if args.knn is None else args.knn
+    if kind != "knn" and reach > 0.5 * n:
+        # Beyond half the box a node is its own neighbour through the
+        # periodic side, which the stencil of a node cannot hold twice.
+        ap.error(f"--{kind} reaches more than half way around the box: at most "
+                 f"{0.5 * n:g} spacings for -n {n}")
 
     seed = np.random.SeedSequence().entropy if args.seed is None else args.seed
     streams = np.random.SeedSequence(seed).spawn(args.realizations)
 
-    name = args.output
-    node_file = name.endswith(".node")
-    base = os.path.splitext(name)[0] if node_file or name.endswith(".points") else name
+    node_file = args.output.endswith(".node")
+    base = args.output.removesuffix(".node").removesuffix(".points")
     width = len(str(args.realizations - 1))
 
     piped = base == "-"                          # `-`, `-.points` or `-.node`
@@ -266,46 +262,43 @@ def main():
     if piped and args.realizations > 1:
         ap.error("a series needs file names to go in: --realizations cannot "
                  "write to standard output")
-    report = sys.stderr if piped else sys.stdout
 
-    stencil_flag = ("--no-graph " if args.no_graph else
-                    f"--knn {args.knn} " if args.knn is not None else
-                    f"--radius {args.radius:g} " if args.radius is not None else
-                    f"--square {args.square:g} ")
-    size_flag = "" if args.size is None else f"--size {size:g} "
-
-    pts0, m = grid(n, h, args.geometry)
-    if args.knn is not None and args.knn > len(pts0) and not args.no_graph:
+    pts0, m = grid(n, h, periodic)
+    if kind == "knn" and reach > len(pts0) and not args.no_graph:
         ap.error(f"--knn is larger than the {len(pts0)} nodes of the grid")
     if args.seed is None:
-        print(f"seed {seed}", file=report)
+        print(f"seed {seed}", file=sys.stderr)
+
+    # The comment of a node file is the command that reproduces it.
+    command = (f"produced by perturbed_grid.py -n {n} --size {size:g} "
+               f"--sigma {sigma:g} --geometry {args.geometry} "
+               f"{'--no-graph' if args.no_graph else f'--{kind} {reach:g}'} "
+               f"--seed {seed}")
+    if args.realizations > 1:
+        command += f" --realizations {args.realizations}, number"
+    walls = f", {np.count_nonzero(m)} of them on a wall" if not periodic else ""
 
     for i, stream in enumerate(streams):
         stem = base if args.realizations == 1 else f"{base}_{i:0{width}d}"
-        pts = perturb(pts0, m, h, size, sigma, args.geometry,
+        pts = perturb(pts0, m, sigma * h, size, periodic,
                       np.random.default_rng(stream))
 
         if node_file:
-            command = (f"perturbed_grid.py -n {n} {size_flag}--sigma {sigma:g} "
-                       f"--geometry {args.geometry} {stencil_flag}--seed {seed}")
-            if args.realizations > 1:
-                command += f" --realizations {args.realizations}, number {i}"
-            write_node(out_name(stem, ".node"), pts, m, "produced by " + command)
+            write_node(stem, pts, m,
+                       command if args.realizations == 1 else f"{command} {i}")
         else:
-            write_points(out_name(stem, ".points"), pts)
+            write_points(stem, pts)
 
-        rows = None
+        rows, graph = None, ""
         if not args.no_graph:
-            rows = stencils(pts, h, size, args.geometry,
-                            args.knn, args.radius, args.square)
-            write_graph(out_name(stem, ".graph"), rows)
+            rows = stencils(pts, h, size, periodic, kind, reach)
+            write_graph(stem, rows)
+            sizes = [len(row) for row in rows]
+            graph = (f", {sum(sizes)} stencil entries, "
+                     f"{min(sizes)} to {max(sizes)} per node")
 
-        walls = f", {np.count_nonzero(m)} of them on a wall" if args.geometry == "channel" else ""
-        sizes = [len(row) for row in rows] if rows else []
-        graph = (f", {sum(sizes)} stencil entries, {min(sizes)} to {max(sizes)} per node"
-                 if sizes else "")
         print(f"{'standard output' if piped else stem}: {len(pts)} nodes{walls}{graph}",
-              file=report)
+              file=sys.stderr)
 
         if args.plot and i == 0:
             plot(pts, m, rows)
