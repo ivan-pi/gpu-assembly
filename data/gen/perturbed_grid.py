@@ -53,7 +53,11 @@ seed it drew so that it can be repeated.
 The output is a points file and a graph file, in the numbering the two
 share. A name ending in `.node` writes a node file instead of the points
 file, with a comment line naming the command and a marker per node
-(docs/file_formats.md):
+(docs/file_formats.md). The name `-` writes to standard output, and
+`-- -.node` a node file there, after the option separator since the name
+starts with a dash. Only one file fits down a pipe, so both take
+--no-graph and a single realization, and the report goes to standard
+error instead. The markers are:
 
     0  interior
     1  bottom wall, y = 0
@@ -65,6 +69,7 @@ sides are periodic here and carry no nodes of their own.
 """
 
 import argparse
+import contextlib
 import os
 import sys
 
@@ -126,15 +131,25 @@ def stencils(pts, h, size, geometry, knn, radius, square):
     return rows
 
 
+def out_name(stem, ext):
+    """What this stem and extension name, or `-` for standard output."""
+    return "-" if stem == "-" else stem + ext
+
+
+def open_out(fname):
+    """The named file, or standard output for `-`, which stays open."""
+    return open(fname, "w") if fname != "-" else contextlib.nullcontext(sys.stdout)
+
+
 def write_points(fname, pts):
-    with open(fname, "w") as f:
+    with open_out(fname) as f:
         f.write(f"{len(pts)}\n")
         for x, y in pts.tolist():
             f.write(f"{x!r} {y!r}\n")            # repr: shortest round-trip text
 
 
 def write_node(fname, pts, m, provenance):
-    with open(fname, "w") as f:
+    with open_out(fname) as f:
         f.write(f"# {provenance}\n")
         f.write(f"{len(pts)} 2 0 1\n")
         for i, ((x, y), mi) in enumerate(zip(pts.tolist(), m.tolist())):
@@ -142,7 +157,7 @@ def write_node(fname, pts, m, provenance):
 
 
 def write_graph(fname, rows):
-    with open(fname, "w") as f:
+    with open_out(fname) as f:
         f.write(f"{len(rows)} {sum(len(row) for row in rows)}\n")
         for row in rows:
             f.write(" ".join(map(str, row)) + "\n")
@@ -172,7 +187,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("output", help="output file: the points file and the graph "
                     "file next to it, or a node file with the markers and the "
-                    "graph if the name ends in .node")
+                    "graph if the name ends in .node; `-` is standard output")
     ap.add_argument("-n", "--nodes", type=int, required=True, metavar="N",
                     help="nodes across the box")
     ap.add_argument("--size", type=float, metavar="L",
@@ -218,20 +233,18 @@ def main():
     if sigma >= 0.5:
         print(f"warning: --sigma {sigma:g} moves a node out of its own cell, "
               f"and nodes may end up on top of each other", file=sys.stderr)
-    if args.knn is None and args.radius is None and args.square is None:
+    if args.knn is None and args.radius is None and args.square is None and not args.no_graph:
         args.knn = 15
-    for name, reach in (("--radius", args.radius), ("--square", args.square)):
+    for flag, reach in (("--radius", args.radius), ("--square", args.square)):
         if reach is not None and not 0.0 < reach <= 0.5 * n:
             # Beyond half the box a node is its own neighbour through the
             # periodic side, which the stencil of a node cannot hold twice.
-            sys.exit(f"{name} must be positive and at most {0.5 * n:g} spacings, "
+            sys.exit(f"{flag} must be positive and at most {0.5 * n:g} spacings, "
                      f"half the width of the box")
     if args.realizations < 1:
         sys.exit("--realizations must be at least 1")
 
     seed = np.random.SeedSequence().entropy if args.seed is None else args.seed
-    if args.seed is None:
-        print(f"seed {seed}")
     streams = np.random.SeedSequence(seed).spawn(args.realizations)
 
     name = args.output
@@ -239,14 +252,26 @@ def main():
     base = os.path.splitext(name)[0] if node_file or name.endswith(".points") else name
     width = len(str(args.realizations - 1))
 
-    stencil_flag = (f"--knn {args.knn}" if args.knn is not None else
-                    f"--radius {args.radius:g}" if args.radius is not None else
-                    f"--square {args.square:g}")
+    piped = base == "-"                          # `-`, `-.points` or `-.node`
+    if piped and not args.no_graph:
+        sys.exit("only one file fits down a pipe: add --no-graph to write the "
+                 "coordinates to standard output, or name a file for the pair")
+    if piped and args.realizations > 1:
+        sys.exit("a series needs file names to go in: --realizations cannot "
+                 "write to standard output")
+    report = sys.stderr if piped else sys.stdout
+
+    stencil_flag = ("--no-graph " if args.no_graph else
+                    f"--knn {args.knn} " if args.knn is not None else
+                    f"--radius {args.radius:g} " if args.radius is not None else
+                    f"--square {args.square:g} ")
     size_flag = "" if args.size is None else f"--size {size:g} "
 
     pts0, m = grid(n, h, args.geometry)
-    if args.knn is not None and not 1 <= args.knn <= len(pts0):
+    if args.knn is not None and not 1 <= args.knn <= len(pts0) and not args.no_graph:
         sys.exit(f"--knn must be at least 1 and at most {len(pts0)}, the number of nodes")
+    if args.seed is None:
+        print(f"seed {seed}", file=report)
 
     for i, stream in enumerate(streams):
         stem = base if args.realizations == 1 else f"{base}_{i:0{width}d}"
@@ -255,24 +280,25 @@ def main():
 
         if node_file:
             command = (f"perturbed_grid.py -n {n} {size_flag}--sigma {sigma:g} "
-                       f"--geometry {args.geometry} {stencil_flag} --seed {seed}")
+                       f"--geometry {args.geometry} {stencil_flag}--seed {seed}")
             if args.realizations > 1:
                 command += f" --realizations {args.realizations}, number {i}"
-            write_node(stem + ".node", pts, m, "produced by " + command)
+            write_node(out_name(stem, ".node"), pts, m, "produced by " + command)
         else:
-            write_points(stem + ".points", pts)
+            write_points(out_name(stem, ".points"), pts)
 
         rows = None
         if not args.no_graph:
             rows = stencils(pts, h, size, args.geometry,
                             args.knn, args.radius, args.square)
-            write_graph(stem + ".graph", rows)
+            write_graph(out_name(stem, ".graph"), rows)
 
         walls = f", {np.count_nonzero(m)} of them on a wall" if args.geometry == "channel" else ""
         sizes = [len(row) for row in rows] if rows else []
         graph = (f", {sum(sizes)} stencil entries, {min(sizes)} to {max(sizes)} per node"
                  if sizes else "")
-        print(f"{stem}: {len(pts)} nodes{walls}{graph}")
+        print(f"{'standard output' if piped else stem}: {len(pts)} nodes{walls}{graph}",
+              file=report)
 
         if args.plot and i == 0:
             plot(pts, m, rows)
