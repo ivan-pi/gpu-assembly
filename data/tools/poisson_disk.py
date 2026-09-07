@@ -179,7 +179,7 @@ class pds:
             del self.queue[x_idx]
             self.qs -= 1
         sample = list(filter(None, self.grid))
-        sample = np.asfarray(sample)
+        sample = np.asarray(sample, dtype=float)
         return sample
 
 
@@ -204,7 +204,7 @@ def example():
     from matplotlib import cm
 
     fig = plt.figure()
-    ax = fig.gca(projection="3d")
+    ax = fig.add_subplot(projection="3d")
     ax.plot_trisurf(sample1[:, 0], sample1[:, 1], z, cmap=cm.viridis, linewidth=0.2)
     # ax.tricontourf(sample1[:,0],sample1[:,1],z, cmap=cm.viridis)
     plt.axis("equal")
