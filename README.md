@@ -24,6 +24,27 @@ Export the MathDx path:
 export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
 ```
 
+## Lattice Boltzmann layer
+
+`src/lbm/` holds a header-only LBM layer on top of the host library:
+lattice, collision models, streaming operators assembled by RBF-FD
+(semi-Lagrangian or Lax-Wendroff, arrival- or departure-centred
+stencils), native and Eigen backends, and fused or split time steppers.
+Its design, and how to extend it along each axis, is described in
+[docs/lbm_architecture.md](docs/lbm_architecture.md). Eigen is optional
+and picked up automatically when `find_package(Eigen3)` succeeds.
+
+The periodic flow benchmark driver runs a Taylor-Green vortex (or a
+shear layer) on a jittered point cloud and reports the decay error,
+MLUPS and bandwidth:
+
+```
+./build/lbm_bench --nodes 128 --steps 1000 --io 100
+./build/lbm_bench --scheme lw --collision trt --stepper split --backend eigen
+./build/lbm_bench --stencils departure --cfl 1.5
+./build/lbm_bench --help
+```
+
 The file formats the library reads and writes are described in
 [docs/file_formats.md](docs/file_formats.md).
 

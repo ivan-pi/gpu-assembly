@@ -34,6 +34,25 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(rbf PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+# LBM layer: header-only (src/lbm), on top of the host library. Eigen is
+# an optional streaming backend; when found, LBM_WITH_EIGEN is defined for
+# consumers and lbm_streamer_eigen.h becomes usable.
+add_library(lbm INTERFACE)
+target_include_directories(lbm INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/lbm
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples)   # rbf_flow_benchmarks.h
+target_link_libraries(lbm INTERFACE rbf)
+find_package(Eigen3 3.3 QUIET CONFIG)
+if(Eigen3_FOUND)
+    message(STATUS "Eigen3 ${Eigen3_VERSION} found: enabling the Eigen streaming backend")
+    target_link_libraries(lbm INTERFACE Eigen3::Eigen)
+    target_compile_definitions(lbm INTERFACE LBM_WITH_EIGEN)
+endif()
+
+# Periodic flow benchmark driver
+add_executable(lbm_bench examples/lbm_bench.cpp)
+target_link_libraries(lbm_bench PRIVATE lbm)
+
 if(GPU_ASSEMBLY_ENABLE_CUDA)
     enable_language(CUDA)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)

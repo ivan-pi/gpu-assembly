@@ -1,7 +1,9 @@
 #ifndef RBF_FLOW_BENCHMARKS_H
 #define RBF_FLOW_BENCHMARKS_H
 
-#include<cmath>
+#include <array>
+#include <cmath>
+#include <tuple>
 
 namespace flow_benchmarks {
 
@@ -17,7 +19,7 @@ struct taylor_green {
 
         const auto& [x,y] = xy;
 
-        const T kykx = ky/ky;
+        const T kykx = ky/kx;
         const T kxky = kx/ky;
 
         const T pfx = -u0*std::sqrt(kykx);
