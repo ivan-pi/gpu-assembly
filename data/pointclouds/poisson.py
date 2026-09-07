@@ -41,7 +41,7 @@ to the start, and a seed makes a sample reproducible. The loop, after
 Connor Johnson (2015), "Poisson Disk Sampling",
 <http://connor-johnson.com/2015/04/08/poisson-disk-sampling/>, is
 compiled by Numba on the first call of a process and cached next to this
-module. Run as a script, the module draws and shows a sample.
+module.
 """
 
 from collections import namedtuple
@@ -324,38 +324,3 @@ class PoissonDisk:
         """All points so far, seeds first, then in the order drawn."""
         n = int(self._store.count[0])
         return np.column_stack((self._store.px[:n], self._store.py[:n]))
-
-
-# ----------------------------------------------------------------- example
-
-
-def demo():
-    """A sample of the unit square with r = 0.02, shown with its Delaunay
-    triangulation, as the contours of a function over that triangulation,
-    and as the surface of the same function."""
-    import matplotlib.pyplot as plt
-    from matplotlib.tri import Triangulation
-
-    pts = PoissonDisk(0.02, ncandidates=10, seed=0).fill_space()
-    x, y = pts.T
-    z = np.sin(6 * x) + np.cos(2 * y)
-    tri = Triangulation(x, y)
-
-    fig = plt.figure(figsize=(15, 5))
-    ax = fig.add_subplot(1, 3, 1)
-    ax.triplot(tri, color="0.8")
-    ax.plot(x, y, "o", ms=2)
-    ax.set_aspect("equal")
-    ax.set_title(f"{len(pts)} points, r = 0.02")
-    ax = fig.add_subplot(1, 3, 2)
-    ax.tricontourf(tri, z, 40, cmap="viridis")
-    ax.set_aspect("equal")
-    ax.set_title("sin(6x) + cos(2y) on the triangulation")
-    ax = fig.add_subplot(1, 3, 3, projection="3d")
-    ax.plot_trisurf(x, y, z, cmap="viridis", linewidth=0.2)
-    fig.tight_layout()
-    plt.show()
-
-
-if __name__ == "__main__":
-    demo()

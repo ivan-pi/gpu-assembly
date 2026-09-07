@@ -104,8 +104,8 @@ conventions. `pointclouds.poisson` fills a rectangle with points no two
 of which are closer than a radius, with either axis periodic or neither,
 from seed points if given, for a generator to scale to lattice units;
 its interface follows `scipy.stats.qmc.PoissonDisk`, and Bridson's loop
-is compiled by numba, so a million points take a few seconds. The
-generators are:
+is compiled by numba, so a million points take a few seconds;
+`tools/poisson_demo.py` shows a sample of it. The generators are:
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
