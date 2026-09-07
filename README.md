@@ -24,6 +24,9 @@ Export the MathDx path:
 export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
 ```
 
+The file formats the library reads and writes are described in
+[docs/file_formats.md](docs/file_formats.md).
+
 References:
 - [RBF-FD Stencil Sizer](https://ivan-pi.github.io/tools/rbf_fd_stencil_sizer.html)
 - [cuSOLVERDx](https://docs.nvidia.com/cuda/cusolverdx/)
