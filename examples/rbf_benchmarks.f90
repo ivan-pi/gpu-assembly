@@ -327,13 +327,12 @@ contains
         class(shear_modes), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: p(:), ux(:), uy(:)
-        real(wp) :: d, mean
-        d = case%decay(time)
-        mean = sum(case%modes%amplitude**2)/2
         call shear_modes_evaluate(case,x,y,time,ux=ux,uy=uy,c=p)
-        p  = d*d*(-(ux**2 + uy**2 + p**2)/2 + mean)
-        ux = case%drift(1) + d*ux
-        uy = case%drift(2) + d*uy
+        associate(d => case%decay(time), mean => sum(case%modes%amplitude**2)/2)
+            p  = d*d*(-(ux**2 + uy**2 + p**2)/2 + mean)
+            ux = case%drift(1) + d*ux
+            uy = case%drift(2) + d*uy
+        end associate
     end subroutine
 
     ! Strain rate S = (grad u + grad u^T)/2
@@ -341,11 +340,11 @@ contains
         class(shear_modes), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: sxx(:), sxy(:), syy(:)
-        real(wp) :: d
-        d = case%decay(time)
         call shear_modes_evaluate(case,x,y,time,sxx=sxx,sxy=sxy)
-        sxx = d*sxx
-        sxy = d*sxy
+        associate(d => case%decay(time))
+            sxx = d*sxx
+            sxy = d*sxy
+        end associate
         syy = -sxx
     end subroutine
 
@@ -355,11 +354,11 @@ contains
         class(shear_modes), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: fx(:), fy(:)
-        real(wp) :: f
         call shear_modes_evaluate(case,x,y,time,ux=fx,uy=fy)
-        f = case%nu*case%ksqr()
-        fx = f*fx
-        fy = f*fy
+        associate(f => case%nu*case%ksqr())
+            fx = f*fx
+            fy = f*fy
+        end associate
     end subroutine
 
     !
@@ -425,21 +424,22 @@ contains
         class(acoustic_wave), intent(in) :: case
         real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: p(:), ux(:), uy(:)
-        real(wp) :: k(2), g, w, e, ct, st, th, u
+        real(wp) :: k(2), u
         integer :: i
         k = case%box%wavenumber(case%nx,case%ny)
-        g = case%damping_rate()
-        w = case%frequency()
-        e = exp(-g*time)
-        ct = e*(cos(w*time) + g/w*sin(w*time))
-        st = case%delta*case%csqr/w*e*sin(w*time)   ! |k| cancels against k/|k|
-        do i = 1, size(x)
-            th = k(1)*x(i) + k(2)*y(i) + case%phase
-            p(i) = case%rho0*(1 + case%delta*cos(th)*ct)
-            u = st*sin(th)
-            ux(i) = u*k(1)
-            uy(i) = u*k(2)
-        end do
+        associate(g => case%damping_rate(), w => case%frequency())
+        associate(ct => exp(-g*time)*(cos(w*time) + g/w*sin(w*time)), &
+                  st => case%delta*case%csqr/w*exp(-g*time)*sin(w*time))   ! |k| cancels against k/|k|
+            do i = 1, size(x)
+                associate(th => k(1)*x(i) + k(2)*y(i) + case%phase)
+                    p(i) = case%rho0*(1 + case%delta*cos(th)*ct)
+                    u = st*sin(th)
+                end associate
+                ux(i) = u*k(1)
+                uy(i) = u*k(2)
+            end do
+        end associate
+        end associate
     end subroutine
 
     !
