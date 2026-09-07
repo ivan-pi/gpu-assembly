@@ -205,7 +205,10 @@ def main():
 
     if ext == ".node":
         write_node(
-            stem, pts, m, f"perturbed grid, n={n}, sigma={sigma:g}, {args.geometry}"
+            stem,
+            pts,
+            m,
+            f"perturbed grid, n={n}, sigma={sigma:g}, {args.geometry}, size={n}x{n}",
         )
     else:
         write_points(stem, pts)

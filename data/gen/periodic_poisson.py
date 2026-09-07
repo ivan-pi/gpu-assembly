@@ -52,11 +52,11 @@ def sample(extent, d, candidates, hole, seed):
     first, if there is a hole, then the sample grown from them."""
     centre = 0.5 * extent
     seeds = circle(hole, centre, d) if hole else np.empty((0, 2))
-    engine = PoissonDisk(
+    sampler = PoissonDisk(
         d, extent, periodic=True, ncandidates=candidates, seed=seed, seeds=seeds
     )
-    engine.fill_space()
-    pts = engine.points
+    sampler.fill_space()
+    pts = sampler.points
     inside = np.hypot(*(pts - centre).T) < (hole or 0.0)
     inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
     pts = pts[~inside]
@@ -227,9 +227,11 @@ def main():
         graph = stencils.select_stencils(pts, box, (True, True), method, value)
 
     if ext == ".node":
-        geometry = f"size={lx:g}x{ly:g}, distance={d:g}, tile={tiles[0]}x{tiles[1]}"
+        geometry = f"size={lx:g}x{ly:g}, distance={d:g}"
         if hole is not None:
             geometry += f", hole={hole:g}"
+        if tiles.prod() > 1:
+            geometry += f", tile={tiles[0]}x{tiles[1]}"
         write_node(stem, pts, m, f"periodic poisson, {geometry}")
     else:
         write_points(stem, pts)

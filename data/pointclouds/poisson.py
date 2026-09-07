@@ -11,10 +11,10 @@ periodic box, one for a channel. A periodic box, filled:
 A channel, periodic in x, grown from its wall nodes, which then come
 first in the result:
 
-    engine = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=(True, False))
-    engine.add_points(walls)
-    engine.fill_space()
-    pts = engine.points
+    sampler = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=(True, False))
+    sampler.add_points(walls)
+    sampler.fill_space()
+    pts = sampler.points
 
 Bridson's algorithm (2007): a grid of cells of side at most r / sqrt(2),
 so that a cell holds one point at most, and a queue of the points that
@@ -261,7 +261,7 @@ class PoissonDisk:
 
     def reset(self):
         """Back to the start: the seeds alone, the random stream rewound.
-        Returns the engine."""
+        Returns the sampler."""
         lx, ly = self.extent
         # cells of side at most r / sqrt(2) tiling the rectangle exactly,
         # so that a cell holds one point at most
