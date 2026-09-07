@@ -14,8 +14,10 @@ The host library and its tests:
 - A Fortran 2008 compiler (gfortran, ifx, nvfortran)
 - (optional) OpenMP, for host parallelism and, in a future version,
   target offload
-- [nanoflann](https://github.com/jlblancoc/nanoflann), vendored under
-  `third_party/`
+- [nanoflann](https://github.com/jlblancoc/nanoflann), a header-only k-d
+  tree, vendored under `third_party/`
+- [ckdtree](https://github.com/scipy/scipy/tree/main/scipy/spatial/ckdtree),
+  SciPy's k-d tree, vendored under `third_party/` and built from source
 
 The GPU parts additionally:
 
@@ -65,6 +67,8 @@ export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
 Documentation:
 - [docs/nodeset.md](docs/nodeset.md): the `NodeSet` class, its
   renumbering and the stencil search
+- [docs/spatial.md](docs/spatial.md): `rbf::spatial`, the periodic box
+  and the k-d tree the stencil search runs on
 - [docs/renumbering.md](docs/renumbering.md): permutations,
   space-filling-curve orderings and graph renumbering
 - [docs/file_formats.md](docs/file_formats.md): the file formats the

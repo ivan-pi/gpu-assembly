@@ -18,21 +18,20 @@ are not here.
 
 ## Box and interface
 
-Every case is built on a `periodic_box` with sides `Lx` and `Ly` (in
-Fortran the module `rbf_periodic_box` in `src/`, since the box also
-serves stencil assembly), which turns integer mode numbers `(nx, ny)`
-into the wave numbers
-`(2 pi nx/Lx, 2 pi ny/Ly)`, so every field is periodic by construction.
-In lattice units the box is `nx` by `ny` cells and the fundamental mode
-is `(1, 1)`. The box also wraps a point into itself and gives the
-minimum-image displacement between two points.
+Every case is built on the library's periodic box with sides `Lx` and
+`Ly` -- `rbf::spatial::PeriodicBox<T, 2>` from [spatial.md](spatial.md),
+in Fortran the module `rbf_periodic_box` in `src/` -- since the box also
+serves the stencil search and assembly. `wavenumber(box, nx, ny)` turns
+integer mode numbers into the wave numbers `(2 pi nx/Lx, 2 pi ny/Ly)`,
+so every field is periodic by construction. In lattice units the box is
+`nx` by `ny` cells and the fundamental mode is `(1, 1)`.
 
 A case evaluates to a scalar and the two velocity components at a point.
 The time-dependent cases take the time; the initial conditions do not:
 
 ```cpp
 using namespace flow_benchmarks;
-periodic_box<double> box{64.0, 64.0};
+PeriodicBox<double, 2> box{{64.0, 64.0}};
 auto tg = taylor_green(box, 1, 1, u0, nu);
 auto [p, ux, uy] = tg({x, y}, time);
 ```

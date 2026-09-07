@@ -25,14 +25,24 @@ add_library(nanoflann INTERFACE)
 target_include_directories(nanoflann INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanoflann)
 
-# Host library: the Fortran curve-key, precision and periodic-box
-# modules plus the header-only C++ parts (rbf_reorder.h, rbf_nodeset.h,
-# rbf_io.h). Consumers get the include paths and the Fortran runtime by
-# linking `rbf`.
-add_library(rbf STATIC
+# SciPy's ckdtree (vendored)
+add_library(ckdtree
+    third_party/ckdtree/src/build.cxx
+    third_party/ckdtree/src/count_neighbors.cxx
+    third_party/ckdtree/src/query.cxx
+    third_party/ckdtree/src/query_ball_point.cxx
+    third_party/ckdtree/src/query_ball_tree.cxx
+    third_party/ckdtree/src/query_pairs.cxx
+    third_party/ckdtree/src/sparse_distances.cxx)
+target_include_directories(ckdtree PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ckdtree/src)
+
+# Host library
+add_library(rbf
     src/rbf_ordering.F90
     src/rbf_precision.f90
-    src/rbf_periodic_box.f90)
+    src/rbf_periodic_box.f90
+    src/rbf_spatial.cpp)
 # Fortran consumers (examples/) find the .mod files through the include path
 set_target_properties(rbf PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod)
@@ -40,11 +50,13 @@ target_include_directories(rbf PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}/mod)
 target_link_libraries(rbf PUBLIC nanoflann)
+target_link_libraries(rbf PRIVATE ckdtree)
 if(OpenMP_Fortran_FOUND)
     target_link_libraries(rbf PRIVATE OpenMP::OpenMP_Fortran)
 endif()
 if(OpenMP_CXX_FOUND)
-    # rbf_nodeset.h carries omp pragmas; consumers inherit the flags
+    # rbf_nodeset.h carries omp pragmas; consumers inherit the flags,
+    # and rbf_spatial.cpp needs them for its own
     target_link_libraries(rbf PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
