@@ -1,0 +1,220 @@
+// The ckdtree glue behind rbf::spatial::KdTree.
+//
+// SciPy drives ckdtree from Python: the ckdtree struct is a plain view
+// onto numpy arrays owned by the wrapper class, and the wrapper is
+// responsible for the invariants the C++ side assumes. Impl below is
+// that wrapper. The three obligations worth naming:
+//
+//   - raw_boxsize_data is 2m long, the m periods followed by their
+//     halves, and the data must already lie in [0, L). Hence the shift
+//     by the box origin and the wrap in the constructor.
+//   - build_ckdtree overwrites the maxes/mins it is given, so it gets
+//     copies; raw_maxes and raw_mins must survive as the root node's
+//     bounding box for the queries.
+//   - the node buffer grows during the build, so every ckdtreenode's
+//     less/greater pointers are stale by the end of it. They have to be
+//     rebuilt from the _less/_greater indices, which stay valid. See
+//     link_nodes below; SciPy does this in cKDTree._post_init.
+
+#include "rbf_spatial.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <limits>
+#include <numeric>
+#include <type_traits>
+
+#include "ckdtree_decl.h"
+
+static_assert(std::is_same_v<ckdtree_intp_t, std::intptr_t>,
+              "ckdtree's index type must match the one KdTree exposes");
+
+namespace rbf::spatial {
+
+namespace {
+
+[[noreturn]] void fail(const char* what) {
+    std::fprintf(stderr, "rbf::spatial: %s\n", what);
+    std::exit(1);
+}
+
+// Turn the _less/_greater node indices back into pointers, after the
+// buffer has stopped moving. SciPy walks the tree from the root; a flat
+// pass is the same set of nodes, because the one place the build
+// abandons a node (the retry when all points tie in the split
+// dimension) pops it off the buffer first.
+void link_nodes(std::vector<ckdtreenode>& nodes) {
+    ckdtreenode* root = nodes.data();
+    for (auto& n : nodes) {
+        if (n.split_dim == -1) {  // leaf
+            n.less = nullptr;
+            n.greater = nullptr;
+        } else {
+            n.less = root + n._less;
+            n.greater = root + n._greater;
+        }
+    }
+}
+
+} // namespace
+
+struct KdTree::Impl {
+    std::optional<PeriodicBox<double>> box;
+    std::vector<double> xy;              // n x 2, interleaved, inside the box
+    std::vector<std::intptr_t> indices;  // permuted by the build
+    std::vector<double> mins, maxes;     // the root node's bounding box
+    std::vector<double> boxsize;         // {Lx, Ly, Lx/2, Ly/2}; empty in the plane
+    std::vector<ckdtreenode> nodes;
+    ckdtree tree{};
+};
+
+KdTree::KdTree(std::span<const double> x, std::span<const double> y,
+               std::optional<PeriodicBox<double>> box, KdTreeParams params)
+    : impl_(std::make_unique<Impl>())
+{
+    if (x.size() != y.size()) fail("KdTree: x and y have different lengths");
+    if (x.empty()) fail("KdTree: empty point cloud");
+    if (params.leafsize < 1) fail("KdTree: leafsize must be positive");
+    if (box && (box->Lx <= 0 || box->Ly <= 0))
+        fail("KdTree: box sides must be positive");
+
+    const std::size_t n = x.size();
+    auto& im = *impl_;
+    im.box = box;
+
+    im.xy.resize(2 * n);
+    if (box) {
+        // The tree works in box-relative coordinates, since ckdtree's
+        // periodic metric assumes a box at the origin. The shift is a
+        // rigid translation and is undone nowhere: only distances and
+        // indices leave the tree, and both are invariant under it.
+        for (std::size_t i = 0; i < n; ++i) {
+            im.xy[2*i]     = box->wrap_x(x[i]) - box->x0;
+            im.xy[2*i + 1] = box->wrap_y(y[i]) - box->y0;
+        }
+    } else {
+        for (std::size_t i = 0; i < n; ++i) {
+            im.xy[2*i]     = x[i];
+            im.xy[2*i + 1] = y[i];
+        }
+    }
+
+    im.indices.resize(n);
+    std::iota(im.indices.begin(), im.indices.end(), std::intptr_t{0});
+
+    im.mins = {im.xy[0], im.xy[1]};
+    im.maxes = im.mins;
+    for (std::size_t i = 1; i < n; ++i)
+        for (int d = 0; d < 2; ++d) {
+            im.mins[d] = std::min(im.mins[d], im.xy[2*i + d]);
+            im.maxes[d] = std::max(im.maxes[d], im.xy[2*i + d]);
+        }
+
+    if (box) im.boxsize = {box->Lx, box->Ly, 0.5 * box->Lx, 0.5 * box->Ly};
+
+    auto& t = im.tree;
+    t.tree_buffer = &im.nodes;
+    t.raw_data = im.xy.data();
+    t.n = static_cast<std::intptr_t>(n);
+    t.m = 2;
+    t.leafsize = params.leafsize;
+    t.raw_maxes = im.maxes.data();
+    t.raw_mins = im.mins.data();
+    t.raw_indices = im.indices.data();
+    t.raw_boxsize_data = im.boxsize.empty() ? nullptr : im.boxsize.data();
+
+    std::vector<double> build_maxes = im.maxes, build_mins = im.mins;
+    build_ckdtree(&t, 0, t.n, build_maxes.data(), build_mins.data(),
+                  params.balanced, params.compact);
+
+    // The buffer reallocates during the build, so the root pointer, the
+    // child pointers and the node count are only settled now.
+    link_nodes(im.nodes);
+    t.ctree = im.nodes.data();
+    t.size = static_cast<std::intptr_t>(im.nodes.size());
+}
+
+KdTree::~KdTree() = default;
+KdTree::KdTree(KdTree&&) noexcept = default;
+KdTree& KdTree::operator=(KdTree&&) noexcept = default;
+
+std::size_t KdTree::size() const {
+    return static_cast<std::size_t>(impl_->tree.n);
+}
+
+const std::optional<PeriodicBox<double>>& KdTree::box() const { return impl_->box; }
+
+namespace {
+
+// Runs query_knn one point at a time. The tree is const and the query
+// state is entirely local, so the loop parallelises as it stands; the
+// n-point form of query_knn is serial anyway.
+void query_many(const ckdtree& tree, const double* xy, std::size_t nq, int k,
+                std::intptr_t* idx, double* dist)
+{
+    // query_knn selects ranks out of the sorted neighbours; the k
+    // nearest are ranks 1..k.
+    std::vector<std::intptr_t> ranks(static_cast<std::size_t>(k));
+    std::iota(ranks.begin(), ranks.end(), std::intptr_t{1});
+    const double inf = std::numeric_limits<double>::infinity();
+
+    #pragma omp parallel
+    {
+        // Somewhere to drop the distances when the caller does not want
+        // them; per thread, so the queries stay independent.
+        std::vector<double> scratch(dist ? 0 : static_cast<std::size_t>(k));
+        #pragma omp for schedule(static)
+        for (std::ptrdiff_t s = 0; s < static_cast<std::ptrdiff_t>(nq); ++s) {
+            const auto off = static_cast<std::size_t>(s) * static_cast<std::size_t>(k);
+            query_knn(&tree, dist ? dist + off : scratch.data(), idx + off,
+                      xy + 2*s, 1, ranks.data(), k, k, /*eps=*/0.0, /*p=*/2.0,
+                      /*distance_upper_bound=*/inf);
+        }
+    }
+}
+
+} // namespace
+
+void KdTree::knn(std::span<const double> qx, std::span<const double> qy, int k,
+                 std::span<std::intptr_t> idx, std::span<double> dist) const
+{
+    if (qx.size() != qy.size()) fail("KdTree::knn: qx and qy have different lengths");
+    if (k < 1 || static_cast<std::size_t>(k) > size())
+        fail("KdTree::knn: k outside [1, number of points]");
+    const std::size_t nq = qx.size();
+    const std::size_t want = nq * static_cast<std::size_t>(k);
+    if (idx.size() != want) fail("KdTree::knn: idx must hold nq*k indices");
+    if (!dist.empty() && dist.size() != want)
+        fail("KdTree::knn: dist must be empty or hold nq*k distances");
+    if (nq == 0) return;
+
+    // query_knn wraps the query into the box itself; the origin shift
+    // is ours to apply.
+    const auto& b = impl_->box;
+    const double x0 = b ? b->x0 : 0.0;
+    const double y0 = b ? b->y0 : 0.0;
+    std::vector<double> q(2 * nq);
+    for (std::size_t s = 0; s < nq; ++s) {
+        q[2*s]     = qx[s] - x0;
+        q[2*s + 1] = qy[s] - y0;
+    }
+    query_many(impl_->tree, q.data(), nq, k, idx.data(),
+               dist.empty() ? nullptr : dist.data());
+}
+
+void KdTree::knn(int k, std::span<std::intptr_t> idx, std::span<double> dist) const
+{
+    if (k < 1 || static_cast<std::size_t>(k) > size())
+        fail("KdTree::knn: k outside [1, number of points]");
+    const std::size_t want = size() * static_cast<std::size_t>(k);
+    if (idx.size() != want) fail("KdTree::knn: idx must hold n*k indices");
+    if (!dist.empty() && dist.size() != want)
+        fail("KdTree::knn: dist must be empty or hold n*k distances");
+
+    // The stored cloud is already shifted and wrapped.
+    query_many(impl_->tree, impl_->xy.data(), size(), k, idx.data(),
+               dist.empty() ? nullptr : dist.data());
+}
+
+} // namespace rbf::spatial

@@ -40,13 +40,15 @@ target_include_directories(ckdtree PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ckdtree/src)
 
 # Host library: the Fortran curve-key, precision and periodic-box
-# modules plus the header-only C++ parts (rbf_reorder.h, rbf_nodeset.h,
-# rbf_io.h). Consumers get the include paths and the Fortran runtime by
-# linking `rbf`.
+# modules, the ckdtree glue behind rbf::spatial (rbf_spatial.cpp), and
+# the header-only C++ parts (rbf_reorder.h, rbf_nodeset.h, rbf_io.h).
+# Consumers get the include paths and the Fortran runtime by linking
+# `rbf`.
 add_library(rbf STATIC
     src/rbf_ordering.F90
     src/rbf_precision.f90
-    src/rbf_periodic_box.f90)
+    src/rbf_periodic_box.f90
+    src/rbf_spatial.cpp)
 # Fortran consumers (examples/) find the .mod files through the include path
 set_target_properties(rbf PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod)
@@ -54,11 +56,13 @@ target_include_directories(rbf PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}/mod)
 target_link_libraries(rbf PUBLIC nanoflann)
+target_link_libraries(rbf PRIVATE ckdtree)
 if(OpenMP_Fortran_FOUND)
     target_link_libraries(rbf PRIVATE OpenMP::OpenMP_Fortran)
 endif()
 if(OpenMP_CXX_FOUND)
-    # rbf_nodeset.h carries omp pragmas; consumers inherit the flags
+    # rbf_nodeset.h carries omp pragmas; consumers inherit the flags,
+    # and rbf_spatial.cpp needs them for its own
     target_link_libraries(rbf PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
