@@ -31,9 +31,8 @@ def select_stencils(pts, boxsize, method="knn", value=KNN):
     tree = cKDTree(pts, boxsize=boxsize)
 
     if method == "knn":
-        assert (
-            2 <= value <= n
-        ), "a stencil of two nodes at least, and no more than the cloud"
+        if value > n:
+            raise ValueError(f"a stencil of {value} nodes from a cloud of {n}")
         dist, adj = tree.query(pts, value, workers=-1)
         twins = np.flatnonzero(dist[:, 1] == 0)
         if twins.size:

@@ -227,8 +227,8 @@ def read_graph(fname):
         dup = _rows_with_duplicates(ia, ja)
         if dup.size:
             problems.append(
-                f"{plural(dup.size, 'stencil')} {'lists' if dup.size == 1 else 'list'} "
-                f"a node twice, the first on line {rows[dup[0]][0]}"
+                f"a node listed twice in {plural(dup.size, 'stencil')}, "
+                f"the first on line {rows[dup[0]][0]}"
             )
     if problems:
         raise FormatError(fname, *problems)
@@ -238,9 +238,8 @@ def read_graph(fname):
 def _rows_with_duplicates(ia, ja):
     """The rows in which some node is listed twice."""
     n = len(ia) - 1
-    keys = np.sort(
-        np.repeat(np.arange(n), np.diff(ia)) * n + ja
-    )  # i * n + j of every entry
+    # i * n + j of every entry
+    keys = np.sort(np.repeat(np.arange(n), np.diff(ia)) * n + ja)
     return np.unique(keys[1:][keys[1:] == keys[:-1]] // n)
 
 

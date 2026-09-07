@@ -87,7 +87,9 @@ def main():
     cli.add_graph_options(ap)
     ap.add_argument("--seed", type=int, help="seed of the sample (default: random)")
     ap.add_argument(
-        "--plot", action="store_true", help="show the cloud, with one stencil"
+        "--plot",
+        action="store_true",
+        help="show the cloud, and one stencil of the graph",
     )
     args = ap.parse_args()
 
@@ -105,7 +107,7 @@ def main():
         cloud = TiledNodeSet(cloud, args.tile)
     graph = cloud.stencils(*args.graph) if args.graph else None
     cloud.write(stem, ext, graph)
-    print(f"{stem}: {cloud.summary(graph)}")
+    print(f"{stem}{ext}: {cloud.summary(graph)}")
     if args.plot:
         cli.show(cloud, graph)
 

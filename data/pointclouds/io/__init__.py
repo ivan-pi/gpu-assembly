@@ -11,20 +11,17 @@ from .readers import (
     read_nodes,
     read_ordering,
     read_points,
-    stencils_to_csr,
 )
-from .writers import open_out, write_graph, write_node, write_ordering, write_points
+from .writers import write_graph, write_node, write_ordering, write_points
 
 __all__ = [
     "FormatError",
-    "open_out",
     "plural",
     "read_graph",
     "read_node",
     "read_nodes",
     "read_ordering",
     "read_points",
-    "stencils_to_csr",
     "write_graph",
     "write_node",
     "write_ordering",

@@ -12,7 +12,6 @@ import sys
 import numpy as np
 from scipy.sparse import csr_array, triu
 
-from pointclouds.cli import output_stem
 from pointclouds.io import FormatError, read_graph, write_ordering
 
 
@@ -50,9 +49,8 @@ def nd(adjacency, seed=None, **kwargs):
         import pymetis
     except ImportError:
         sys.exit("--method nd needs pymetis (pip install pymetis)")
-    options = (
-        pymetis.Options() if seed is None else pymetis.Options(seed=seed)
-    )  # METIS takes integers only
+    # Options(seed=None) is refused, so the default is a separate call
+    options = pymetis.Options() if seed is None else pymetis.Options(seed=seed)
     perm, iperm = pymetis.nested_dissection(
         pymetis.CSRAdjacency(adjacency.indptr, adjacency.indices), options=options
     )
@@ -163,7 +161,7 @@ def main():
         report += f", factor nonzeros {before} -> {factor_nonzeros(adjacency, iperm)}"
     print(report, file=sys.stderr)
 
-    stem, _ = output_stem(args.output, ".iperm", known=(".iperm",))
+    stem = args.output.removesuffix(".iperm")
     write_ordering(stem, iperm)
     if stem != "-":
         print(f"ordering written to {stem}.iperm", file=sys.stderr)

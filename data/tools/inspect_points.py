@@ -15,7 +15,7 @@ import numpy as np
 from scipy.sparse import csr_array
 
 from pointclouds.cli import number
-from pointclouds.io import FormatError, read_graph, read_nodes, read_ordering
+from pointclouds.io import FormatError, plural, read_graph, read_nodes, read_ordering
 from pointclouds.nodeset import NodeSet
 
 KINDS = {
@@ -24,15 +24,6 @@ KINDS = {
     ".graph": "graph",
     ".iperm": "iperm",
 }
-
-
-@dataclass
-class Case:
-    """The files of a case as read; any of the three may be missing."""
-
-    cloud: NodeSet = None
-    graph: "Graph" = None
-    iperm: np.ndarray = None
 
 
 def describe_nodes(fname, xy, cloud):
@@ -52,8 +43,7 @@ def describe_nodes(fname, xy, cloud):
     list of str
         The problems seen: the coincident nodes, if any.
     """
-    n, boundary = len(cloud), np.count_nonzero(cloud.markers)
-    print(f"{fname}: {n} nodes, {n - boundary} interior, {boundary} boundary")
+    print(f"{fname}: {cloud.summary()}")
     values, counts = np.unique(cloud.markers, return_counts=True)
     print("  markers: " + "  ".join(f"{v}: {c}" for v, c in zip(values, counts)))
     lo, hi = xy.min(axis=0), xy.max(axis=0)
@@ -67,9 +57,9 @@ def describe_nodes(fname, xy, cloud):
             "distances are minimum-image"
             + (f"; {outside} nodes lie outside the box" if outside else "")
         )
-    if n < 2:
+    if len(cloud) < 2:
         return []
-    j, d = (a.ravel() for a in cloud.neighbours(1))
+    j, d = cloud.nearest()
     lo, hi = int(np.argmin(d)), int(np.argmax(d))
     print(
         f"  nearest-neighbour distance: min {d[lo]:.6g} (nodes {lo} and {j[lo]}), "
@@ -108,10 +98,6 @@ class Graph:
     def __len__(self):
         return self.n
 
-    def row(self, i):
-        """The stencil of node i."""
-        return self.ja[self.ia[i] : self.ia[i + 1]]
-
     def renumbered(self, iperm):
         """Return the graph in the numbering `iperm`, rows moved and entries relabelled."""
         order = np.argsort(iperm)
@@ -130,11 +116,11 @@ class Graph:
                 f"  rows: from {lengths.min()} to {lengths.max()} entries, "
                 f"mean {lengths.mean():.4g}"
             )
-        self_first = np.count_nonzero(ja[ia[:-1]] != np.arange(n))
-        if self_first:
+        not_first = np.count_nonzero(ja[ia[:-1]] != np.arange(n))
+        if not_first:
             missing = n - np.count_nonzero(self.pattern.diagonal())
             print(
-                f"  {self_first} rows do not start with their own node, "
+                f"  {not_first} rows do not start with their own node, "
                 f"{missing} do not contain it"
             )
         sym = self.pattern.multiply(self.pattern.T).nnz
@@ -176,6 +162,15 @@ applied to the nodes and the graph before they are drawn, so --labels
 shows the new indices; only the spy plot also shows the file order."""
 
 
+@dataclass
+class Case:
+    """The files of a case as read; any of the three may be missing."""
+
+    cloud: NodeSet = None
+    graph: Graph = None
+    iperm: np.ndarray = None
+
+
 def parse_args():
     """Return the command line, with `files` mapping each field of a Case to its file."""
     ap = argparse.ArgumentParser(
@@ -202,15 +197,14 @@ def parse_args():
         type=int,
         default=[],
         metavar="I",
-        help="draw the stencils of these nodes, from the graph "
-        "or the --k nearest neighbours",
+        help="draw the stencils of these nodes, from the graph or as the K nearest",
     )
     ap.add_argument(
-        "--k",
-        type=int,
-        default=0,
+        "-K",
+        "--knn",
+        type=number(int, least=2),
         metavar="K",
-        help="stencil size for --stencil without a graph file",
+        help="the stencil of a node is its K nearest nodes, without a graph file",
     )
     ap.add_argument(
         "--periodic",
@@ -245,10 +239,8 @@ def parse_args():
         sys.exit("--spy needs a graph file")
     if args.plot and "cloud" not in files:
         sys.exit("--plot needs a points or node file")
-    if args.stencil and "graph" not in files and args.k < 2:
-        sys.exit(
-            "--stencil needs a graph file, or --k of at least 2 to build the stencils"
-        )
+    if args.stencil and "graph" not in files and args.knn is None:
+        sys.exit("--stencil needs a graph file, or -K to build the stencils")
     return args
 
 
@@ -278,12 +270,12 @@ def draw(args, case):
         if bad:
             sys.exit(f"--stencil: node {bad[0]} is outside [0, {len(cloud)})")
         if graph is not None:
-            if args.k:
-                print("--k ignored: the stencils are taken from the graph file")
-            stencils = [(i, graph.row(i)) for i in args.stencil]
+            if args.knn:
+                print("-K ignored: the stencils are taken from the graph file")
+            ia, ja = graph.ia, graph.ja
         else:
-            ia, ja = cloud.stencils("knn", args.k)
-            stencils = [(i, ja[ia[i] : ia[i + 1]]) for i in args.stencil]
+            ia, ja = cloud.stencils("knn", args.knn)
+        stencils = [(i, ja[ia[i] : ia[i + 1]]) for i in args.stencil]
 
     import matplotlib.pyplot as plt
 
@@ -337,7 +329,7 @@ def main():
             "node counts differ: " + ", ".join(f"{f} has {n}" for f, n in sizes.items())
         )
     if problems:
-        print(f"{len(problems)} problem{'s' * (len(problems) != 1)}:")
+        print(f"{plural(len(problems), 'problem')}:")
         print(*(f"  {p}" for p in problems), sep="\n")
     if args.plot or args.spy:
         if problems:

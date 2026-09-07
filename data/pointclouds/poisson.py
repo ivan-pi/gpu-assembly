@@ -230,7 +230,7 @@ class PoissonDisk:
         periodic=False,
         ncandidates=30,
         seed=None,
-        seeds=None,
+        seeds=(),
     ):
         if radius <= 0:
             raise ValueError("radius must be positive")
@@ -246,16 +246,11 @@ class PoissonDisk:
         self.periodic = periodic
         self.ncandidates = int(ncandidates)
         self.seed = seed
-        self._seeds = (
-            np.empty((0, 2))
-            if seeds is None
-            else np.array(seeds, float, ndmin=2).reshape(-1, 2)
-        )
+        self._seeds = np.array(seeds, float).reshape(-1, 2)
         self.reset()
 
     def reset(self):
-        """Back to the start: the seeds alone, the random stream rewound.
-        Returns the sampler."""
+        """Back to the start: the seeds alone, the random stream rewound."""
         lx, ly = self.extent
         # cells of side at most r / sqrt(2) tiling the rectangle exactly,
         # so that a cell holds one point at most
@@ -270,23 +265,20 @@ class PoissonDisk:
             np.zeros(2, np.int64),
         )
         self._rng = np.random.default_rng(self.seed)
-        self.num_generated = 0
         self.add_points(self._seeds)
-        return self
 
     def add_points(self, pts):
         """Feed points to the queue as if drawn: the seeds, or the nodes of
         an inner layer. They are wrapped through the periodic sides, and
         two of them in one cell, which are closer than r, are refused."""
-        pts = np.array(pts, float, ndmin=2).reshape(-1, 2)
+        pts = np.array(pts, float).reshape(-1, 2)
         if len(pts) == 0:
             return
         if np.any(pts[:, ~self.periodic] < 0) or np.any(
             pts[:, ~self.periodic] >= self.extent[~self.periodic]
         ):
             raise ValueError("a point lies outside the rectangle")
-        pts = pts.copy()
-        pts[:, self.periodic] = wrap(pts[:, self.periodic], self.extent[self.periodic])
+        pts = wrap(pts, np.where(self.periodic, self.extent, 0.0))
         if not insert_points(self._store, self._cells, pts[:, 0], pts[:, 1]):
             raise ValueError("two of the points are closer than the radius")
 
@@ -303,8 +295,6 @@ class PoissonDisk:
             min(before + n, len(self._store.px)),
             self._rng,
         )
-        after = int(self._store.count[0])
-        self.num_generated += after - before
         return self.points[before:]
 
     def fill_space(self):

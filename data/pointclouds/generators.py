@@ -9,7 +9,7 @@ left to whoever needs it.
 
 import numpy as np
 
-from .nodeset import MARKERS, NodeSet
+from .nodeset import MARKERS, NodeSet, boundary_first
 
 
 class PerturbedGrid(NodeSet):
@@ -52,7 +52,7 @@ class PerturbedGrid(NodeSet):
             m,
             extent=(box, box),
             periodic=(True, periodic),
-            title=f"perturbed grid, size={n}x{n}, n={n}, sigma={sigma:g}, {geometry}",
+            title=f"perturbed grid, size={n}x{n}, sigma={sigma:g}, {geometry}",
         )
 
 
@@ -80,7 +80,7 @@ class PoissonBox(NodeSet):
                 f"the box is narrower than twice the distance {distance:g}: no room"
             )
         centre = 0.5 * extent
-        seeds = np.empty((0, 2))
+        seeds = ()
         if hole is not None:
             if hole < distance:
                 raise ValueError(
@@ -149,8 +149,7 @@ class RefinedCavity(NodeSet):
     SPACINGS = (1.0, 1.5, 2.5)  # at the wall, in the second band, in the middle
 
     def __init__(self, steps=10, *, size=None, distribution="rings"):
-        N = steps
-        span = 2 * N * sum(self.SPACINGS)  # the bands from both walls
+        span = 2 * steps * sum(self.SPACINGS)  # the bands from both walls
         Lx, Ly = (span, span) if size is None else size
         if min(Lx, Ly) < span:
             raise ValueError(
@@ -162,7 +161,8 @@ class RefinedCavity(NodeSet):
         # coordinate. A ring lies one spacing of the ring outside it
         # inwards, so a band holds N + 1 rings and the last one N, ending
         # in the centre since the first two bands are as wide as the third.
-        h = np.repeat(self.SPACINGS, (N + 1, N + 1, N) if rings else (N, N, N))
+        counts = (steps + 1, steps + 1, steps) if rings else (steps,) * 3
+        h = np.repeat(self.SPACINGS, counts)
         if rings:
             pts, r = [], 0.0
             while 2 * r <= min(Lx, Ly):
@@ -171,12 +171,14 @@ class RefinedCavity(NodeSet):
                 r += hk
             pts = np.vstack(pts)
         else:
-            z = np.concatenate(
-                ([0.0], np.cumsum(h))
-            )  # from the wall to the end of the bands
+            # from the wall to the end of the bands, the middle at the coarsest
+            # spacing if there is room, then the same from the far wall
+            z = np.concatenate(([0.0], np.cumsum(h)))
             coordinates = []
             for L in (Lx, Ly):
-                middle = self._side(z[-1], L - z[-1], h[-1]) if L > 2 * z[-1] else z[:0]
+                middle = np.empty(0)
+                if L > 2 * z[-1]:
+                    middle = self._side(z[-1], L - z[-1], h[-1])
                 coordinates.append(np.concatenate((z[:-1], middle, L - z[::-1])))
             xv, yv = np.meshgrid(*coordinates)
             pts = np.column_stack((xv.ravel(), yv.ravel()))
@@ -188,7 +190,7 @@ class RefinedCavity(NodeSet):
             [MARKERS.corner, MARKERS.south, MARKERS.east, MARKERS.north, MARKERS.west],
             MARKERS.interior,
         )
-        first = np.argsort(m == MARKERS.interior, kind="stable")  # the wall nodes first
+        first = boundary_first(m)
         super().__init__(
             pts[first],
             m[first],

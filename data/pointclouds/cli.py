@@ -32,10 +32,10 @@ def number(kind, *, least=None, above=None):
     return parse
 
 
-def output_stem(name, default, known=(".node", ".points")):
+def output_stem(name, default):
     """The stem of an output name and the extension that picks its format:
     the one it ends in, or `default` if it ends in none of them."""
-    for ext in known:
+    for ext in (".node", ".points"):
         if name.endswith(ext):
             return name.removesuffix(ext), ext
     return name, default

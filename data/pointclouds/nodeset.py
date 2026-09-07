@@ -1,7 +1,7 @@
 """A point cloud with a marker per node and the box it lives in: what the
 generators build, the tools read, and both write, search and draw.
 
-    cloud = NodeSet.read("case.node")          # or a child from pointclouds.generators
+    cloud = PoissonBox((32, 32), seed=1)       # a child, pointclouds.generators
     ia, ja = cloud.stencils()                  # the stencil graph, CSR
     cloud.write("case", ".node", (ia, ja))     # case.node and case.graph
 
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .io import read_nodes, write_graph, write_node, write_points
+from .io import write_graph, write_node, write_points
 from .periodic import minimum_image, wrap
 from .stencils import KNN, select_stencils
 
@@ -44,6 +44,12 @@ class Markers:
 MARKERS = Markers()
 
 
+def boundary_first(markers):
+    """The permutation that puts the boundary nodes ahead of the interior
+    ones, each group in its order."""
+    return np.argsort(markers == MARKERS.interior, kind="stable")
+
+
 class NodeSet:
     """A point cloud: `points` (n, 2); a marker per node in `markers`, 0
     for an interior node; the box `extent` = (Lx, Ly) it lives in, or
@@ -63,37 +69,27 @@ class NodeSet:
         self.title = title
         if any(self.periodic) and self.extent is None:
             raise ValueError("a periodic cloud needs its box")
-        wraps = np.array(self.periodic)
-        self.boxsize = list(np.where(wraps, self.extent or (0.0, 0.0), 0.0))
-        if wraps.any():
-            self.points[:, wraps] = wrap(
-                self.points[:, wraps], np.array(self.extent)[wraps]
-            )
+        self.boxsize = [
+            L if p else 0.0 for L, p in zip(self.extent or (0, 0), self.periodic)
+        ]
+        self.points = wrap(self.points, self.boxsize)
 
     def __len__(self):
         return len(self.points)
-
-    @classmethod
-    def read(cls, fname, extent=None, periodic=(False, False)):
-        """The cloud of a points or node file, told apart by extension."""
-        return cls(
-            *read_nodes(fname), extent=extent, periodic=periodic, title=f"from {fname}"
-        )
 
     def stencils(self, method="knn", value=KNN):
         """The stencil graph in CSR form, (ia, ja), with the stencil of
         node i at ja[ia[i]:ia[i + 1]]; see pointclouds.stencils."""
         return select_stencils(self.points, self.boxsize, method, value)
 
-    def neighbours(self, k):
-        """Indices and distances of the k nearest other nodes of every
-        node, nearest first."""
+    def nearest(self):
+        """Index and distance of the nearest other node of every node."""
         d, j = cKDTree(self.points, boxsize=self.boxsize).query(
-            self.points, k + 1, workers=-1
+            self.points, 2, workers=-1
         )
         twin_first = j[:, 0] != np.arange(len(self))  # a coincident node may lead
         j[twin_first, 1], d[twin_first, 1] = j[twin_first, 0], d[twin_first, 0]
-        return j[:, 1:], d[:, 1:]
+        return j[:, 1], d[:, 1]
 
     def write(self, stem, ext=".points", graph=None):
         """The points file, or with `ext` ".node" the node file with the
@@ -158,9 +154,9 @@ class NodeSet:
                     textcoords="offset points",
                     fontsize=6,
                 )
-        for s, (i, members) in enumerate(stencils):
-            from matplotlib.patches import Circle
+        from matplotlib.patches import Circle
 
+        for s, (i, members) in enumerate(stencils):
             color = self.PALETTE[s % len(self.PALETTE)]
             centre = xy[i]
             at = centre + minimum_image(xy[members] - centre, self.boxsize)
@@ -203,7 +199,7 @@ class TiledNodeSet(NodeSet):
         shifts = [(ix, iy) for iy in range(my) for ix in range(mx)]
         pts = np.vstack([cloud.points + extent * shift for shift in shifts])
         m = np.tile(cloud.markers, len(shifts))
-        first = np.argsort(m == MARKERS.interior, kind="stable")  # the boundary first
+        first = boundary_first(m)
         super().__init__(
             pts[first],
             m[first],
@@ -211,11 +207,11 @@ class TiledNodeSet(NodeSet):
             periodic=(True, True),
             title=f"{cloud.title}, tile={mx}x{my}",
         )
-        self.tile, self.tiles = cloud.extent, (mx, my)
+        self.tiles = (mx, my)
 
     def plot(self, ax, **kwargs):
         """The cloud, with the outline of the tiles."""
         super().plot(ax, **kwargs)
-        (lx, ly), (mx, my) = self.tile, self.tiles
+        (lx, ly), (mx, my) = np.array(self.extent) / self.tiles, self.tiles
         ax.vlines(lx * np.arange(mx + 1), 0, my * ly, color="0.7", lw=0.8)
         ax.hlines(ly * np.arange(my + 1), 0, mx * lx, color="0.7", lw=0.8)

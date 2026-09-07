@@ -20,9 +20,8 @@ examples:
 Lengths are in lattice units: the box is N by N and the spacing 1. The
 periodic box is the Taylor-Green test; the channel, periodic in x with
 walls at y = 0 and y = N, the Poiseuille test, its wall nodes with the
-markers 1 (bottom) and 3 (top). The stencil search wraps around the
-periodic sides. The output is a points file and a graph file in the
-same numbering, or a node file with the markers if named so
+markers 1 (bottom) and 3 (top). The output is a points file and a graph
+file in the same numbering, or a node file with the markers if named so
 (docs/file_formats.md)."""
 
 
@@ -65,7 +64,9 @@ def main():
         help="seed of the displacements (default: random)",
     )
     ap.add_argument(
-        "--plot", action="store_true", help="show the grid, with one stencil"
+        "--plot",
+        action="store_true",
+        help="show the cloud, and one stencil of the graph",
     )
     args = ap.parse_args()
 
@@ -78,7 +79,7 @@ def main():
     )
     graph = cloud.stencils(*args.graph) if args.graph else None
     cloud.write(stem, ext, graph)
-    print(f"{stem}: {cloud.summary(graph)}")
+    print(f"{stem}{ext}: {cloud.summary(graph)}")
     if args.plot:
         cli.show(cloud, graph)
 

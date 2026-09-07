@@ -28,11 +28,11 @@ def write_points(stem, pts):
             f.write(f"{x!r} {y!r}\n")  # repr: shortest round-trip text
 
 
-def write_node(stem, pts, m, provenance):
-    """A node file: a comment naming the command that produced it, the
-    header, then a numbered node with its marker per line."""
+def write_node(stem, pts, m, title):
+    """A node file: the title of the cloud as a comment, the header, then
+    a numbered node with its marker per line."""
     with open_out(stem, ".node") as f:
-        f.write(f"# {provenance}\n")
+        f.write(f"# {title}\n")
         f.write(f"{len(pts)} 2 0 1\n")
         for i, ((x, y), mi) in enumerate(zip(pts.tolist(), m.tolist())):
             f.write(f"{i} {x!r} {y!r} {mi}\n")
