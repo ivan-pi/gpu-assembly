@@ -243,8 +243,9 @@ std::size_t parse_ints(std::string_view text, std::vector<I>& ja,
 // meaning. Use it when k is known: the check against the header is the
 // stronger one.
 //
-// Returns {ia, ja}. Index values are passed through unchanged, so they must
-// already be in the base (0 or 1) the consumer expects; ia is built 0-based.
+// Indices are 0-based, as in every graph file produced so far: a value
+// outside [0, n) is an error, which also catches a 1-based file. Returns
+// {ia, ja} with ia 0-based.
 template <class I = std::int32_t>
 std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fname,
                                                          int k = 0)
@@ -290,6 +291,11 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
         // leave data behind
         detail::expect_end(in, fname, "row " + std::to_string(n - 1));
     }
+    for (std::size_t p = 0; p < ja.size(); ++p)
+        if (ja[p] < 0 || static_cast<std::size_t>(ja[p]) >= n)
+            detail::fail(fname, "entry " + std::to_string(p) + " is index "
+                                + std::to_string(ja[p]) + ", outside [0, "
+                                + std::to_string(n) + "); indices are 0-based");
     return {std::move(ia), std::move(ja)};
 }
 

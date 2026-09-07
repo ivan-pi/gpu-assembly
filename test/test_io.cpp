@@ -124,11 +124,11 @@ static void test_read_graph_csr() {
     CHECK(ia == (std::vector<std::int32_t>{0, 3, 5, 6}));
     CHECK(ja == (std::vector<std::int32_t>{0, 1, 2, 1, 0, 2}));
 
-    // indices are passed through unchanged (here 1-based); no final newline
-    write_text("g.graph", "2 3\n1 2\n2");
+    // 64-bit index type; no final newline; the largest valid index is n - 1
+    write_text("g.graph", "2 3\n0 1\n1");
     auto [ia1, ja1] = rbf::io::read_graph_csr<std::int64_t>("g.graph");
     CHECK(ia1 == (std::vector<std::int64_t>{0, 2, 3}));
-    CHECK(ja1 == (std::vector<std::int64_t>{1, 2, 2}));
+    CHECK(ja1 == (std::vector<std::int64_t>{0, 1, 1}));
 
     // fixed k: same file read both ways gives the same result
     write_text("g.graph", "3 6\n0 1\n1 2\n2 0\n");

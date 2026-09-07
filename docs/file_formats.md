@@ -54,23 +54,30 @@ including `i` itself, which comes first in the files produced so far. Rows
 may have different lengths, but every row must have at least one entry,
 since a node with no neighbours gives a singular system.
 
-Index values are passed through unchanged. A 0-based file gives 0-based
-`ja`, a 1-based file gives 1-based `ja`; the row pointer `ia` is always
-0-based. Nothing in the reader checks which convention the file uses.
+Indices are 0-based. An index outside `[0, n)` is an error, which is also
+how a 1-based file is caught: its largest index equals `n`.
 
 `read_graph_csr(fname, k)` with `k > 0` declares that every row has exactly
 `k` entries, as for k-nearest-neighbour stencils. The header must then
 satisfy `nnz == n * k`, and the body is read as a flat list of `n * k`
 indices: line breaks carry no meaning on that path.
 
-The layout is that of the METIS graph format
-(<https://github.com/KarypisLab/METIS>, manual section 4.5), with two
-differences. METIS numbers vertices from 1 and counts each undirected edge
-once in the header, where we count entries. And METIS requires a symmetric
-graph, while stencil graphs generally are not: node `j` may be in the
-stencil of `i` without `i` being in the stencil of `j`. To hand a stencil
-graph to METIS or KaHIP it has to be symmetrised first, which amounts to
-forming the pattern of `A + A^T`.
+The layout follows the METIS graph file (METIS manual 5.1.0, section
+4.1.1, <https://github.com/KarypisLab/METIS>), but the two are not
+interchangeable:
+
+- METIS numbers vertices from 1; we number from 0.
+- The METIS header is `n m`, with `m` the number of undirected edges, each
+  counted once; our second number is the total count of entries.
+- METIS lines list the vertices adjacent to a vertex, in an undirected
+  graph; our lines are stencils, which include the node itself and need not
+  be symmetric: node `j` may be in the stencil of `i` without `i` being in
+  the stencil of `j`.
+- METIS skips lines starting with `%` as comments; we have no comments.
+
+To hand a stencil graph to METIS or KaHIP it has to be symmetrised, which
+amounts to forming the pattern of `A + A^T`, with the diagonal dropped and
+the indices shifted by one.
 
 ## NodeSet file
 
