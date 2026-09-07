@@ -26,14 +26,13 @@ command-line conventions -- in the `gen/pointclouds` package beside them.
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
-  markers for the four walls and the corners. Needs numpy; `--plot`
-  needs matplotlib.
+  markers for the four walls and the corners.
 - `gen/perturbed_grid.py`: a Cartesian grid with every node displaced by
   a small random amount, periodic on both sides or a channel with walls
   at the top and bottom, as a `.points` or a `.node` file together with
   the `.graph` of its stencils, whose search wraps around the periodic
-  sides. `--realizations` writes the numbered series such a random case
-  is averaged over. Needs numpy and scipy; `--plot` needs matplotlib.
+  sides.
 
-Both work in lattice units, in which the spacing is 1; scaling a case to
-other units is left to whoever needs it. `--help` describes the rest.
+They work in lattice units, in which the spacing is 1; scaling a case to
+other units is left to whoever needs it. Any of them may use numpy,
+scipy and matplotlib. `--help` describes the rest.
