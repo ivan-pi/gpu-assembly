@@ -14,6 +14,9 @@ numbering. The name is free; what it stands for is recorded in the table
 below. Node sets, which are a single `.node` file and carry no graph, are
 listed under [Extracted](#extracted).
 
+The Python here -- the generators in `gen/`, the tools in `tools/` -- may
+use numpy, scipy and matplotlib.
+
 ## Cases
 
 | Case | Points | k | Origin |
@@ -53,18 +56,27 @@ Marker 0 is an interior node in all of them.
 
 ## Generating
 
-Scripts that produced a case go in `gen/`.
+Scripts that produced a case go in `gen/`, and what they share -- the
+writers for the formats above, the boundary-marker convention and the
+command-line conventions -- in the `gen/pointclouds` package beside them.
+The generators are:
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
-  markers for the four walls and the corners. Needs numpy; `--plot`
-  needs matplotlib.
+  markers for the four walls and the corners.
+- `gen/perturbed_grid.py`: a Cartesian grid with every node displaced by
+  a small random amount, periodic on both sides or a channel with walls
+  at the top and bottom, as a `.points` or a `.node` file together with
+  the `.graph` of its stencils, whose search wraps around the periodic
+  sides.
+
+They work in lattice units, in which the spacing is 1; scaling a case to
+other units is left to whoever needs it. `--help` describes the rest.
 
 ## Inspecting
 
 `tools/inspect_points.py` reads and checks the files of a case and
-reports on them. It needs numpy; scipy and matplotlib are optional, for
-the neighbour search and the figures.
+reports on them.
 
 ```
 usage: inspect_points.py [-h] [--plot] [--labels] [--stencil I [I ...]]

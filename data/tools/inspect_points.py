@@ -30,7 +30,8 @@ import numpy as np
 
 class Report:
     """What the checks found: problems, listed at the end and making the
-    exit status 1, and notes, printed under the description of their file."""
+    exit status 1, and notes, printed under the description of their file.
+    A file with nothing wrong is passed over in silence."""
 
     def __init__(self):
         self.problems = []
@@ -48,9 +49,9 @@ class Report:
         self.notes = []
 
     def print_problems(self):
-        """The list of problems, or that there were none."""
+        """The list of problems, and nothing at all when there are none:
+        the exit status already says a file checked out."""
         if not self.problems:
-            print("checks: no problems found")
             return
         print(f"{plural(len(self.problems), 'problem')}:")
         for p in self.problems:
@@ -432,7 +433,8 @@ class Graph:
     # reporting
 
     def describe(self):
-        """Print the size, the row lengths, the diagonal, symmetry and bandwidth."""
+        """Print the size, the row lengths, symmetry and bandwidth, and the
+        rows that do not open with their own node when any do not."""
         n, ja, rows = self.n, self.ja, self.rows
         print(f"{self.fname}: {n} nodes, {self.nnz} entries")
         lengths = np.diff(self.ia)
@@ -441,9 +443,7 @@ class Graph:
         else:
             print(f"  rows: from {lengths.min()} to {lengths.max()} entries, mean {lengths.mean():.4g}")
         self_first = ja[self.ia[:-1]] == np.arange(n)
-        if self_first.all():
-            print("  every row starts with its own node")
-        else:
+        if not self_first.all():
             has_self = np.isin(np.arange(n) * (n + 1), self.keys())
             print(f"  {np.count_nonzero(~self_first)} rows do not start with their own node, "
                   f"{np.count_nonzero(~has_self)} do not contain it")
