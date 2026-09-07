@@ -141,17 +141,21 @@ template <class T, class OnCount, class OnPoint>
 void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_point)
 {
     auto in = open_in(fname);
+    std::string line;
     std::size_t n = 0;
-    if (!(in >> n)) fail(fname, "missing or malformed point count");
+    std::getline(in, line);
+    if (LineCursor c{line}; !c.next(n) || !c.at_end())
+        fail(fname, "missing or malformed point count");
     on_count(n);
     for (std::size_t i = 0; i < n; ++i) {
+        if (!std::getline(in, line))
+            fail(fname, "expected " + std::to_string(n) + " points, found " + std::to_string(i));
+        LineCursor c{line};
         T px, py;
-        in >> px >> py;
+        if (!(c.next(px) && c.next(py)) || !c.at_end())
+            fail(fname, "line " + std::to_string(i + 2) + ": expected \"x y\"");
         on_point(px, py);
     }
-    // One check: stream failure is sticky, so a short or malformed file fails
-    // here whether it broke on the first record or the last.
-    if (!in) fail(fname, "expected " + std::to_string(n) + " points");
 }
 
 } // namespace detail
