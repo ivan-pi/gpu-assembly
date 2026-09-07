@@ -25,8 +25,8 @@ In lattice units the box is `nx` by `ny` cells and the fundamental mode
 is `(1, 1)`. The box also wraps a point into itself and gives the
 minimum-image displacement between two points.
 
-A case evaluates to a scalar and the two velocity components at a point,
-with a time argument on the time-dependent cases only:
+A case evaluates to a scalar and the two velocity components at a point.
+The time-dependent cases take the time; the initial conditions do not:
 
 ```cpp
 using namespace flow_benchmarks;
@@ -40,7 +40,7 @@ type(periodic_box) :: box
 type(shear_modes) :: tg
 box = periodic_box(64.0_wp, 64.0_wp)
 tg = taylor_green(box, 1, 1, u0, nu)
-call tg%fields(x, y, p, ux, uy, time)
+call tg%fields(x, y, time, p, ux, uy)
 ```
 
 The scalar is the pressure, or the density for the acoustic wave and the
@@ -131,10 +131,6 @@ f_i = f_i^eq(rho, u) - w_i rho tau/cs^2 (c_i c_i - cs^2 I) : S
 
 with `tau` the relaxation time in lattice units, `nu = cs^2 (tau - 1/2)`.
 
-The Fortran `lattice_fields(case, time, p, ux, uy, S)` samples a case at
-the cell centres `(i - 1/2, j - 1/2)` of a lattice, with arrays laid out
-as `(y, x)` and the strain rate in `S(:,:,1:3)` when asked for.
-
 ## Acoustic wave
 
 A standing sound wave released from rest, in linear isothermal acoustics
@@ -153,12 +149,17 @@ optionally `nu_bulk` (default `nu`), `csqr` (default 1/3), `rho0`
 `period`.
 
 The shear wave covers dissipation; this is the dispersion half. The
-period gives the sound speed, and the damping gives
-`nu + nu_bulk = 2 gamma/|k|^2`, so with the shear viscosity known from a
-shear wave it measures the bulk viscosity. The BGK collision on D2Q9 has
-`nu_bulk = nu`, the default; a multiple relaxation time collision sets
-it independently. The solution is linear, valid for `delta << 1`; the
-velocity amplitude is about `delta cs`.
+period gives `W` and the damping gives `gamma`, hence
+`cs^2 = (W^2 + gamma^2)/|k|^2` and `nu + nu_bulk = 2 gamma/|k|^2`, so
+with the shear viscosity known from a shear wave this measures the
+sound speed and the bulk viscosity. The `nu + nu_bulk` is the
+two-dimensional form of the isothermal sound absorption
+`(2 nu (1 - 1/D) + nu_bulk)`. The BGK collision has the stress
+`rho nu (grad u + grad u^T)` without the trace subtraction, which is a
+bulk viscosity `2 nu/D` (Dellar, 2001): `nu` on D2Q9, the default here,
+and `2 nu/3` in three dimensions; a multiple relaxation time collision
+sets it independently. The solution is linear, valid for `delta << 1`;
+the velocity amplitude is about `delta cs`.
 
 ## Shear layer
 

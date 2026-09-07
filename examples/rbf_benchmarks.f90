@@ -3,8 +3,8 @@
 ! the measurement recipes are in docs/periodic_benchmarks.md; the C++
 ! header rbf_flow_benchmarks.h offers the same cases.
 !
-!     call case%fields(x, y, p, ux, uy)         ! any case
-!     call case%fields(x, y, p, ux, uy, time)   ! time-dependent cases
+!     call case%fields(x, y, time, p, ux, uy)   ! time-dependent cases
+!     call case%fields(x, y, p, ux, uy)         ! initial conditions
 !
 ! evaluates the fields at the points (x(i), y(i)). The scalar p is the
 ! pressure, or the density for acoustic_wave and barotropic_vortex. The
@@ -17,7 +17,7 @@ private
 
 public :: pi
 public :: periodic_box
-public :: mode, shear_modes, shear_wave, taylor_green, lattice_fields
+public :: mode, shear_modes, shear_wave, taylor_green
 public :: acoustic_wave
 public :: shear_layer
 public :: barotropic_vortex
@@ -323,31 +323,27 @@ contains
         end do
     end subroutine
 
-    subroutine shear_modes_fields(case,x,y,p,ux,uy,time)
+    subroutine shear_modes_fields(case,x,y,time,p,ux,uy)
         class(shear_modes), intent(in) :: case
-        real(wp), intent(in) :: x(:), y(:)
+        real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: p(:), ux(:), uy(:)
-        real(wp), intent(in), optional :: time
-        real(wp) :: t, d, mean
-        t = time_or_zero(time)
-        d = case%decay(t)
+        real(wp) :: d, mean
+        d = case%decay(time)
         mean = sum(case%modes%amplitude**2)/2
-        call shear_modes_evaluate(case,x,y,t,ux=ux,uy=uy,c=p)
+        call shear_modes_evaluate(case,x,y,time,ux=ux,uy=uy,c=p)
         p  = d*d*(-(ux**2 + uy**2 + p**2)/2 + mean)
         ux = case%drift(1) + d*ux
         uy = case%drift(2) + d*uy
     end subroutine
 
     ! Strain rate S = (grad u + grad u^T)/2
-    subroutine shear_modes_stress_tensor(case,x,y,sxx,sxy,syy,time)
+    subroutine shear_modes_stress_tensor(case,x,y,time,sxx,sxy,syy)
         class(shear_modes), intent(in) :: case
-        real(wp), intent(in) :: x(:), y(:)
+        real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: sxx(:), sxy(:), syy(:)
-        real(wp), intent(in), optional :: time
-        real(wp) :: t, d
-        t = time_or_zero(time)
-        d = case%decay(t)
-        call shear_modes_evaluate(case,x,y,t,sxx=sxx,sxy=sxy)
+        real(wp) :: d
+        d = case%decay(time)
+        call shear_modes_evaluate(case,x,y,time,sxx=sxx,sxy=sxy)
         sxx = d*sxx
         sxy = d*sxy
         syy = -sxx
@@ -355,34 +351,15 @@ contains
 
     ! Body force holding the time-zero field steady in the drifting
     ! frame: f = nu |k|^2 (u(x, 0) - U), followed along the drift
-    subroutine shear_modes_body_force(case,x,y,fx,fy,time)
+    subroutine shear_modes_body_force(case,x,y,time,fx,fy)
         class(shear_modes), intent(in) :: case
-        real(wp), intent(in) :: x(:), y(:)
+        real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: fx(:), fy(:)
-        real(wp), intent(in), optional :: time
         real(wp) :: f
-        call shear_modes_evaluate(case,x,y,time_or_zero(time),ux=fx,uy=fy)
+        call shear_modes_evaluate(case,x,y,time,ux=fx,uy=fy)
         f = case%nu*case%ksqr()
         fx = f*fx
         fy = f*fy
-    end subroutine
-
-    ! The case sampled at the cell centres (i - 1/2, j - 1/2) of a
-    ! lattice in lattice units, arrays laid out as (y, x) with the shape
-    ! of p; the strain rate S(:,:,1:3) = (sxx, sxy, syy) when asked for
-    subroutine lattice_fields(case,time,p,ux,uy,S)
-        type(shear_modes), intent(in) :: case
-        real(wp), intent(in) :: time
-        real(wp), intent(out) :: p(:,:), ux(:,:), uy(:,:)
-        real(wp), intent(out), optional :: S(:,:,:)
-        integer :: i, j
-        real(wp), dimension(size(p,1)) :: xx, yy
-        yy = [(j - 0.5_wp, j = 1, size(p,1))]
-        do i = 1, size(p,2)
-            xx = i - 0.5_wp
-            call case%fields(xx,yy,p(:,i),ux(:,i),uy(:,i),time)
-            if (present(S)) call case%stress_tensor(xx,yy,S(:,i,1),S(:,i,2),S(:,i,3),time)
-        end do
     end subroutine
 
     !
@@ -444,20 +421,18 @@ contains
     end function
 
     ! p holds the density
-    subroutine acoustic_wave_fields(case,x,y,p,ux,uy,time)
+    subroutine acoustic_wave_fields(case,x,y,time,p,ux,uy)
         class(acoustic_wave), intent(in) :: case
-        real(wp), intent(in) :: x(:), y(:)
+        real(wp), intent(in) :: x(:), y(:), time
         real(wp), intent(out) :: p(:), ux(:), uy(:)
-        real(wp), intent(in), optional :: time
-        real(wp) :: t, k(2), g, w, e, ct, st, th, u
+        real(wp) :: k(2), g, w, e, ct, st, th, u
         integer :: i
-        t = time_or_zero(time)
         k = case%box%wavenumber(case%nx,case%ny)
         g = case%damping_rate()
         w = case%frequency()
-        e = exp(-g*t)
-        ct = e*(cos(w*t) + g/w*sin(w*t))
-        st = case%delta*case%csqr/w*e*sin(w*t)   ! |k| cancels against k/|k|
+        e = exp(-g*time)
+        ct = e*(cos(w*time) + g/w*sin(w*time))
+        st = case%delta*case%csqr/w*e*sin(w*time)   ! |k| cancels against k/|k|
         do i = 1, size(x)
             th = k(1)*x(i) + k(2)*y(i) + case%phase
             p(i) = case%rho0*(1 + case%delta*cos(th)*ct)
@@ -501,16 +476,5 @@ contains
             p(i) = case%rho0*exp(-case%eps**2/case%csqr*g*g/2)
         end do
     end subroutine
-
-    !
-    ! HELPERS
-    !
-
-    pure function time_or_zero(time) result(t)
-        real(wp), intent(in), optional :: time
-        real(wp) :: t
-        t = 0.0_wp
-        if (present(time)) t = time
-    end function
 
 end module

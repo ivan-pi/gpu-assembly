@@ -7,8 +7,8 @@
  * the measurement recipes are in docs/periodic_benchmarks.md; the
  * Fortran module rbf_benchmarks offers the same cases.
  *
- *   auto [scalar, ux, uy] = case({x, y});         // any case
  *   auto [scalar, ux, uy] = case({x, y}, time);   // time-dependent cases
+ *   auto [scalar, ux, uy] = case({x, y});         // initial conditions
  *
  * The scalar is the pressure, or the density for acoustic_wave and
  * barotropic_vortex. Constructors assert their preconditions (compiled
@@ -121,7 +121,7 @@ struct shear_modes {
         return -time_constant()*std::log(frac);
     }
 
-    std::tuple<T,T,T> operator()(std::array<T,2> xy, T time = {}) const {
+    std::tuple<T,T,T> operator()(std::array<T,2> xy, T time) const {
         const T d = decay(time);
         const sums s = evaluate(xy, time);
         const T p = d*d*(-(s.ux*s.ux + s.uy*s.uy + s.c*s.c)/2 + mean_);
@@ -129,7 +129,7 @@ struct shear_modes {
     }
 
     // Strain rate S = (grad u + grad u^T)/2 as {sxx, sxy, syy}
-    std::array<T,3> stress_tensor(std::array<T,2> xy, T time = {}) const {
+    std::array<T,3> stress_tensor(std::array<T,2> xy, T time) const {
         const T d = decay(time);
         const sums s = evaluate(xy, time);
         return {d*s.sxx, d*s.sxy, -d*s.sxx};
@@ -137,7 +137,7 @@ struct shear_modes {
 
     // Body force holding the time-zero field steady in the drifting
     // frame: f = nu |k|^2 (u(x, 0) - U), followed along the drift
-    std::array<T,2> body_force(std::array<T,2> xy, T time = {}) const {
+    std::array<T,2> body_force(std::array<T,2> xy, T time) const {
         const sums s = evaluate(xy, time);
         return {nu*ksqr_*s.ux, nu*ksqr_*s.uy};
     }
@@ -239,7 +239,7 @@ struct acoustic_wave {
     T frequency() const { return omega_; }
     T period() const { return 2*std::numbers::pi_v<T>/omega_; }
 
-    std::tuple<T,T,T> operator()(std::array<T,2> xy, T time = {}) const {
+    std::tuple<T,T,T> operator()(std::array<T,2> xy, T time) const {
         assert(time >= 0 && "time must be non-negative");
         const T th = kx_*xy[0] + ky_*xy[1] + phase;
         const T e = std::exp(-gamma_*time);
