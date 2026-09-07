@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""Show a Poisson disk sample of the unit square: the points with their
-Delaunay triangulation, the contours of a function interpolated over
-that triangulation, and the surface of the same function.
+"""Show a Poisson disk sample of the unit square.
 
-    python3 poisson_demo.py
-    python3 poisson_demo.py --radius 0.05 --save sample.png
-
-Needs numba, for the sampler, and matplotlib.
+Three panels: the points with their Delaunay triangulation, the contours
+of a function interpolated over it, and the surface of that function.
 """
 
 import argparse
@@ -20,7 +16,11 @@ from pointclouds.poisson import PoissonDisk
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(
+        description=__doc__.split("\n")[0],
+        epilog="examples:\n  poisson_demo.py\n  poisson_demo.py --radius 0.05 --save sample.png",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument(
         "--radius",
         type=number(float, above=0.0),

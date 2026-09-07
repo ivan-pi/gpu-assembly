@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
-"""Inspect the point, node, graph and ordering files of docs/file_formats.md.
-The tool reads, checks and reports; it never writes a file.
+"""Check and describe the files of a case, and draw them.
 
-    tools/inspect_points.py case.node --plot --labels
-    tools/inspect_points.py case.points case.graph --stencil 0 17
-    tools/inspect_points.py case.points case.graph case.iperm --spy
-    tools/inspect_points.py case.points --periodic 32 32
-
-One file of each kind, told apart by extension. Each is checked against
-its header and the files against each other; the problems found are
-listed at the end and make the exit status 1. An ordering file is
-applied to the nodes and the graph before they are drawn, so --labels
-shows the new indices; only the spy plot also shows the file order.
-
-Needs numpy and scipy; matplotlib draws the figures.
+The point, node, graph and ordering files of docs/file_formats.md; the
+tool never writes a file.
 """
 
 import argparse
@@ -32,9 +21,22 @@ KINDS = {".points": "nodes", ".node": "nodes", ".graph": "graph", ".iperm": "ord
 
 
 def describe_nodes(fname, xy, cloud):
-    """Print the counts, the markers, the box and the spacing statistics
-    of the cloud read from the file, whose coordinates are `xy` as they
-    were read; return the problems seen, the coincident nodes."""
+    """Print the counts, markers, box and spacing statistics of a cloud.
+
+    Parameters
+    ----------
+    fname : str
+        The file the cloud was read from, named in the report.
+    xy : (n, 2) ndarray
+        The coordinates as read, before the box wrapped them.
+    cloud : NodeSet
+        The cloud built from the file.
+
+    Returns
+    -------
+    list of str
+        The problems seen: the coincident nodes, if any.
+    """
     n, boundary = len(cloud), np.count_nonzero(cloud.markers)
     print(f"{fname}: {n} nodes, {n - boundary} interior, {boundary} boundary")
     values, counts = np.unique(cloud.markers, return_counts=True)
@@ -69,8 +71,17 @@ def describe_nodes(fname, xy, cloud):
 
 
 class Graph:
-    """The stencils of all nodes from a graph file: the CSR arrays, and
-    the same as a sparse pattern for the checks."""
+    """The stencils of all nodes, from a graph file.
+
+    Attributes
+    ----------
+    ia, ja : ndarray
+        The stencils in CSR form, that of node i at ``ja[ia[i]:ia[i + 1]]``.
+    n, nnz : int
+        The node count and the entry count.
+    pattern : csr_array
+        The same stencils as a sparse pattern, for the checks.
+    """
 
     def __init__(self, ia, ja):
         self.ia, self.ja = ia, ja
@@ -87,14 +98,13 @@ class Graph:
         return self.ja[self.ia[i] : self.ia[i + 1]]
 
     def renumbered(self, iperm):
-        """The symmetric renumbering: rows moved and every entry relabelled."""
+        """Return the graph in the numbering `iperm`, rows moved and entries relabelled."""
         order = np.argsort(iperm)
         moved = self.pattern[order][:, order]
         return Graph(moved.indptr, moved.indices)
 
     def describe(self, fname):
-        """Print the size, the row lengths, symmetry and bandwidth, and the
-        rows that do not open with their own node when any do not."""
+        """Print the size, row lengths, symmetry and bandwidth of the graph of `fname`."""
         n, ia, ja = self.n, self.ia, self.ja
         print(f"{fname}: {n} nodes, {self.nnz} entries")
         lengths = np.diff(ia)
@@ -137,12 +147,26 @@ class Graph:
         ax.set_title(f"{title}: {n} x {n}, nnz = {self.nnz}", fontsize=9)
 
 
+EPILOG = """\
+examples:
+  inspect_points.py case.node --plot --labels
+  inspect_points.py case.points case.graph --stencil 0 17
+  inspect_points.py case.points case.graph case.iperm --spy
+  inspect_points.py case.points --periodic 32 32
+
+One file of each kind, told apart by extension. Each is checked against
+its header and the files against each other; the problems found are
+listed at the end and make the exit status 1. An ordering file is
+applied to the nodes and the graph before they are drawn, so --labels
+shows the new indices; only the spy plot also shows the file order."""
+
+
 def parse_args():
-    """The command line, with `files` mapping each kind of file to its name."""
+    """Return the command line, with `files` mapping each kind of file to its name."""
     ap = argparse.ArgumentParser(
-        description="Check and describe the files of a case (docs/file_formats.md): "
-        "node and marker counts, nearest-neighbour statistics, graph "
-        "statistics. Never writes a file."
+        description=__doc__.split("\n")[0],
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument(
         "files",
@@ -214,8 +238,11 @@ def parse_args():
 
 
 def draw(args, loaded):
-    """One figure: the nodes, the spy plot, or both, renumbered by the
-    ordering if one was given, and then the spy plot in file order too."""
+    """Show or save one figure: the nodes, the spy plot, or both.
+
+    An ordering renumbers the nodes and the graph first, and adds the spy
+    plot in file order beside the renumbered one.
+    """
     cloud, graph, iperm = (
         loaded.get("nodes"),
         loaded.get("graph"),

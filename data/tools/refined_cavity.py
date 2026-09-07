@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
-"""Point clouds for the lid-driven cavity [0, Lx] x [0, Ly], refined
-towards the walls in three levels, written as a node file with boundary
-markers.
+"""Generate the lid-driven cavity refined towards its walls, as a node file.
 
-    python3 refined_cavity.py cavity.node
-    python3 refined_cavity.py --steps 20 cavity_fine.node
-    python3 refined_cavity.py --distribution grid --size 100 130 cavity_tall.node
-
-Everything is in lattice units: the spacing is 1 at the wall, 1.5 in the
-second band and 2.5 in the middle, so the three bands from both walls
-fill a cavity of 10 N for --steps N, and --size LX LY makes it bigger
-with its middle at the coarsest spacing. RefinedCavity in
-pointclouds.generators describes the two distributions and the markers:
-0 interior, 1 south wall, 2 east, 3 north (the lid), 4 west, 5 corner.
-
-The output is a node file, or a points file without the markers if the
-name ends in .points (docs/file_formats.md).
+The cloud is RefinedCavity in pointclouds.generators.
 """
 
 import argparse
@@ -23,20 +9,26 @@ import argparse
 from pointclouds import cli
 from pointclouds.generators import RefinedCavity
 
+EPILOG = """\
+examples:
+  refined_cavity.py cavity.node
+  refined_cavity.py --steps 20 cavity_fine.node
+  refined_cavity.py --distribution grid --size 100 130 cavity_tall.node
+
+Lengths are in lattice units: the spacing is 1 at the wall, 1.5 in the
+second band and 2.5 in the middle, so the three bands from both walls
+fill a cavity of 10 N for N steps. Markers: 0 interior, 1 south wall,
+2 east, 3 north (the lid), 4 west, 5 corner. A name ending in .points
+gives a points file, without the markers (docs/file_formats.md)."""
+
 
 def main():
     ap = argparse.ArgumentParser(
-        description=__doc__.split("\n\n")[0],
-        epilog="Lengths are in lattice units, in which the spacing is 1 at the "
-        "wall and the cavity is 10 N by 10 N unless --size makes it bigger. "
-        "Markers: 0 interior, 1 south wall, 2 east, 3 north (the lid), 4 west, "
-        "5 corner.",
+        description=__doc__.split("\n")[0],
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument(
-        "output",
-        help="output file: a node file with the markers, or a "
-        "points file without them if the name ends in .points",
-    )
+    ap.add_argument("output", help="the node file, or a points file if named so")
     ap.add_argument(
         "--distribution",
         choices=("rings", "grid"),
@@ -48,8 +40,8 @@ def main():
         nargs=2,
         type=cli.number(float, above=0.0),
         metavar=("LX", "LY"),
-        help="sides of the cavity in lattice units, at least the "
-        "10 N the bands need (default: 10 N by 10 N, the bands alone)",
+        help="sides of the cavity, at least the 10 N of the bands, whose "
+        "middle is then at the coarsest spacing (default: 10 N by 10 N)",
     )
     ap.add_argument(
         "-n",
@@ -59,9 +51,7 @@ def main():
         metavar="N",
         help="spacings across each band (default: 10)",
     )
-    ap.add_argument(
-        "--plot", action="store_true", help="show the cloud, coloured by marker"
-    )
+    ap.add_argument("--plot", action="store_true", help="show the cloud")
     args = ap.parse_args()
 
     stem, ext = cli.output_stem(args.output, default=".node")

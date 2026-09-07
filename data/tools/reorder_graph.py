@@ -1,38 +1,8 @@
 #!/usr/bin/env python3
-"""Compute a renumbering of the nodes of a graph file and write it as an
-ordering file, both of docs/file_formats.md.
+"""Renumber the nodes of a graph file and write the ordering file.
 
-    tools/reorder_graph.py case.graph                # case.iperm, by rcm
-    tools/reorder_graph.py case.graph --method nd    # nested dissection
-    tools/reorder_graph.py case.graph --method amd   # minimum degree
-    tools/reorder_graph.py case.graph -o other.iperm
-    tools/reorder_graph.py case.graph -o -           # to standard output
-
-The methods:
-
-  rcm   reverse Cuthill-McKee, from scipy.sparse.csgraph: a bandwidth-
-        reducing ordering, which numbers neighbouring nodes close to
-        each other and so keeps the entries of a row near the diagonal.
-  nd    multilevel nested dissection, from METIS through pymetis: an
-        ordering that reduces the fill-in of a sparse direct
-        factorisation, the one to use before such a factorisation.
-  amd   approximate minimum degree, SuiteSparse's AMD through
-        scikit-sparse: reduces the fill-in too, by greedy elimination
-        rather than recursive bisection, cheaper and often as good.
-
-All three order the undirected graph of the stencils, the pattern of
-A + A^T with the diagonal dropped: none of them cares which way an edge
-points, and METIS requires it so. The ordering file holds the new index
-of every node; `inspect_points.py case.graph case.iperm --spy` shows the
-effect.
-
-The report, on standard error so that `-o -` leaves the file alone on
-standard output, gives the bandwidth before and after, the measure rcm
-works on, and the nonzeros of the Cholesky factor before and after, the
-measure nd and amd work on, when scikit-sparse is there to count them.
-
-Needs numpy and scipy; nd needs pymetis, amd and the factor count need
-scikit-sparse.
+Both files are of docs/file_formats.md; the orderings are reverse
+Cuthill-McKee, nested dissection and approximate minimum degree.
 """
 
 import argparse
@@ -47,10 +17,12 @@ from pointclouds.io import FormatError, read_graph, write_ordering
 
 
 def adjacency_of(ia, ja):
-    """The stencils as an undirected graph without self-loops, the pattern
-    of A + A^T less the diagonal, as a CSR array with sorted indices. The
-    values count the directions of an edge, 2 when both stencils have it
-    and 1 when one does; the orderings here take the pattern alone."""
+    """Return the stencils as an undirected graph without self-loops.
+
+    The pattern of A + A^T less the diagonal, as a CSR array with sorted
+    indices; the values count the directions of an edge, which the
+    orderings ignore.
+    """
     n = len(ia) - 1
     a = csr_array((np.ones(len(ja)), ja, ia), shape=(n, n))
     upper = triu(a + a.T, k=1)  # every edge once, without the self-loops
@@ -60,8 +32,7 @@ def adjacency_of(ia, ja):
 
 
 def rcm(adjacency):
-    """Return the inverse ordering, the new index of every node, by
-    reverse Cuthill-McKee."""
+    """Return the new index of every node by reverse Cuthill-McKee."""
     from scipy.sparse.csgraph import reverse_cuthill_mckee
 
     perm = reverse_cuthill_mckee(adjacency, symmetric_mode=True)  # perm[new] = old
@@ -69,10 +40,12 @@ def rcm(adjacency):
 
 
 def nd(adjacency, seed=None):
-    """Return the inverse ordering by METIS nested dissection. The seed
-    drives the random matching of its coarsening; METIS has a fixed
-    default, so the ordering is the same from run to run unless one is
-    given."""
+    """Return the new index of every node by METIS nested dissection.
+
+    The seed drives the random matching of the coarsening; METIS has a
+    fixed default, so the ordering repeats from run to run unless one is
+    given.
+    """
     try:
         import pymetis
     except ImportError:
@@ -87,7 +60,7 @@ def nd(adjacency, seed=None):
 
 
 def amd(adjacency):
-    """Return the inverse ordering by approximate minimum degree."""
+    """Return the new index of every node by approximate minimum degree."""
     try:
         from sksparse.amd import amd as suitesparse_amd
     except ImportError:
@@ -102,7 +75,7 @@ METHODS = ("rcm", "nd", "amd")
 
 
 def order(method, adjacency, seed):
-    """The inverse ordering by the named method; the seed is for nd."""
+    """Return the new index of every node by the named method."""
     if method == "rcm":
         return rcm(adjacency)
     if method == "nd":
@@ -111,15 +84,17 @@ def order(method, adjacency, seed):
 
 
 def bandwidth(ia, ja, iperm):
-    """The largest |i - j| over the stencil entries, in the new numbering."""
+    """Return the largest |i - j| over the stencil entries, in the new numbering."""
     rows = np.repeat(np.arange(len(ia) - 1), np.diff(ia))
     return int(np.abs(iperm[rows] - iperm[ja]).max())
 
 
 def factor_nonzeros(adjacency, iperm):
-    """The nonzeros of the Cholesky factor of the undirected graph in the
-    new numbering, diagonal included, by cholmod's symbolic factorisation;
-    None without scikit-sparse."""
+    """Return the nonzeros of the Cholesky factor in the new numbering.
+
+    Diagonal included, by cholmod's symbolic factorisation; None without
+    scikit-sparse.
+    """
     try:
         from sksparse.cholmod import symbfact
     except ImportError:
@@ -128,10 +103,28 @@ def factor_nonzeros(adjacency, iperm):
     return int(np.sum(symbfact(adjacency[perm][:, perm].tocsc()).count))
 
 
+EPILOG = """\
+examples:
+  reorder_graph.py case.graph                # case.iperm, by rcm
+  reorder_graph.py case.graph --method nd    # nested dissection
+  reorder_graph.py case.graph -o -           # to standard output
+
+rcm, from scipy, reduces the bandwidth by numbering neighbouring nodes
+close together. nd, METIS through pymetis, and amd, SuiteSparse through
+scikit-sparse, reduce the fill-in of a sparse direct factorisation, by
+recursive bisection and by greedy elimination. All three order the
+undirected graph of the stencils, the pattern of A + A^T without the
+diagonal. The report, on standard error so that `-o -` leaves the file
+alone, gives the bandwidth before and after and, with scikit-sparse, the
+nonzeros of the Cholesky factor; `inspect_points.py case.graph
+case.iperm --spy` shows the effect."""
+
+
 def parse_args():
     ap = argparse.ArgumentParser(
-        description="Renumber the nodes of a graph file to reduce bandwidth (rcm) or "
-        "fill-in (nd, amd) and write the ordering file (docs/file_formats.md)."
+        description=__doc__.split("\n")[0],
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("graph", metavar="GRAPH", help="the .graph file to order")
     ap.add_argument(
