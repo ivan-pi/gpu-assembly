@@ -340,6 +340,21 @@ static void test_vtk_polydata() {
                                 {{"U", vel.data(), vel.data() + 1, 2}}, 2);
     CHECK(same_file("s1.vtk", "s2.vtk"));
 
+    // the title line is the second line; it may be given, or empty
+    rbf::io::write_vtk_polydata("t.vtk", n, x.data(), y.data(), {}, {}, 1, "case 7, step 100");
+    {
+        std::ifstream in("t.vtk"); std::string l1, l2, l3;
+        std::getline(in, l1); std::getline(in, l2); std::getline(in, l3);
+        CHECK(l2 == "case 7, step 100" && l3 == "ASCII");
+    }
+    rbf::io::write_vtk_polydata("t.vtk", n, x.data(), y.data(), {}, {}, 1, "");
+    {
+        std::ifstream in("t.vtk"); std::string l1, l2, l3;
+        std::getline(in, l1); std::getline(in, l2); std::getline(in, l3);
+        CHECK(l2.empty() && l3 == "ASCII");
+    }
+    CHECK(read_vtk("t.vtk").npoints == n);
+
     // float labels its arrays as float and round-trips at float precision
     rbf::io::write_vtk_polydata("k.vtk", awkward_f.size(), awkward_f.data(), awkward_f.data(),
                                 {{"u", awkward_f.data()}});
@@ -348,7 +363,7 @@ static void test_vtk_polydata() {
     for (std::size_t q = 0; q < awkward_f.size(); ++q)
         CHECK(static_cast<float>(k.blocks[0].v[q]) == awkward_f[q]);
 
-    for (const char* fn : {"f.vtk", "g.vtk", "h.vtk", "i.vtk", "s1.vtk", "s2.vtk", "k.vtk"})
+    for (const char* fn : {"f.vtk", "g.vtk", "h.vtk", "i.vtk", "s1.vtk", "s2.vtk", "t.vtk", "k.vtk"})
         std::remove(fn);
 }
 

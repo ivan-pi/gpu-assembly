@@ -190,6 +190,10 @@ Scalars are written as `SCALARS name type 1`, 2-d vectors as `VECTORS name
 type` with a zero third component. Names are single tokens: legacy VTK
 reads them up to the next whitespace.
 
+The second line of a legacy file is a free-text title, which the format
+requires to be present but allows to be empty; it defaults to `rbf point
+cloud` and can be given as the last argument.
+
 
 ## Columns
 

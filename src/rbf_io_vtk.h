@@ -57,16 +57,20 @@ struct VtkVector {
 //     write_vtk_polydata("flow.vtk", n, x, y, {{"p", p}}, {{"U", ux, uy}});
 //
 // T is deduced from the coordinates only (type_identity), so the lists need
-// not name it.
+// not name it. title is the file's second line, a free-text description the
+// legacy format requires to be present (at most 256 characters, no newline);
+// it may be empty.
 template <class T>
 void write_vtk_polydata(const std::string& fname, std::size_t n,
                         const T* x, const T* y,
                         List<Column<std::type_identity_t<T>>> scalars,
                         List<VtkVector<std::type_identity_t<T>>> vectors = {},
-                        std::size_t point_stride = 1)
+                        std::size_t point_stride = 1,
+                        std::string_view title = "rbf point cloud")
 {
     using detail::num;
     assert(point_stride >= 1);
+    assert(title.size() <= 256 && title.find('\n') == std::string_view::npos);
     for ([[maybe_unused]] const auto& s : scalars) {
         assert(detail::vtk_name_ok(s.name) && "scalar name empty or contains whitespace");
         assert(s.v && s.stride >= 1);
@@ -78,9 +82,8 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
     auto out = detail::open_out(fname);
     const char* tn = detail::vtk_type_name<T>();
 
-    out << "# vtk DataFile Version 2.0\n"
-           "rbf point cloud\n"
-           "ASCII\n"
+    out << "# vtk DataFile Version 2.0\n" << title << '\n'
+        << "ASCII\n"
            "DATASET POLYDATA\n";
 
     out << "POINTS " << n << ' ' << tn << '\n';
