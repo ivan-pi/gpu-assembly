@@ -22,7 +22,7 @@ for the scripts to find it. From the repository root:
 pip install -e data                # pointclouds and numpy, in place
 pip install scipy matplotlib       # neighbour search, rcm, and the figures
 pip install pymetis                # nested dissection
-pip install scikit-sparse          # minimum degree, and the fill count
+pip install scikit-sparse          # minimum degree, and the fill-in count
 ```
 
 scikit-sparse compiles against SuiteSparse, which it does not bring
