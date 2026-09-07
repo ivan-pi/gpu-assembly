@@ -1,16 +1,13 @@
 # Renumbering
 
-`rbf::Permutation` and the ordering builders:
+`rbf::Permutation` and the ordering builders come from one header:
 
 ```cpp
-#include "rbf_reorder.h"   // header-only; pulls in rbf_io.h
+#include "rbf_reorder.h"
 ```
 
-The curve keys come from the Fortran module `src/rbf_ordering.F90`, so
-link it into any target that uses `morton_order`, `hilbert_order` or the
-`*_keys` functions; the rest of the header is self-contained. Linking the
-`rbf` library from the CMake build covers both: it puts `src/` on the
-include path and brings the Fortran module and its runtime with it.
+The curve keys themselves are computed by the Fortran module
+`src/rbf_ordering.F90`.
 
 Renumbering nodes along a space-filling curve puts neighbours close
 together in memory, and moving the boundary nodes to the end makes the
@@ -30,17 +27,18 @@ so `new[i] = old[p.map()[i]]`. The inverse is computed once at
 construction and cached; both directions are needed, one to move data, the
 other to relabel indices that point at it.
 
-| | |
+| Call | Meaning |
 |---|---|
-| `Permutation(v)` | from a new-to-old map |
-| `Permutation::from_inverse(v)` | from an old-to-new map |
-| `Permutation::identity(n)` | |
-| `Permutation::read(f)` / `p.write(f)` | [ordering file](file_formats.md#ordering-file) (`.iperm`) |
-| `p.size()`, `p.map()`, `p.inv()` | |
+| `Permutation(v)` | construct from a new-to-old map |
+| `Permutation::from_inverse(v)` | construct from an old-to-new map |
+| `Permutation::identity(n)` | the identity on `n` items |
+| `Permutation::read(f)` / `p.write(f)` | round trip through an [ordering file](file_formats.md#ordering-file) (`.iperm`) |
+| `p.size()` | the number of items |
+| `p.map()` / `p.inv()` | the two maps, as spans |
 | `p.permute(a)` | `a_new[i] = a_old[map()[i]]`, in place |
 | `p.unpermute(a)` | the reverse |
 | `p.then(q)` | apply `p` first, then `q` |
-| `p.inverse()` | |
+| `p.inverse()` | the inverse permutation |
 
 `permute` and `unpermute` work through a temporary copy of `a` and take a
 `std::span`, so they apply to any per-node array, not just the coordinates.
@@ -83,6 +81,17 @@ Both routines apply the symmetric renumbering `A' = P A P^T`, that is
 ```cpp
 rbf::renumber_stencils(std::span{ja}, k, p);        // fixed width k
 rbf::renumber_csr(std::span{ia}, std::span{ja}, p); // general CSR
+```
+
+Both rewrite the arrays they are given, so copy first to keep the
+original graph:
+
+```cpp
+auto ja_p = ja;                                     // fixed width k
+rbf::renumber_stencils(std::span{ja_p}, k, p);
+
+auto ia_q = ia, ja_q = ja;                          // general CSR
+rbf::renumber_csr(std::span{ia_q}, std::span{ja_q}, p);
 ```
 
 For a fixed-width graph the `k` neighbours of node `s` are contiguous at

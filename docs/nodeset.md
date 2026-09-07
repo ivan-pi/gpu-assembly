@@ -2,17 +2,15 @@
 
 `rbf::NodeSet<T, I>` is a point cloud read from a
 [node file](file_formats.md#node-file), with the renumbering it has
-undergone and a lazily-built k-d tree for the stencil search:
+undergone and a lazily-built index for the stencil search:
 
 ```cpp
-#include "rbf_nodeset.h"   // header-only; pulls in rbf_io.h and rbf_reorder.h
+#include "rbf_nodeset.h"
 ```
 
 `T` is the coordinate type, `I` the index type of the stencils, chosen to
 match the `CsrMatrix<T, I>` they will feed (`double` and `int32_t` by
-default). The header needs [nanoflann](../third_party/nanoflann) for the
-k-d tree and carries OpenMP pragmas; linking the `rbf` library from the
-CMake build supplies both, along with the include path.
+default).
 
 The whole flow:
 
@@ -24,7 +22,7 @@ auto ja = ns.stencils(k);
 ns.file_order().write("case.iperm");
 ```
 
-The tree keeps a reference to the node set, so it is built on first use
+The index keeps a reference to the node set, so it is built on first use
 and dropped by `renumber`. Renumbering before the first `stencils` call
 therefore builds it exactly once, in the final numbering. The class is
 non-copyable.
@@ -46,14 +44,15 @@ with `file_order()`.
 ## Stencils
 
 ```cpp
-auto ja = ns.stencils(k, {.leaf_max_size = 10, .n_thread_build = 1});
+auto ja = ns.stencils(k);
 ```
 
 The `k` nearest neighbours of every node as `ja(k, ntot)` in Fortran
 order: the neighbours of node `s` are contiguous at `ja[s*k]`, sorted by
 distance, so `ja[s*k] == s`. Indices are 0-based. The search is
-OpenMP-parallel. The `TreeParams` only take effect when the tree is
-actually built, that is on the first call after construction or after a
+OpenMP-parallel. An optional second argument tunes the build of the
+index; it matters only for performance, and only on the call that
+actually builds it, that is the first after construction or after a
 `renumber`.
 
 Stencils extracted before a renumbering stay in the old numbering; use
@@ -63,7 +62,7 @@ to bring them along.
 ## Renumbering and file order
 
 `renumber(p)` permutes `x`, `y` and `flag`, rebuilds `bnd`, invalidates
-the tree, and returns `*this` so orderings can be chained.
+the index, and returns `*this` so orderings can be chained.
 
 `file_order()` maps the current numbering back to the order of the file
 the set was read from, and is extended by every `renumber`, never reset:
