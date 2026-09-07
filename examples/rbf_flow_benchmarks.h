@@ -1,5 +1,5 @@
-#ifndef RBFX_FLOW_BENCHMARKS_H
-#define RBFX_FLOW_BENCHMARKS_H
+#ifndef RBF_FLOW_BENCHMARKS_H
+#define RBF_FLOW_BENCHMARKS_H
 
 #include<cmath>
 
@@ -174,5 +174,5 @@ struct cylinder_turek {
 
 } // namespace flow_benchmarks
 
-#endif /* RBFX_FLOW_BENCMARKS_H */
+#endif /* RBF_FLOW_BENCMARKS_H */
 
