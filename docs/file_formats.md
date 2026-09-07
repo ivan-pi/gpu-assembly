@@ -1,10 +1,18 @@
 # File formats
 
-The formats read and written by `rbf::io` (`src/rbf_io.h`,
-`src/rbf_io_vtk.h`, `src/rbf_io_gnuplot.h`). Two of them are our own
+The formats read and written by `rbf::io`. Two of them are our own
 plain-text formats, two are borrowed from Triangle and METIS, and the rest
 are standards or conventions of which only the parts we use are described
 here.
+
+```cpp
+#include "rbf_io.h"          // points, graph, node, ordering, Matrix Market
+#include "rbf_io_vtk.h"      // write_vtk_polydata
+#include "rbf_io_gnuplot.h"  // write_columns
+```
+
+All three are header-only, and the two writers pull in `rbf_io.h`
+themselves, as do `rbf_reorder.h` and `rbf_nodeset.h`.
 
 | Format | Extension | Read | Write |
 |---|---|---|---|

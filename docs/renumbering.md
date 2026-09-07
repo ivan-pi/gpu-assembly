@@ -1,9 +1,16 @@
 # Renumbering
 
-`rbf::Permutation` and the ordering builders in `src/rbf_reorder.h`. The
-curve keys come from the Fortran module `src/rbf_ordering.F90`, so link it
-into any target that uses `morton_order`, `hilbert_order` or the `*_keys`
-functions; the rest of the header is self-contained.
+`rbf::Permutation` and the ordering builders:
+
+```cpp
+#include "rbf_reorder.h"   // header-only; pulls in rbf_io.h
+```
+
+The curve keys come from the Fortran module `src/rbf_ordering.F90`, so
+link it into any target that uses `morton_order`, `hilbert_order` or the
+`*_keys` functions; the rest of the header is self-contained. Linking the
+`rbf` library from the CMake build covers both: it puts `src/` on the
+include path and brings the Fortran module and its runtime with it.
 
 Renumbering nodes along a space-filling curve puts neighbours close
 together in memory, and moving the boundary nodes to the end makes the

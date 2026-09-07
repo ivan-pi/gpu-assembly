@@ -1,10 +1,18 @@
 # Node sets
 
-`rbf::NodeSet<T, I>` in `src/rbf_nodeset.h`: a point cloud read from a
+`rbf::NodeSet<T, I>` is a point cloud read from a
 [node file](file_formats.md#node-file), with the renumbering it has
-undergone and a lazily-built k-d tree for the stencil search. `T` is the
-coordinate type, `I` the index type of the stencils, chosen to match the
-`CsrMatrix<T, I>` they will feed (`double` and `int32_t` by default).
+undergone and a lazily-built k-d tree for the stencil search:
+
+```cpp
+#include "rbf_nodeset.h"   // header-only; pulls in rbf_io.h and rbf_reorder.h
+```
+
+`T` is the coordinate type, `I` the index type of the stencils, chosen to
+match the `CsrMatrix<T, I>` they will feed (`double` and `int32_t` by
+default). The header needs [nanoflann](../third_party/nanoflann) for the
+k-d tree and carries OpenMP pragmas; linking the `rbf` library from the
+CMake build supplies both, along with the include path.
 
 The whole flow:
 
