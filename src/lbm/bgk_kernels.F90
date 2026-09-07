@@ -39,7 +39,7 @@ module bgk_kernels
     public :: bgk_kernel, bgk_kernel_split
 #endif
 
-    ! working precision; matches real_t in bgk_kernels.cu
+    ! working precision; the C++ twin is instantiated for float and double
     integer, parameter :: wp = kind(1.0e0)
 
     ! D2Q9 weights: rest, straight (axis), diagonal
