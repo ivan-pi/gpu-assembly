@@ -4,11 +4,10 @@ Analytic flow fields on a doubly periodic box, provided as C++ functors
 in `examples/rbf_flow_benchmarks.h` (namespace `flow_benchmarks`) and as
 Fortran derived types in `examples/rbf_benchmarks.f90` (module
 `rbf_benchmarks`), with the same names and parameters on both sides.
-Their main use is verifying a lattice Boltzmann implementation: a periodic
-box needs no boundary treatment and no external geometry, so the point
-cloud can be generated on the fly and any discrepancy with the analytic
-field is the scheme's own. Benchmarks that need a genuine point cloud
-(cavities, channels, cylinders, plates) are deliberately not included.
+Their main use is verifying a lattice Boltzmann implementation: on a
+periodic box no boundary condition has to be implemented, so the
+dissipation and dispersion behaviour of the bulk scheme can be studied on
+its own, and any discrepancy with the analytic field is the scheme's own.
 
 | Case | Scalar | Time dependent | Strain rate | Verifies |
 |---|---|---|---|---|
@@ -50,7 +49,7 @@ Navier-Stokes equations and share a second set of methods:
 | `time_constant()` | `1/(nu ksqr)`, the e-folding time of the velocity |
 | `decay_time(frac)` | time at which the amplitude has dropped to `frac u0` |
 | `amplitude(time)` | `u0 exp(-time/time_constant)` |
-| `viscosity(a0, a1, t0, t1)` | viscosity recovered from two measured amplitudes |
+| `viscosity(a0, a1, t0, t1)` | viscosity from two measured amplitudes, a quick estimate (see [Shear wave](#shear-wave)) |
 | `stress_tensor` | strain rate `S = (grad u + grad u^T)/2` as `{sxx, sxy, syy}` |
 
 The strain rate is what a consistent initialization of the populations
@@ -89,19 +88,23 @@ diffusion equation and the amplitude decays exponentially. Parameters:
 `kx`, `ky`, `nu`, `u0` and an optional `phase`.
 
 This is the standard way to measure the effective viscosity of a scheme.
-Initialize with the field at `t = 0`, run, and at two instants project the
-velocity onto the mode to get its amplitude, for instance as
+Initialize with the field at `t = 0`, run, and record the maximum of the
+velocity magnitude over the box at every step. The maximum follows
+`a(t) = u0 exp(-t/tau)` with `tau = 1/(nu |k|^2)`, so a nonlinear
+least-squares fit of `A exp(-t/tau)` to the recorded curve gives `tau`
+and from it `nu = 1/(tau |k|^2)`, to be compared with the nominal
+`cs^2 (tau_lbm - 1/2)`. The first iterations usually carry an oscillation
+from the initialization and must be skipped before fitting; the fit
+should start once the maximum decays smoothly.
 
-```
-a(t) = 2/N sum_j u(x_j, t) . e_perp sin(k.x_j + phase)
-```
+`viscosity(a0, a1, t0, t1)`, which returns `-ln(a1/a0) / (|k|^2 (t1 - t0))`
+from two amplitudes, is the quick two-point version of the same estimate.
+It is fine for a sanity check but is sensitive to the choice of the two
+instants, so the fit is preferred for a quantitative result.
 
-over the `N` points of the box. Then `viscosity(a0, a1, t0, t1)` returns
-`-ln(a1/a0) / (|k|^2 (t1 - t0))`, to be compared with the nominal
-`cs^2 (tau - 1/2)`. Choosing `k` along a lattice axis and along a
-diagonal exposes any anisotropy of the discretization. Keep `u0` small
-compared with `cs` so that compressibility does not pollute the
-measurement.
+Choosing `k` along a lattice axis and along a diagonal exposes any
+anisotropy of the discretization. Keep `u0` small compared with `cs` so
+that compressibility does not pollute the measurement.
 
 ## Taylor-Green vortex
 
