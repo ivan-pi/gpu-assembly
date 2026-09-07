@@ -62,20 +62,32 @@ Scripts that produced a case go in `gen/`.
 
 ## Inspecting
 
-`tools/inspect_points.py` reads a points or node file, a graph file and
-an ordering file, checks them (counts against the headers, indices in
-range, no node twice in a stencil, the ordering a permutation, the same
-node count across the files) and prints the node count, the markers, the
-bounding box, nearest-neighbour statistics and, for a graph, the row
-lengths, symmetry and bandwidth. `--plot` draws the nodes by marker,
-with `--labels` for the indices and `--stencil` for the stencils of
-chosen nodes; `--spy` draws the sparsity pattern, before and after an
-ordering file if one is given. It never writes the files.
+`tools/inspect_points.py` reads and checks the files of a case and
+reports on them. It needs numpy; scipy and matplotlib are optional, for
+the neighbour search and the figures.
 
 ```
-python3 tools/inspect_points.py wright_square_hole_892.node --plot
-python3 tools/inspect_points.py poisson_32_21.points poisson_32_21.graph --periodic 32 32 --spy
-```
+usage: inspect_points.py [-h] [--plot] [--labels] [--stencil I [I ...]]
+                         [--k K] [--periodic LX LY] [--spy] [--save FILE]
+                         FILE [FILE ...]
 
-Needs numpy; scipy and matplotlib are optional, for speed and the
-figures. `--help` lists the options.
+Check and describe the files of a case (docs/file_formats.md): node and marker
+counts, nearest-neighbour statistics, graph statistics. Never writes a file.
+
+positional arguments:
+  FILE                 one each of .points or .node, .graph and .iperm; an
+                       ordering is applied to the others
+
+options:
+  -h, --help           show this help message and exit
+  --plot               draw the nodes, coloured by marker
+  --labels             with --plot: the index next to every node
+  --stencil I [I ...]  with --plot: the stencils of these nodes, from the
+                       graph or the --k nearest neighbours
+  --k K                stencil size for --stencil without a graph file
+  --periodic LX LY     the periodic box [0, LX) x [0, LY): minimum-image
+                       distances
+  --spy                the sparsity pattern of the graph, before and after an
+                       ordering file
+  --save FILE          write the figure to FILE instead of showing it
+```
