@@ -41,8 +41,8 @@ cavity, different boundary data: the lid velocity meets the wall's no-slip.
 Whoever assembles the boundary conditions decides what a corner gets;
 `NodeSet::indices_with(5)` picks them out.
 
-The output is Triangle's node file with the markers, unless the name ends
-in `.points`, which gives the points file, without them.
+The output file is a node file, which carries the markers. A name ending
+in `.points` gives a points file instead; that format has no markers.
 """
 
 import argparse
