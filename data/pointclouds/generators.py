@@ -1,4 +1,4 @@
-"""The clouds the generators in data/gen build, as children of NodeSet:
+"""The clouds the generators in data/tools build, as children of NodeSet:
 a perturbed grid, a Poisson disk sample of a periodic box with or
 without a hole, and the refined cavity. A child's constructor makes the
 points and the markers and hands them to NodeSet with the box and the
@@ -9,7 +9,7 @@ left to whoever needs it.
 
 import numpy as np
 
-from .nodeset import MARKERS, NodeSet, wrap
+from .nodeset import MARKERS, NodeSet
 
 
 class PerturbedGrid(NodeSet):
@@ -43,12 +43,9 @@ class PerturbedGrid(NodeSet):
             m[:n], m[len(pts) - n :] = MARKERS.south, MARKERS.north
         d = np.random.default_rng(seed).uniform(-sigma, sigma, pts.shape)
         d[m != MARKERS.interior, 1] = 0.0  # a wall node stays on its wall
-        pts += d
+        pts += d  # NodeSet wraps the periodic sides
         box = float(n)
-        pts[:, 0] = wrap(pts[:, 0], box)
-        if periodic:
-            pts[:, 1] = wrap(pts[:, 1], box)
-        else:
+        if not periodic:
             pts[:, 1] = np.clip(pts[:, 1], 0.0, box)  # only reached by sigma >= 1
         super().__init__(
             pts,
@@ -109,19 +106,17 @@ class PoissonBox(NodeSet):
         )
         sampler.fill_space()
         pts = sampler.points
-        inside = np.hypot(*(pts - centre).T) < (hole or 0.0)
-        inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
-        pts = pts[~inside]
-        m = np.full(len(pts), MARKERS.interior)
-        m[: len(seeds)] = MARKERS.hole
         title = (
             f"periodic poisson, size={extent[0]:g}x{extent[1]:g}, distance={distance:g}"
         )
-        area = extent.prod()
         if hole is not None:
+            inside = np.hypot(*(pts - centre).T) < hole
+            inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
+            pts = pts[~inside]
             title += f", hole={hole:g}"
-            area -= np.pi * hole**2
-        super().__init__(pts, m, extent, (True, True), title, area)
+        m = np.full(len(pts), MARKERS.interior)
+        m[: len(seeds)] = MARKERS.hole
+        super().__init__(pts, m, extent, (True, True), title)
 
 
 class RefinedCavity(NodeSet):
@@ -152,115 +147,73 @@ class RefinedCavity(NodeSet):
     assembles the boundary conditions decides what a corner gets."""
 
     SPACINGS = (1.0, 1.5, 2.5)  # at the wall, in the second band, in the middle
-    TOL = 1e-9
 
     def __init__(self, steps=10, size=None, distribution="rings"):
-        span = 2 * steps * sum(self.SPACINGS)  # the bands from both walls
+        N = steps
+        span = 2 * N * sum(self.SPACINGS)  # the bands from both walls
         Lx, Ly = (span, span) if size is None else size
-        if min(Lx, Ly) < span - self.TOL:
+        if min(Lx, Ly) < span:
             raise ValueError(
                 f"the cavity must be at least {span:g} by {span:g}, the width "
                 f"of the three bands from both walls at {steps} steps"
             )
-        for_rings = distribution == "rings"
-        lv = self._levels(steps, for_rings)
-        pts = self._rings(Lx, Ly, lv) if for_rings else self._grid(Lx, Ly, lv)
+        rings = distribution == "rings"
+        # The spacing of every ring, or of every step of the graded
+        # coordinate. A ring lies one spacing of the ring outside it
+        # inwards, so a band holds N + 1 rings and the last one N, ending
+        # in the centre since the first two bands are as wide as the third.
+        h = np.repeat(self.SPACINGS, (N + 1, N + 1, N) if rings else (N, N, N))
+        if rings:
+            pts, r = [], 0.0
+            while 2 * r <= min(Lx, Ly):
+                hk = h[min(len(pts), len(h) - 1)]  # the coarsest beyond the bands
+                pts.append(self._ring(r, Lx, Ly, hk))
+                r += hk
+            pts = np.vstack(pts)
+        else:
+            z = np.concatenate(
+                ([0.0], np.cumsum(h))
+            )  # from the wall to the end of the bands
+            coordinates = []
+            for L in (Lx, Ly):
+                middle = self._side(z[-1], L - z[-1], h[-1]) if L > 2 * z[-1] else z[:0]
+                coordinates.append(np.concatenate((z[:-1], middle, L - z[::-1])))
+            xv, yv = np.meshgrid(*coordinates)
+            pts = np.column_stack((xv.ravel(), yv.ravel()))
         pts = np.round(pts, 12) + 0.0  # 0.1 + 0.2 style noise, and no -0.0
-        super().__init__(
-            pts,
-            self._markers(pts, Lx, Ly),
-            (Lx, Ly),
-            (False, False),
-            f"refined cavity, size={Lx:g}x{Ly:g}, {distribution}, steps={steps}",
+        x, y = pts.T
+        s, e, n, w = y == 0, x == Lx, y == Ly, x == 0
+        m = np.select(
+            [(s | n) & (e | w), s, e, n, w],
+            [MARKERS.corner, MARKERS.south, MARKERS.east, MARKERS.north, MARKERS.west],
+            MARKERS.interior,
         )
-
-    def _levels(self, N, for_rings):
-        """(spacing, count) per band for N spacings across each band: the
-        number of rings, or of steps of the 1-d grid coordinate.
-        Consecutive rings are one spacing of the outer ring apart, so a
-        band holds N + 1 rings and the first ring of the next band lies
-        one spacing of this band inside its last. The last band holds N
-        rings and ends in the centre point, which works out because the
-        first two bands together are as wide as the third."""
-        counts = (N + 1, N + 1, N) if for_rings else (N, N, N)
-        return list(zip(self.SPACINGS, counts))
+        first = np.argsort(m == MARKERS.interior, kind="stable")  # the wall nodes first
+        super().__init__(
+            pts[first],
+            m[first],
+            (Lx, Ly),
+            title=f"refined cavity, size={Lx:g}x{Ly:g}, {distribution}, steps={steps}",
+        )
 
     @staticmethod
     def _side(a, b, h):
         """From a to b in a whole number of steps as close to h as
         possible; the end b is left out."""
-        n = max(round(abs(b - a) / h), 1)
-        return np.linspace(a, b, n + 1)[:-1]
+        return np.linspace(a, b, max(round((b - a) / h), 1), endpoint=False)
 
-    def _ring(self, x0, x1, y0, y1, h):
-        """Points about h apart on the boundary of [x0, x1] x [y0, y1],
-        counter-clockwise from (x0, y0); a segment or a point when a side
-        is zero."""
-        side = self._side
-        if x1 - x0 < self.TOL and y1 - y0 < self.TOL:
-            return np.array([[x0, y0]])
-        if x1 - x0 < self.TOL:
-            return np.column_stack(
-                (np.full(len(side(y0, y1, h)) + 1, x0), np.append(side(y0, y1, h), y1))
-            )
-        if y1 - y0 < self.TOL:
-            return np.column_stack(
-                (np.append(side(x0, x1, h), x1), np.full(len(side(x0, x1, h)) + 1, y0))
-            )
-        sx, sy = side(x0, x1, h), side(y0, y1, h)
+    @classmethod
+    def _ring(cls, r, Lx, Ly, h):
+        """Points about h apart on the boundary of the cavity inset by r,
+        counter-clockwise from (r, r); a segment or a point when a side
+        has shrunk to nothing."""
+        x0, x1, y0, y1 = r, Lx - r, r, Ly - r
+        sx, sy = cls._side(x0, x1, h), cls._side(y0, y1, h)
         south = np.column_stack((sx, np.full(len(sx), y0)))
         east = np.column_stack((np.full(len(sy), x1), sy))
-        north = np.column_stack((x1 + x0 - sx, np.full(len(sx), y1)))
-        west = np.column_stack((np.full(len(sy), x0), y1 + y0 - sy))
-        return np.vstack((south, east, north, west))
-
-    def _rings(self, Lx, Ly, levels):
-        """The rings from the walls inwards, at the spacing of their band
-        and the coarsest beyond the bands."""
-        spacings = [h for h, count in levels for _ in range(count)]
-        pts = []
-        r = 0.0
-        k = 0
-        while Lx - 2 * r > -self.TOL and Ly - 2 * r > -self.TOL:
-            h = spacings[min(k, len(spacings) - 1)]
-            pts.append(self._ring(r, Lx - r, r, Ly - r, h))
-            r += h
-            k += 1
-        return np.vstack(pts)
-
-    def _graded_coordinate(self, L, levels):
-        """From the wall at 0 to the far wall at L: the levels inwards from
-        both walls, and the middle at the coarsest spacing."""
-        z = [0.0]
-        for h, count in levels:
-            z.extend(z[-1] + h * np.arange(1, count + 1))
-        z = np.array(z)
-        if L - 2 * z[-1] > self.TOL:
-            middle = self._side(z[-1], L - z[-1], levels[-1][0])
-        else:
-            middle = np.empty(0)  # the unit side: the bands meet
-        return np.concatenate((z[:-1], middle, L - z[::-1]))
-
-    def _grid(self, Lx, Ly, levels):
-        """The tensor-product grid, wall nodes first."""
-        x, y = np.meshgrid(
-            self._graded_coordinate(Lx, levels), self._graded_coordinate(Ly, levels)
-        )
-        pts = np.column_stack((x.ravel(), y.ravel()))
-        on_wall = self._markers(pts, Lx, Ly) != MARKERS.interior
-        return np.vstack((pts[on_wall], pts[~on_wall]))
-
-    def _markers(self, pts, Lx, Ly):
-        """The marker of every point from where it sits."""
-        x, y = pts[:, 0], pts[:, 1]
-        tol = self.TOL
-        s, e, n, w = y < tol, x > Lx - tol, y > Ly - tol, x < tol
-        m = np.full(len(pts), MARKERS.interior)
-        m[s], m[e], m[n], m[w] = (
-            MARKERS.south,
-            MARKERS.east,
-            MARKERS.north,
-            MARKERS.west,
-        )
-        m[(s | n) & (e | w)] = MARKERS.corner
-        return m
+        north = np.column_stack((x0 + x1 - sx, np.full(len(sx), y1)))
+        west = np.column_stack((np.full(len(sy), x0), y0 + y1 - sy))
+        pts = np.vstack((south, east, north, west))
+        if x1 == x0 or y1 == y0:  # the four sides lie on each other
+            return np.unique(np.round(pts, 12), axis=0)
+        return pts

@@ -47,7 +47,7 @@ from math import ceil, sqrt
 import numpy as np
 from numba import njit
 
-from .nodeset import wrap
+from .periodic import wrap
 
 __all__ = ["PoissonDisk"]
 

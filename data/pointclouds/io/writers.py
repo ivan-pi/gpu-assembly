@@ -1,6 +1,6 @@
 """Writers for the files of docs/file_formats.md, which is where the
 details live: this module only puts them on disk. The generators in
-data/gen write the point, node and graph files, the tools in data/tools
+data/tools write the point, node and graph files, and reorder_graph.py
 the ordering file.
 
 Every number is written as the shortest text that reads back to the same
