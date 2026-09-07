@@ -73,8 +73,9 @@ import sys
 import numpy as np
 from scipy.spatial import cKDTree
 
-from pointclouds import (INTERIOR, MARKER_STYLE, NORTH, SOUTH, number,
-                         output_stem, write_graph, write_node, write_points)
+from pointclouds.cli import number, output_stem
+from pointclouds.io import write_graph, write_node, write_points
+from pointclouds.markers import INTERIOR, MARKER_STYLE, NORTH, SOUTH
 
 
 def grid(n, periodic):

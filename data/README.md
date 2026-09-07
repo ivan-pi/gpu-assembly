@@ -14,8 +14,36 @@ numbering. The name is free; what it stands for is recorded in the table
 below. Node sets, which are a single `.node` file and carry no graph, are
 listed under [Extracted](#extracted).
 
-The Python here -- the generators in `gen/`, the tools in `tools/` -- may
-use numpy, scipy and matplotlib.
+The Python here -- the generators in `gen/`, the tools in `tools/` --
+shares the `pointclouds` package beside them, which has to be installed
+for the scripts to find it. From the repository root:
+
+```
+pip install -e data                # pointclouds and numpy, in place
+pip install scipy matplotlib       # neighbour search, rcm, and the figures
+pip install pymetis                # nested dissection
+pip install scikit-sparse          # minimum degree, and the fill-in count
+```
+
+scikit-sparse compiles against SuiteSparse, which it does not bring
+along, so install that first. On Debian and Ubuntu:
+
+```
+sudo apt install libsuitesparse-dev
+```
+
+On macOS:
+
+```
+brew install suite-sparse
+```
+
+The extras `tools` and `reorder` of the package pull in the same set
+in one go:
+
+```
+pip install -e "data[tools,reorder]"
+```
 
 ## Cases
 
@@ -56,10 +84,11 @@ Marker 0 is an interior node in all of them.
 
 ## Generating
 
-Scripts that produced a case go in `gen/`, and what they share -- the
-writers for the formats above, the boundary-marker convention and the
-command-line conventions -- in the `gen/pointclouds` package beside them.
-The generators are:
+Scripts that produced a case go in `gen/`, and what they share with the
+tools in the `pointclouds` package, laid out like the C++ library:
+`pointclouds.io` reads and writes the formats above, `pointclouds.markers`
+fixes the boundary-marker convention, `pointclouds.cli` the command-line
+conventions. The generators are:
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
@@ -102,4 +131,40 @@ options:
   --spy                draw the sparsity pattern of the graph, before and
                        after an ordering file
   --save FILE          write the figure to FILE instead of showing it
+```
+
+## Reordering
+
+`tools/reorder_graph.py` computes a renumbering of the nodes of a graph
+file and writes it as an [ordering file](../docs/file_formats.md#ordering-file):
+
+- `rcm`, reverse Cuthill-McKee from scipy, reduces the bandwidth;
+- `nd`, the nested dissection of METIS through pymetis, reduces the
+  fill-in of a direct factorisation;
+- `amd`, the approximate minimum degree of SuiteSparse through
+  scikit-sparse, reduces the fill-in too, by greedy elimination.
+
+The report on standard error gives the bandwidth before and after and,
+with scikit-sparse installed, the nonzeros of the Cholesky factor.
+`inspect_points.py case.graph case.iperm --spy` draws the two patterns.
+
+```
+usage: reorder_graph.py [-h] [-m {rcm,nd,amd}] [-o FILE] [--seed SEED] GRAPH
+
+Renumber the nodes of a graph file to reduce bandwidth (rcm) or fill-in (nd,
+amd) and write the ordering file (docs/file_formats.md).
+
+positional arguments:
+  GRAPH                 the .graph file to order
+
+options:
+  -h, --help            show this help message and exit
+  -m {rcm,nd,amd}, --method {rcm,nd,amd}
+                        rcm: reverse Cuthill-McKee (default); nd: METIS nested
+                        dissection; amd: SuiteSparse approximate minimum
+                        degree
+  -o FILE, --output FILE
+                        the ordering file, default GRAPH with the extension
+                        .iperm; - writes to standard output
+  --seed SEED           the random seed of METIS, for nd
 ```

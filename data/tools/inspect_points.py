@@ -19,103 +19,20 @@ the figures.
 
 import argparse
 import functools
-import itertools
+import logging
+import logging.handlers
 import os
 import sys
 
 import numpy as np
 
+from pointclouds.io import (FormatError, plural, read_graph, read_nodes, read_ordering,
+                            stencils_to_csr)
 
-# ----------------------------------------------------------- text parsing
-
-class Report:
-    """What the checks found: problems, listed at the end and making the
-    exit status 1, and notes, printed under the description of their file.
-    A file with nothing wrong is passed over in silence."""
-
-    def __init__(self):
-        self.problems = []
-        self.notes = []
-
-    def problem(self, fname, msg):
-        self.problems.append(f"{fname}: {msg}")
-
-    def note(self, msg):
-        self.notes.append(msg)
-
-    def print_notes(self):
-        for msg in self.notes:
-            print(f"  note: {msg}")
-        self.notes = []
-
-    def print_problems(self):
-        """The list of problems, and nothing at all when there are none:
-        the exit status already says a file checked out."""
-        if not self.problems:
-            return
-        print(f"{plural(len(self.problems), 'problem')}:")
-        for p in self.problems:
-            print(f"  {p}")
+log = logging.getLogger("pointclouds")   # the notes of the readers, and of this tool
 
 
-def plural(k, word):
-    """The count and the word, with an s unless the count is 1."""
-    return f"{k} {word}{'' if k == 1 else 's'}"
-
-
-def lines_of(fname, comments):
-    """(line number, tokens) of every non-blank line; `#` starts a comment
-    in the formats that have them."""
-    out = []
-    with open(fname) as f:
-        for no, line in enumerate(f, 1):
-            if comments:
-                line = line.split("#", 1)[0]
-            toks = line.split()
-            if toks:
-                out.append((no, toks))
-    return out
-
-
-def nums(toks, conv):
-    """All tokens through int or float, or None if one is not a number."""
-    try:
-        return [conv(t) for t in toks]
-    except ValueError:
-        return None
-
-
-def read_header(fname, rep, form, comments):
-    """The non-negative integers of the first line, and the lines after it:
-    (values, rows), or None with the problem recorded. `form` names the
-    fields, `n nnz` say, and sets how many there are."""
-    lines = lines_of(fname, comments)
-    if not lines:
-        rep.problem(fname, "empty file")
-        return None
-    no, head = lines[0]
-    vals = nums(head, int)
-    if vals is None or len(vals) != len(form.split()) or min(vals) < 0:
-        rep.problem(fname, f"line {no}: expected the header '{form}', got '{' '.join(head)}'")
-        return None
-    return vals, lines[1:]
-
-
-def parse_rows(fname, rep, rows, form, convert):
-    """Every row through `convert`, which returns the values of a line or
-    None: the list of values, or None with every bad line recorded.
-    `form` describes a line in the message."""
-    out = []
-    ok = True
-    for no, toks in rows:
-        vals = convert(toks)
-        if vals is None:
-            rep.problem(fname, f"line {no}: expected '{form}', got '{' '.join(toks)}'")
-            ok = False
-        else:
-            out.append(vals)
-    return out if ok else None
-
+# --------------------------------------------------------------- geometry
 
 def minimum_image(diff, period):
     """Coordinate differences reduced to the nearest periodic image."""
@@ -143,103 +60,20 @@ class Nodes:
     # reading
 
     @classmethod
-    def read(cls, fname, rep, period=None):
-        """Nodes from a .points or .node file, or None with the problems
-        recorded."""
-        reader = cls._read_node_file if fname.endswith(".node") else cls._read_points_file
-        got = reader(fname, rep)
-        if got is None:
-            return None
-        xy, marker = got
-        bad = np.flatnonzero(~np.isfinite(xy).all(axis=1))
-        if bad.size:
-            rep.problem(fname, f"{plural(bad.size, 'node')} with a non-finite coordinate, "
-                        f"the first is node {bad[0]}")
-            return None
-        nodes = cls(xy, marker, fname, period)
-        nodes._check_coincident(rep)
-        return nodes
+    def read(cls, fname, period=None):
+        """Nodes from a .points or .node file."""
+        return cls(*read_nodes(fname), fname, period)
 
-    @staticmethod
-    def _read_points_file(fname, rep):
-        """`n`, then n lines of `x y`: (xy, zero markers), or None."""
-        got = read_header(fname, rep, "n", comments=False)
-        if got is None:
-            return None
-        (n,), rows = got
-        if len(rows) < n:
-            rep.problem(fname, f"header says {n} points, the file has {len(rows)} lines after it")
-            return None
-        if len(rows) > n:
-            rep.note(f"{len(rows) - n} lines after the {n} points, ignored as the format allows")
-        vals = parse_rows(fname, rep, rows[:n], "x y",
-                          lambda toks: nums(toks, float) if len(toks) == 2 else None)
-        if vals is None:
-            return None
-        return np.array(vals, dtype=float).reshape(n, 2), np.zeros(n, dtype=int)
-
-    @staticmethod
-    def _read_node_file(fname, rep):
-        """Triangle's format, `n 2 nattr nmark` then `i x y a... [marker]`
-        per node: (xy, markers), or None."""
-        got = read_header(fname, rep, "n dim nattr nmark", comments=True)
-        if got is None:
-            return None
-        (n, dim, nattr, nmark), rows = got
-        if dim != 2:
-            rep.problem(fname, f"dimension {dim} in the header, only 2 is supported")
-            return None
-        if nmark not in (0, 1):
-            rep.problem(fname, f"header: nmark must be 0 or 1, got {nmark}")
-            return None
-        if len(rows) != n:
-            rep.problem(fname, f"header says {n} nodes, the file has {len(rows)} node lines")
-            return None
-        if nattr:
-            rep.note(f"{plural(nattr, 'attribute')} per node, not inspected")
-        if not nmark:
-            rep.note("no marker column: every node is interior")
-        form = f"i x y{' a' * nattr}{' marker' if nmark else ''}"
-        vals = parse_rows(fname, rep, rows, form, lambda toks: Nodes._node_line(toks, nattr, nmark))
-        if vals is None:
-            return None
-        table = np.array(vals, dtype=float).reshape(n, 4)
-        if not Nodes._consecutive(fname, rep, table[:, 0].astype(int), rows):
-            return None
-        return table[:, 1:3], table[:, 3].astype(int)
-
-    @staticmethod
-    def _node_line(toks, nattr, nmark):
-        """(index, x, y, marker) of a node line, or None if malformed."""
-        if len(toks) != 3 + nattr + nmark:
-            return None
-        try:
-            return int(toks[0]), float(toks[1]), float(toks[2]), int(toks[-1]) if nmark else 0
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _consecutive(fname, rep, index, rows):
-        """Whether the index column counts from 0 or from 1."""
-        expected = np.arange(index.size)
-        if np.array_equal(index, expected + 1):
-            rep.note("nodes are numbered from 1 in the file; reported from 0 here")
-        elif not np.array_equal(index, expected):
-            bad = np.flatnonzero(index != expected)[0]
-            rep.problem(fname, f"node indices are not consecutive from 0 or 1: "
-                        f"line {rows[bad][0]} has index {index[bad]}")
-            return False
-        return True
-
-    def _check_coincident(self, rep):
-        """Nodes at distance zero from another are a problem."""
+    def coincident(self):
+        """The problem with nodes at distance zero from another, or None."""
         j, d = self.nearest
         same = np.flatnonzero(d == 0)
-        if same.size:
-            pairs = sorted({(min(a, j[a]), max(a, j[a])) for a in same})
-            shown = ", ".join(f"({a}, {b})" for a, b in pairs[:5])
-            more = f", ... {len(pairs)} pairs" if len(pairs) > 5 else ""
-            rep.problem(self.fname, f"coincident nodes: {shown}{more}")
+        if not same.size:
+            return None
+        pairs = sorted({(min(a, j[a]), max(a, j[a])) for a in same})
+        shown = ", ".join(f"({a}, {b})" for a, b in pairs[:5])
+        more = f", ... {len(pairs)} pairs" if len(pairs) > 5 else ""
+        return f"{self.fname}: coincident nodes: {shown}{more}"
 
     # neighbours
 
@@ -362,11 +196,10 @@ class Nodes:
 class Graph:
     """The stencils of all nodes in CSR form, from a graph file."""
 
-    def __init__(self, stencils, fname):
+    def __init__(self, ia, ja, fname):
         self.fname = fname
-        self.ia = np.cumsum([0, *map(len, stencils)])
-        self.ja = np.fromiter(itertools.chain.from_iterable(stencils), dtype=int, count=self.nnz)
-        self.rows = np.repeat(np.arange(self.n), np.diff(self.ia))   # the row of every entry
+        self.ia, self.ja = ia, ja
+        self.rows = np.repeat(np.arange(self.n), np.diff(ia))   # the row of every entry
 
     def __len__(self):
         return self.n
@@ -390,45 +223,15 @@ class Graph:
     # reading
 
     @classmethod
-    def read(cls, fname, rep):
-        """`n nnz`, then a line of 0-based indices per node: a Graph, or None
-        if the file cannot be used."""
-        got = read_header(fname, rep, "n nnz", comments=False)
-        if got is None:
-            return None
-        (n, nnz), rows = got
-        if len(rows) != n:
-            rep.problem(fname, f"header says {n} nodes, the file has {len(rows)} stencil lines")
-            return None
-        stencils = parse_rows(fname, rep, rows, "integer stencil entries", lambda toks: nums(toks, int))
-        if stencils is None:
-            return None
-        g = cls(stencils, fname)
-        if g.nnz != nnz:
-            rep.problem(fname, f"header says nnz = {nnz}, the stencils hold {g.nnz} entries")
-        lo, hi = g.ja.min(), g.ja.max()
-        if lo < 0 or hi >= n:
-            if lo >= 1 and hi == n:
-                rep.problem(fname, f"indices run from {lo} to {n}: the file looks 1-based, the format is 0-based")
-            else:
-                rep.problem(fname, f"stencil entries outside [0, {n}): from {lo} to {hi}")
-            return None
-        dup = g._rows_with_duplicates()
-        if dup.size:
-            rep.problem(fname, f"{plural(dup.size, 'stencil')} {'lists' if dup.size == 1 else 'list'} "
-                        f"a node twice, the first on line {rows[dup[0]][0]}")
-        return g
-
-    def _rows_with_duplicates(self):
-        """The rows in which some node is listed twice."""
-        keys = np.sort(self.keys())
-        return np.unique(keys[1:][keys[1:] == keys[:-1]] // self.n)
+    def read(cls, fname):
+        """A Graph from a graph file."""
+        return cls(*read_graph(fname), fname)
 
     # renumbering
 
     def renumbered(self, ordering):
         """The symmetric renumbering: rows moved and every entry relabelled."""
-        return Graph([ordering.iperm[self.row(o)] for o in ordering.order], self.fname)
+        return Graph(*stencils_to_csr([ordering.iperm[self.row(o)] for o in ordering.order]), self.fname)
 
     # reporting
 
@@ -479,22 +282,9 @@ class Ordering:
         return self.iperm.size
 
     @classmethod
-    def read(cls, fname, rep):
-        """One integer per line, no header: an Ordering, or None unless the
-        values are a permutation."""
-        vals = parse_rows(fname, rep, lines_of(fname, comments=False), "one integer",
-                          lambda toks: nums(toks, int) if len(toks) == 1 else None)
-        if vals is None:
-            return None
-        iperm = np.array(vals, dtype=int).reshape(-1)
-        n = iperm.size
-        if np.array_equal(np.sort(iperm), np.arange(n)):
-            return cls(iperm, fname)
-        if n and iperm.min() == 1 and iperm.max() == n:
-            rep.problem(fname, f"values run from 1 to {n}: the file looks 1-based, the format is 0-based")
-        else:
-            rep.problem(fname, f"the {n} values are not a permutation of 0 .. {n - 1}")
-        return None
+    def read(cls, fname):
+        """An Ordering from an ordering file."""
+        return cls(read_ordering(fname), fname)
 
     def describe(self):
         print(f"{self.fname}: a permutation of {len(self)} nodes")
@@ -563,27 +353,55 @@ def check_options(args):
 
 # ------------------------------------------------------------------- main
 
-def read_files(args, rep):
+def held_notes():
+    """The handler that holds the notes back until they are flushed, so
+    that a file's notes come out under its description rather than while
+    it is being read."""
+    target = logging.StreamHandler(sys.stdout)
+    target.setFormatter(logging.Formatter("  note: %(message)s"))
+    held = logging.handlers.MemoryHandler(capacity=10_000, flushLevel=logging.CRITICAL + 1, target=target)
+    log.addHandler(held)
+    log.setLevel(logging.INFO)
+    return held
+
+
+def read_files(args, problems, notes):
     """Read and describe every file given, with its notes under it:
-    {class: object} for the files that could be read."""
+    {class: object} for the files that could be read, the problems of the
+    others appended to `problems`."""
     read = {}
     for kind, fname in args.given.items():
-        obj = kind.read(fname, rep, args.period) if kind is Nodes else kind.read(fname, rep)
-        if obj is not None:
+        try:
+            obj = kind.read(fname, args.period) if kind is Nodes else kind.read(fname)
+        except FormatError as e:
+            problems.extend(e.problems)
+        else:
             read[kind] = obj
             obj.describe()
-        rep.print_notes()
+            if kind is Nodes and obj.coincident():
+                problems.append(obj.coincident())
+        notes.flush()
     return read
 
 
-def check_counts(read, rep):
-    """A problem if the files disagree on the node count."""
+def counts_differ(read):
+    """The problem if the files disagree on the node count, or None."""
     counts = {obj.fname: len(obj) for obj in read.values()}
     if len(set(counts.values())) > 1:
-        rep.problem("files", "node counts differ: " + ", ".join(f"{f} has {n}" for f, n in counts.items()))
+        return "node counts differ: " + ", ".join(f"{f} has {n}" for f, n in counts.items())
+    return None
 
 
-def stencils_to_draw(args, nodes, graph, rep):
+def print_problems(problems):
+    """The list of problems, and nothing at all when there are none:
+    the exit status already says the files checked out."""
+    if problems:
+        print(f"{plural(len(problems), 'problem')}:")
+        for p in problems:
+            print(f"  {p}")
+
+
+def stencils_to_draw(args, nodes, graph):
     """The (node, members) stencils asked for, from the graph or as the k
     nearest neighbours; exits on a node index outside the cloud."""
     if not args.stencil:
@@ -593,13 +411,13 @@ def stencils_to_draw(args, nodes, graph, rep):
         sys.exit(f"--stencil: node {bad[0]} is outside [0, {len(nodes)})")
     if graph is not None:
         if args.k:
-            rep.note("--k ignored: the stencils are taken from the graph file")
+            log.info("--k ignored: the stencils are taken from the graph file")
         return [(i, graph.row(i)) for i in args.stencil]
     j, _ = nodes.neighbours(args.k - 1, args.stencil)
     return [(i, np.concatenate(([i], jj))) for i, jj in zip(args.stencil, j)]
 
 
-def draw(args, read, rep):
+def draw(args, read, notes):
     """One figure: the nodes, the spy plot, or both, renumbered by the
     ordering if one was given, and then the spy plot in file order too."""
     nodes, graph, ordering = read.get(Nodes), read.get(Graph), read.get(Ordering)
@@ -609,8 +427,8 @@ def draw(args, read, rep):
         if graph is not None:
             file_graph, graph = graph, graph.renumbered(ordering)
         print("ordering applied: nodes and stencils are in the new numbering below")
-    stencils = stencils_to_draw(args, nodes, graph, rep)
-    rep.print_notes()
+    stencils = stencils_to_draw(args, nodes, graph)
+    notes.flush()
 
     import matplotlib.pyplot as plt
     panels = int(args.plot) + int(args.spy) * (2 if file_graph is not None else 1)
@@ -637,16 +455,18 @@ def draw(args, read, rep):
 
 def main():
     args = parse_args()
-    rep = Report()
-    read = read_files(args, rep)
-    check_counts(read, rep)
-    rep.print_problems()
+    notes = held_notes()
+    problems = []
+    read = read_files(args, problems, notes)
+    if counts_differ(read):
+        problems.append(counts_differ(read))
+    print_problems(problems)
     if args.plot or args.spy:
-        if rep.problems:
+        if problems:
             print("no figure: fix the problems above first")
         else:
-            draw(args, read, rep)
-    sys.exit(1 if rep.problems else 0)
+            draw(args, read, notes)
+    sys.exit(1 if problems else 0)
 
 
 if __name__ == "__main__":

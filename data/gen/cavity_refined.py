@@ -70,8 +70,9 @@ import sys
 
 import numpy as np
 
-from pointclouds import (CORNER, EAST, INTERIOR, MARKER_STYLE, NORTH, SOUTH,
-                         WEST, number, output_stem, write_node, write_points)
+from pointclouds.cli import number, output_stem
+from pointclouds.io import write_node, write_points
+from pointclouds.markers import CORNER, EAST, INTERIOR, MARKER_STYLE, NORTH, SOUTH, WEST
 
 SPACINGS = (1.0, 1.5, 2.5)     # at the wall, in the second band, in the middle
 
