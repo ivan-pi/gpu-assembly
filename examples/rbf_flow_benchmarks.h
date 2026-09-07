@@ -39,7 +39,8 @@
  * For a box of side L the wave numbers must be integer multiples of
  * 2*pi/L for the field to be periodic. The cases do not know the box,
  * so `wavenumber(n, L)` builds such a wave number from a mode number,
- * and the wavy cases answer `periodic(Lx, Ly)` for the caller to assert.
+ * and the two decaying cases answer `periodic(Lx, Ly)` for the caller to
+ * assert.
  */
 
 #include <array>
@@ -262,8 +263,6 @@ struct shear_layer {
         assert(L > 0 && "box side must be positive");
         assert(k > 0 && "layer steepness must be positive");
     }
-
-    bool periodic(T Lx, T Ly) const { return Lx == L && Ly == L; }
 
     std::tuple<T,T,T> operator()(std::array<T,2> xy) const {
 

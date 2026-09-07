@@ -74,8 +74,10 @@ All cases are periodic on a box of side `L` only if the wave numbers are
 integer multiples of `2 pi/L`. In lattice units on an `nx` by `ny` grid
 that is `kx = 2 pi/nx` and `ky = 2 pi/ny` for the fundamental mode. The
 cases do not know the box, so the C++ header offers `wavenumber(n, L)`
-to build the wave number of the `n`-th mode, and the wavy cases answer
-`periodic(Lx, Ly)` for the caller to assert:
+to build the wave number of the `n`-th mode, and the shear wave and
+Taylor-Green answer `periodic(Lx, Ly)` for the caller to assert (the
+shear layer carries its own `L` and is periodic on that box by
+construction):
 
 ```cpp
 using namespace flow_benchmarks;
