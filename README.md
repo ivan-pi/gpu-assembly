@@ -10,7 +10,7 @@ cmake --build build
 ctest --test-dir build
 ```
 
-The CUDA parts (cuSolverDx assembly kernels, LBM collision kernels,
+The CUDA parts (cuSolverDx assembly kernels, LBM D2Q9 kernels,
 CUDA Fortran demo) are opt-in and need the NVHPC toolchain plus MathDx:
 
 ```

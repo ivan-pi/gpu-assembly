@@ -5,7 +5,7 @@ project(gpu-assembly LANGUAGES CXX Fortran)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# The CUDA parts (cuSolverDx assembly kernels, LBM collision kernels,
+# The CUDA parts (cuSolverDx assembly kernels, LBM D2Q9 kernels,
 # CUDA Fortran demo) are isolated behind this option so the host library
 # and its tests build with any C++/Fortran toolchain.
 option(GPU_ASSEMBLY_ENABLE_CUDA
@@ -54,10 +54,10 @@ if(GPU_ASSEMBLY_ENABLE_CUDA)
             CUDA_SEPARABLE_COMPILATION ON
             INTERPROCEDURAL_OPTIMIZATION ON)
 
-    # D2Q9 BGK collision kernel (CUDA C++). bgk_kernels.h declares the
-    # kernel template, bgk_kernels.cu instantiates it for float and double.
-    add_library(bgk_kernels STATIC src/lbm/bgk_kernels.cu)
-    target_include_directories(bgk_kernels PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/lbm)
+    # D2Q9 lattice Boltzmann kernels (CUDA C++). d2q9_kernels.h declares the
+    # kernel templates, d2q9_kernels.cu instantiates them for float and double.
+    add_library(d2q9_kernels STATIC src/lbm/d2q9_kernels.cu)
+    target_include_directories(d2q9_kernels PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/lbm)
 
     # CUDA Fortran demo (one-stencil assembly + solve_dp kernel).
     # CMake has no CUDA Fortran language, so this is driven through the
@@ -69,17 +69,17 @@ if(GPU_ASSEMBLY_ENABLE_CUDA)
         target_link_options(assemble_demo PRIVATE -cuda)
         target_link_libraries(assemble_demo PRIVATE rbf_operators)
 
-        # D2Q9 BGK collision kernels (CUDA Fortran twin of bgk_kernels).
+        # D2Q9 lattice Boltzmann kernels (CUDA Fortran twin of d2q9_kernels).
         # Consumers get the module directory and the -cuda link flag.
-        add_library(bgk_kernels_cuf STATIC src/lbm/bgk_kernels.cuf)
-        target_compile_options(bgk_kernels_cuf PRIVATE -cuda)
-        target_link_options(bgk_kernels_cuf PUBLIC -cuda)
-        set_target_properties(bgk_kernels_cuf PROPERTIES
+        add_library(d2q9_kernels_cuf STATIC src/lbm/d2q9_kernels.cuf)
+        target_compile_options(d2q9_kernels_cuf PRIVATE -cuda)
+        target_link_options(d2q9_kernels_cuf PUBLIC -cuda)
+        set_target_properties(d2q9_kernels_cuf PROPERTIES
             Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod)
-        target_include_directories(bgk_kernels_cuf PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/mod)
+        target_include_directories(d2q9_kernels_cuf PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/mod)
     else()
         message(WARNING
-            "CUDA Fortran sources (main.f90, rbf_cuda.f90, lbm/bgk_kernels.cuf) "
+            "CUDA Fortran sources (main.f90, rbf_cuda.f90, lbm/d2q9_kernels.cuf) "
             "skipped: require the NVHPC Fortran compiler")
     endif()
 
