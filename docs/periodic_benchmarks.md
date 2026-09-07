@@ -9,12 +9,12 @@ and dispersion of the bulk scheme can be studied on their own. Cases that
 need boundary conditions (Kovasznay, Poiseuille, Couette, the cavity)
 are not here.
 
-| Case | Scalar | Time dependent | Verifies |
-|---|---|---|---|
-| [Shear modes](#shear-modes) | pressure | yes | viscosity, pressure, nonlinear terms, Galilean invariance, forcing |
-| [Acoustic wave](#acoustic-wave) | density | yes | sound speed, bulk viscosity |
-| [Shear layer](#shear-layer) | pressure (zero) | no | stability, roll-up |
-| [Barotropic vortex](#barotropic-vortex) | density | no | acoustics, vortex transport |
+| Case | Scalar | Exact solution of |
+|---|---|---|
+| [Shear modes](#shear-modes) | pressure | incompressible Navier-Stokes |
+| [Acoustic wave](#acoustic-wave) | density | linear isothermal Navier-Stokes |
+| [Shear layer](#shear-layer) | pressure (zero) | none, initial condition |
+| [Barotropic vortex](#barotropic-vortex) | density | none, initial condition |
 
 ## Box and interface
 
