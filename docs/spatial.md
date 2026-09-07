@@ -59,27 +59,25 @@ auto points = rbf::spatial::interleave(x, y, z);     // 3-d
 
 rbf::spatial::KdTree tree(points, box);              // dimension from the box
 rbf::spatial::KdTree tree(points, 2);                // open plane, dimension given
-auto ja = tree.stencils(k);                          // k-nearest-neighbour stencils
+auto ja = tree.knn_stencils(k);                      // stencils of size k
 ```
 
-The dimension is a run-time value, as it is in ckdtree, and `ndim()`
-reports it. Nothing in the tree or the box is 2-d; a 3-d run costs a
-different `ndim` and nothing else.
+The tree is general with respect to dimension: it is a run-time value,
+as in ckdtree, and `ndim()` returns it.
 
-`stencils` returns `ja(k, nq)` in Fortran order: the `k` neighbours of
-query `s` are contiguous at `ja[s*k]`, sorted by distance. Indices are
-0-based and refer to the cloud in the order it was passed. The index
-type is a template parameter, chosen to match the `CsrMatrix<T, I>` the
-stencils will feed (`int32_t` by default). With no query points the
-stencils are centred on the cloud's own nodes, so `ja[s*k] == s` --
-unless two nodes coincide, in which case they tie at distance zero and
-either may lead the row.
+`knn_stencils` returns `ja(k, nq)` in Fortran order: the `k` nearest
+neighbours of query `s` are contiguous at `ja[s*k]`, sorted by distance.
+Indices are 0-based and refer to the cloud in the order it was passed;
+their type is a template parameter, `int32_t` by default or `int64_t`.
+With no query points the stencils are centred on the cloud's own nodes,
+so `ja[s*k] == s` -- unless two nodes coincide, in which case they tie
+at distance zero and either may lead the row.
 
 Queries may be arbitrary points, which is what departure-point-centred
 stencils need:
 
 ```cpp
-auto ja = tree.stencils(q, k);      // q interleaved, nq*ndim
+auto ja = tree.knn_stencils(q, k);  // q interleaved, nq*ndim
 ```
 
 `query` is the same search with the distances kept, and carries SciPy's
@@ -92,17 +90,6 @@ tree.query(q, k, idx, d);           // d may be left empty
 ```
 
 Distances are true Euclidean distances, minimum-image in a periodic box.
-
-Both entry points are OpenMP-parallel over the query points. That is
-safe because `query_knn` keeps all of its state local to the query, the
-same property `cKDTree.query`'s `workers` relies on; the argument is
-spelled out next to the pragma in `rbf_spatial.cpp`. `stencils` narrows
-to the requested index type per block inside that loop, so the result
-never exists as an `intptr_t` array.
-
-`KdTreeParams` (leaf size, median vs. midpoint splitting, whether node
-boxes are shrunk onto their points) tunes the build. It trades build
-time against query time and never changes the answer.
 
 ## Relation to SciPy's cKDTree
 
@@ -127,17 +114,16 @@ query points anyway. And `boxsize` may zero out a single axis to leave
 it aperiodic, which `PeriodicBox` does not expose.
 
 `query`'s `eps`, `p` and `distance_upper_bound` are fixed here at the
-exact Euclidean search: `0`, `2` and infinity. `workers` has no
-analogue: the query is always parallel. The vendored ckdtree also
+exact Euclidean search: `0`, `2` and infinity. The vendored ckdtree also
 carries radius queries (`query_ball_point`, `query_ball_tree`), all-pairs
 searches (`query_pairs`), neighbour counts and sparse distance matrices,
 compiled into the `ckdtree` target but not wrapped.
 
 ## Why periodicity is in the metric
 
-A periodic search is often done by tiling the cloud with its images and
-searching the `3^d` copies in an ordinary tree. ckdtree instead makes the
-box part of the distance function, so the search runs on `n` points and
-the returned indices need no folding back. The cost of a periodic query
-is that of an ordinary one, and correctness does not depend on a stencil
-staying inside one tile.
+The alternative is to tile the cloud with its images and search the
+`3^d` copies in an ordinary tree, at `3^d` times the memory. ckdtree
+instead makes the box part of the distance function, so the search runs
+on `n` points and the returned indices need no folding back. The cost of
+a periodic query is that of an ordinary one, and correctness does not
+depend on a stencil staying inside one tile.

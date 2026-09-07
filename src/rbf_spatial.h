@@ -166,13 +166,13 @@ public:
     void query(int k, std::span<std::intptr_t> idx,
                std::span<double> dist = {}) const;
 
-    // Fixed-k stencils as ja(k, nq) in Fortran order: the k neighbours
-    // of query s are contiguous at ja[s*k], sorted by distance. I is the
-    // index type of the CsrMatrix<T, I> they will feed, int32_t or
-    // int64_t; the narrowing happens per block inside the parallel
-    // query, so there is no intptr_t copy of the result.
+    // Fixed-k stencils as ja(k, nq) in Fortran order: the k nearest
+    // neighbours of query s are contiguous at ja[s*k], sorted by
+    // distance. I is the index type of the result, int32_t or int64_t;
+    // the narrowing happens per block inside the parallel query, so
+    // there is no intptr_t copy of the result.
     template<typename I = std::int32_t>
-    std::vector<I> stencils(std::span<const double> q, int k) const {
+    std::vector<I> knn_stencils(std::span<const double> q, int k) const {
         std::vector<I> ja(q.size() / static_cast<std::size_t>(ndim())
                           * static_cast<std::size_t>(k));
         query_into<I>(q, k, ja);
@@ -183,7 +183,7 @@ public:
     // long as the cloud has no coincident points: a node is its own
     // nearest neighbour at distance zero, and a duplicate ties with it.
     template<typename I = std::int32_t>
-    std::vector<I> stencils(int k) const { return stencils<I>(points(), k); }
+    std::vector<I> knn_stencils(int k) const { return knn_stencils<I>(points(), k); }
 
 private:
     // period is empty in the open plane, else one side length per axis.

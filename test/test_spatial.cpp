@@ -160,7 +160,7 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     CHECK(tree.periodic() == b.has_value());
 
     // stencils on the cloud itself: every node is its own first neighbour
-    const auto ja = tree.stencils(k);
+    const auto ja = tree.knn_stencils(k);
     CHECK(ja.size() == n * static_cast<std::size_t>(k));
     for (std::size_t s = 0; s < n; ++s) {
         CHECK(ja[s*k] == static_cast<std::int32_t>(s));
@@ -176,7 +176,7 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
             for (std::size_t d = 0; d < D; ++d)
                 q[s*D + d] += (d % 2 ? -2.0 : 3.0) * b->period[d];
 
-    const auto jq = tree.stencils(q, k);
+    const auto jq = tree.knn_stencils(q, k);
     CHECK(jq.size() == nq * static_cast<std::size_t>(k));
     for (std::size_t s = 0; s < nq; ++s)
         check_row<D>(b, pts, &q[s*D], &jq[s*k], k);
@@ -224,8 +224,8 @@ static void test_periodicity_matters() {
     const auto pts = interleave(x, y);
     const Box<2> box = PeriodicBox<double, 2>{{1.0, 1.0}};
 
-    const auto open = KdTree(pts, 2).stencils(2);
-    const auto wrapped = KdTree(pts, *box).stencils(2);
+    const auto open = KdTree(pts, 2).knn_stencils(2);
+    const auto wrapped = KdTree(pts, *box).knn_stencils(2);
 
     // Each corner has two neighbours at 0.04, one across each side, so
     // which one comes back is a tie; the distance is the assertion.
@@ -245,12 +245,12 @@ static void test_degenerate() {
     const std::vector<double> one{0.25, 0.75};
     const KdTree tree(one, *box);
     CHECK(tree.size() == 1);
-    CHECK(tree.stencils(1) == (std::vector<std::int32_t>{0}));
+    CHECK(tree.knn_stencils(1) == (std::vector<std::int32_t>{0}));
 
     // every point identical: the build bails out of splitting, and all
     // 16 tie at distance 0, so no node is guaranteed to lead its own row
     const std::vector<double> same(32, 0.5);
-    const auto ja = KdTree(same, *box).stencils(4);
+    const auto ja = KdTree(same, *box).knn_stencils(4);
     CHECK(ja.size() == 16 * 4);
     for (auto j : ja) CHECK(j >= 0 && j < 16);
 
@@ -258,7 +258,7 @@ static void test_degenerate() {
     std::vector<double> line_x(32), line_y(32, 0.5);
     for (int i = 0; i < 32; ++i) line_x[i] = i / 32.0;
     const auto pts = interleave(line_x, line_y);
-    const auto jl = KdTree(pts, *box).stencils(3);
+    const auto jl = KdTree(pts, *box).knn_stencils(3);
     for (int s = 0; s < 32; ++s) {
         CHECK(jl[s*3] == s);
         check_row<2>(box, pts, &pts[s*2], &jl[s*3], 3);
@@ -273,8 +273,8 @@ static void test_index_types() {
     const auto pts = cloud<2>(rng, 300, box);
     const KdTree tree(pts, *box);
 
-    const auto narrow = tree.stencils<std::int32_t>(5);
-    const auto wide = tree.stencils<std::int64_t>(5);
+    const auto narrow = tree.knn_stencils<std::int32_t>(5);
+    const auto wide = tree.knn_stencils<std::int64_t>(5);
     CHECK(std::equal(narrow.begin(), narrow.end(), wide.begin(), wide.end()));
 
     std::vector<std::intptr_t> raw(300 * 5);
