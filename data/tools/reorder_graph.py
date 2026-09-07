@@ -30,6 +30,7 @@ Needs numpy and scipy; nd needs pymetis and amd scikit-sparse too.
 """
 
 import argparse
+import bisect
 import os
 import sys
 
@@ -93,26 +94,95 @@ def bandwidth(ia, ja, iperm):
 def factor_nonzeros(s, iperm):
     """The nonzeros of the Cholesky factor of the undirected graph in the
     new numbering, diagonal included: what a direct solver would store.
-    Row k of the factor holds the nodes on the elimination-tree paths from
-    the earlier neighbours of k up to k, and the walk that counts them
-    builds the tree as it goes, since a node without a parent yet that
-    row k reaches has k as its parent. Costs one Python step per nonzero."""
+    The column counts of Gilbert, Ng and Peyton (1994), as CSparse does
+    them: a leaf of the row subtree of node j in the elimination tree adds
+    the path from it to j to the count, and the ancestor structure finds
+    the leaves in one pass over the graph. Costs one Python step per
+    entry of the graph, whatever the fill."""
     n = s.shape[0]
     order = np.argsort(iperm)
-    parent = np.full(n, -1)
-    mark = np.full(n, -1)                                        # the last row that reached each node
-    count = n
+    sp = s[order][:, order]                                       # the graph in the new numbering
+    sp.sort_indices()
+    indptr, indices = sp.indptr.tolist(), sp.indices.tolist()
+    parent = elimination_tree(n, indptr, indices)
+    post = postorder(parent)
+
+    first = [-1] * n                       # first descendant in postorder
+    delta = [0] * n                        # the column counts, built up from leaves
     for k in range(n):
-        mark[k] = k
-        o = order[k]
-        for j in iperm[s.indices[s.indptr[o]:s.indptr[o + 1]]].tolist():
-            while j < k and mark[j] != k:
-                mark[j] = k
-                count += 1
-                if parent[j] < 0:
-                    parent[j] = k
-                j = parent[j]
-    return count
+        j = post[k]
+        delta[j] = 1 if first[j] == -1 else 0
+        while j != -1 and first[j] == -1:
+            first[j] = k
+            j = parent[j]
+
+    maxfirst, prevleaf, ancestor = [-1] * n, [-1] * n, list(range(n))
+    for k in range(n):
+        j = post[k]
+        pj = parent[j]
+        if pj != -1:
+            delta[pj] -= 1
+        row = indices[indptr[j]:indptr[j + 1]]
+        for i in row[bisect.bisect_right(row, j):]:            # the later neighbours of j
+            if first[j] <= maxfirst[i]:
+                continue                                       # j is not a leaf of the subtree of i
+            maxfirst[i] = first[j]
+            jprev, prevleaf[i] = prevleaf[i], j
+            delta[j] += 1
+            if jprev != -1:                                    # not the first leaf: subtract the overlap
+                q = jprev
+                while q != ancestor[q]:
+                    q = ancestor[q]
+                while jprev != q:
+                    jprev, ancestor[jprev] = ancestor[jprev], q
+                delta[q] -= 1
+        if pj != -1:
+            ancestor[j] = pj
+
+    for j in range(n):                     # parent[j] > j, so a count is final before it is added
+        if parent[j] != -1:
+            delta[parent[j]] += delta[j]
+    return sum(delta)
+
+
+def elimination_tree(n, indptr, indices):
+    """The parent of every node in the elimination tree, by Liu's
+    algorithm with path compression over the earlier neighbours."""
+    parent, ancestor = [-1] * n, [-1] * n
+    for k in range(n):
+        row = indices[indptr[k]:indptr[k + 1]]
+        for i in row[:bisect.bisect_left(row, k)]:
+            while i != -1 and i < k:                           # up to the root of the subtree of i
+                inext = ancestor[i]
+                ancestor[i] = k
+                if inext == -1:
+                    parent[i] = k                              # a root, which k adopts
+                i = inext
+    return parent
+
+
+def postorder(parent):
+    """A postorder of the forest, children before parents, by a depth-first
+    search from every root."""
+    n = len(parent)
+    head, sibling = [-1] * n, [-1] * n
+    for j in range(n - 1, -1, -1):
+        if parent[j] != -1:
+            sibling[j], head[parent[j]] = head[parent[j]], j
+    post = []
+    for root in range(n):
+        if parent[root] != -1:
+            continue
+        stack = [root]
+        while stack:
+            p = stack[-1]
+            child = head[p]
+            if child == -1:
+                post.append(stack.pop())
+            else:
+                head[p] = sibling[child]
+                stack.append(child)
+    return post
 
 
 def parse_args():
