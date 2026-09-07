@@ -102,8 +102,8 @@ tools in the `pointclouds` package, laid out like the C++ library:
 fixes the boundary-marker convention, `pointclouds.cli` the command-line
 conventions. `pointclouds.poisson` fills a rectangle with points no two
 of which are closer than a radius, with either axis periodic or neither,
-from seed points if given, for a generator to scale to lattice units;
-its interface follows `scipy.stats.qmc.PoissonDisk`, and Bridson's loop
+from seed points if given, in whatever units the extent and the radius
+are given in; its interface follows `scipy.stats.qmc.PoissonDisk`, and Bridson's loop
 is compiled by numba, so a million points take a few seconds;
 `tools/poisson_demo.py` shows a sample of it. The generators are:
 

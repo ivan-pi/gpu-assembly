@@ -16,8 +16,6 @@ first in the result:
     engine.fill_space()
     pts = engine.points
 
-It is the generator's business to scale the result to lattice units.
-
 Bridson's algorithm (2007): a grid of cells of side at most r / sqrt(2),
 so that a cell holds one point at most, and a queue of the points that
 still have candidates to throw. A queued point throws `ncandidates`
