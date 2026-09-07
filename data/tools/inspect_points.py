@@ -30,7 +30,8 @@ import numpy as np
 
 class Report:
     """What the checks found: problems, listed at the end and making the
-    exit status 1, and notes, printed under the description of their file."""
+    exit status 1, and notes, printed under the description of their file.
+    A file with nothing wrong is passed over in silence."""
 
     def __init__(self):
         self.problems = []
@@ -48,9 +49,9 @@ class Report:
         self.notes = []
 
     def print_problems(self):
-        """The list of problems, or that there were none."""
+        """The list of problems, and nothing at all when there are none:
+        the exit status already says a file checked out."""
         if not self.problems:
-            print("checks: no problems found")
             return
         print(f"{plural(len(self.problems), 'problem')}:")
         for p in self.problems:
