@@ -1,10 +1,13 @@
 # File formats
 
-The formats read and written by `rbf::io` (`src/rbf_io.h`,
-`src/rbf_io_vtk.h`, `src/rbf_io_gnuplot.h`). Two of them are our own
+The formats read and written by `rbf::io`. Two of them are our own
 plain-text formats, two are borrowed from Triangle and METIS, and the rest
 are standards or conventions of which only the parts we use are described
 here.
+
+The readers and writers of the first five formats are declared in
+`rbf_io.h`, `write_vtk_polydata` in `rbf_io_vtk.h`, and `write_columns`
+in `rbf_io_gnuplot.h`; include the ones whose formats you use.
 
 | Format | Extension | Read | Write |
 |---|---|---|---|

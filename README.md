@@ -1,3 +1,26 @@
+# gpu-assembly
+
+Batched RBF-FD operator assembly on the GPU, with the node handling,
+renumbering and file I/O it needs on the host.
+
+The project is mixed-language, C++ and Fortran.
+
+## Requirements
+
+The host library and its tests:
+
+- CMake 3.23 or newer
+- A C++20 compiler (gcc, clang, nvc++)
+- A Fortran 2008 compiler (gfortran, ifx, nvfortran)
+- (optional) OpenMP, for host parallelism and, in a future version,
+  target offload
+- [nanoflann](https://github.com/jlblancoc/nanoflann), vendored under
+  `third_party/`
+
+The GPU parts additionally:
+
+- The NVHPC toolchain, `nvc++` and `nvfortran`
+- [MathDx](https://docs.nvidia.com/cuda/cusolverdx/), for cuSolverDx
 
 ## Building
 
@@ -40,6 +63,10 @@ export MATHDX_ROOT=$HOME/nvidia-mathdx-26.06.1-cuda13/nvidia/mathdx/26.06/
 ```
 
 Documentation:
+- [docs/nodeset.md](docs/nodeset.md): the `NodeSet` class, its
+  renumbering and the stencil search
+- [docs/renumbering.md](docs/renumbering.md): permutations,
+  space-filling-curve orderings and graph renumbering
 - [docs/file_formats.md](docs/file_formats.md): the file formats the
   library reads and writes
 - [docs/periodic_benchmarks.md](docs/periodic_benchmarks.md): the
