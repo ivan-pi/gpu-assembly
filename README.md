@@ -73,6 +73,9 @@ Documentation:
   analytic periodic flow fields in `examples/`, for verifying a lattice
   Boltzmann implementation
 
+Test cases, small point clouds with their stencil graphs, live in
+[data/](data/README.md).
+
 References:
 - [RBF-FD Stencil Sizer](https://ivan-pi.github.io/tools/rbf_fd_stencil_sizer.html)
 - [cuSOLVERDx](https://docs.nvidia.com/cuda/cusolverdx/)

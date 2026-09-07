@@ -1,0 +1,7 @@
+# Case files (docs/file_formats.md): plain text, LF on every platform so a
+# checkout never changes their bytes. The graph files are generated and
+# large, so GitHub collapses them in diffs.
+*.points  text eol=lf
+*.graph   text eol=lf linguist-generated=true
+*.node    text eol=lf
+*.iperm   text eol=lf linguist-generated=true
