@@ -24,9 +24,8 @@ listed under [Extracted](#extracted).
 Node sets read off the figures of published papers with WebPlotDigitizer 4,
 as [node files](../docs/file_formats.md#node-file). Digitizing leaves a node
 up to a pixel from where it belongs, so wherever the shape of the boundary
-is known its nodes were reconstructed onto it. Every boundary below is a
-circle or a straight wall, so every boundary node satisfies the equation of
-its boundary to machine precision, and the normal taken from it is exact.
+is known its nodes were reconstructed onto it to machine precision, which is
+what makes the normal taken from a boundary node exact.
 
 | Case | Nodes | Boundary | Geometry | Markers | From |
 |---|---|---|---|---|---|
