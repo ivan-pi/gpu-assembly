@@ -47,9 +47,7 @@ Marker 0 is an interior node in all of them.
 2. Musavi and Ashrafizaadeh (2015), Phys. Rev. E 91, 023310,
    [doi:10.1103/PhysRevE.91.023310](https://doi.org/10.1103/PhysRevE.91.023310).
    Three quasi-uniform clouds of the same disk at node spacings of about
-   0.2, 0.1 and 0.05. Only the interior nodes are in the figures as
-   coordinates; the boundary nodes are equally spaced on the circle, one at
-   `(1, 0)`.
+   0.2, 0.1 and 0.05.
 3. Shu, Ding and Zhao (2006), Comput. Math. Appl. 51, 1297-1310,
    [doi:10.1016/j.camwa.2006.04.015](https://doi.org/10.1016/j.camwa.2006.04.015).
 
