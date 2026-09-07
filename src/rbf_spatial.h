@@ -7,57 +7,101 @@
 // The k-d tree is SciPy's ckdtree, vendored under third_party/ckdtree
 // and built as the `ckdtree` target. It was chosen over a tiled search
 // because it handles periodicity in the metric itself: a tree built
-// with a PeriodicBox measures distances under the minimum-image
-// convention, so a query costs the same as in the open plane instead of
-// 9x the points. Queries may be arbitrary points, not just nodes, which
-// is what departure-point-centred stencils need.
+// with a box measures distances under the minimum-image convention, so
+// a query costs the same as in the open plane instead of 9x (3^d - 1
+// images and the cloud) the points. Queries may be arbitrary points,
+// not just nodes, which is what departure-point-centred stencils need.
 //
-// The tree carries double coordinates because ckdtree does; the T-taking
-// entry points below convert. This is the place for a quadtree or a
-// ball tree, should one be needed.
+// ckdtree carries the dimension at run time, and so does KdTree, in the
+// interleaved layout ckdtree itself uses: the library is 2-d today, and
+// 3-d costs a different ndim and nothing else. Coordinates are double,
+// because ckdtree's are. This is the place for a quadtree or a ball
+// tree, should one be needed.
 
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <optional>
+#include <ranges>
 #include <span>
 #include <vector>
 
 namespace rbf::spatial {
 
-// The rectangle [x0, x0+Lx) x [y0, y0+Ly) with opposite sides
-// identified, periodic in both directions.
-//
-// The C++ twin of the Fortran type periodic_box in
-// src/rbf_periodic_box.f90, which has its origin fixed at zero: wrap
-// maps a point into the box, minimum_image shortens a displacement to
-// the nearest of its periodic images.
+namespace detail {
+
+// x reduced into [0, L). The loops catch the case where x is so far
+// outside that x - L*floor(x/L) rounds up to L itself.
 template<typename T>
+T fold(T x, T L) {
+    x -= L * std::floor(x / L);
+    while (x >= L) x -= L;
+    while (x < 0) x += L;
+    return x;
+}
+
+} // namespace detail
+
+// The box [origin[d], origin[d] + period[d]) along each of D axes, with
+// opposite faces identified. The Fortran type periodic_box in
+// src/rbf_periodic_box.f90 is the 2-d case with the origin at zero.
+template<typename T, std::size_t D>
 struct PeriodicBox {
-    T x0 = 0, y0 = 0;  // lower-left corner
-    T Lx = 1, Ly = 1;  // periods
+    static_assert(D >= 1, "a box needs at least one axis");
+
+    std::array<T, D> origin{};  // lower corner
+    std::array<T, D> period{};  // side lengths, all positive
+
+    static constexpr std::size_t ndim = D;
+
+    // The coordinate mapped into the box.
+    T wrap(std::size_t d, T x) const {
+        return origin[d] + detail::fold(x - origin[d], period[d]);
+    }
 
     // The shortest of the displacement and its periodic images. Matches
     // Fortran's anint (half away from zero), so a displacement of
     // exactly half a period maps to -L/2.
-    T minimum_image_x(T dx) const { return dx - Lx * std::round(dx / Lx); }
-    T minimum_image_y(T dy) const { return dy - Ly * std::round(dy / Ly); }
+    T minimum_image(std::size_t d, T dx) const {
+        return dx - period[d] * std::round(dx / period[d]);
+    }
 
-    // The point mapped into the box. Lands in [x0, x0+Lx) even when x
-    // is so far outside that x - L*floor(x/L) rounds to the upper edge.
-    T wrap_x(T x) const { return x0 + fold(x - x0, Lx); }
-    T wrap_y(T y) const { return y0 + fold(y - y0, Ly); }
+    std::array<T, D> wrap(std::array<T, D> p) const {
+        for (std::size_t d = 0; d < D; ++d) p[d] = wrap(d, p[d]);
+        return p;
+    }
 
-private:
-    static T fold(T d, T L) {
-        d -= L * std::floor(d / L);
-        while (d >= L) d -= L;
-        while (d < 0) d += L;
-        return d;
+    std::array<T, D> minimum_image(std::array<T, D> dx) const {
+        for (std::size_t d = 0; d < D; ++d) dx[d] = minimum_image(d, dx[d]);
+        return dx;
     }
 };
+
+// Per-axis coordinate arrays into the interleaved n*ndim layout KdTree
+// takes, widened to double on the way, since ckdtree works in double:
+//
+//     auto points = rbf::spatial::interleave(x, y);      // 2-d
+//     auto points = rbf::spatial::interleave(x, y, z);   // 3-d
+template<std::ranges::contiguous_range Axis, std::ranges::contiguous_range... Rest>
+std::vector<double> interleave(const Axis& x, const Rest&... rest) {
+    constexpr std::size_t D = 1 + sizeof...(Rest);
+    const std::size_t n = std::ranges::size(x);
+    assert(((std::ranges::size(rest) == n) && ...) && "axes of different lengths");
+
+    std::vector<double> out(n * D);
+    std::size_t d = 0;
+    const auto take = [&](const auto& axis) {
+        const auto* a = std::ranges::data(axis);
+        for (std::size_t i = 0; i < n; ++i)
+            out[i*D + d] = static_cast<double>(a[i]);
+        ++d;
+    };
+    take(x);
+    (take(rest), ...);
+    return out;
+}
 
 // Build parameters, named after SciPy's; they trade build time against
 // query time and never change the answer.
@@ -67,36 +111,56 @@ struct KdTreeParams {
     bool compact = true;  // shrink each node's box onto its points
 };
 
-// A 2-d k-d tree over a fixed point cloud, periodic or not.
+namespace detail {
+
+// How a box reaches the tree, whose dimension is a run-time value: two
+// ndim-long ranges, or empty for the open plane. Read in the
+// constructor and never held.
+struct BoxView {
+    std::span<const double> origin, period;
+};
+
+} // namespace detail
+
+// A k-d tree over a fixed point cloud, in any number of dimensions,
+// periodic or not.
 //
+// Points come in ckdtree's interleaved layout: coordinate d of point i
+// at points[i*ndim + d]. interleave() builds it from per-axis arrays.
 // The cloud is copied in, so the caller's arrays need not outlive the
-// tree. Indices returned by the queries refer to the cloud in the order
-// it was passed. The tree is immutable once built, and const queries
-// are thread-safe.
+// tree, and the indices the queries return refer to it in the order it
+// was passed. The tree is immutable once built, so const queries are
+// thread-safe.
 class KdTree {
 public:
-    // Without a box the cloud sits in the open plane. With one, points
-    // outside it are wrapped in, so the cloud need not be pre-wrapped;
-    // the indices are unaffected either way.
-    KdTree(std::span<const double> x, std::span<const double> y,
-           std::optional<PeriodicBox<double>> box = std::nullopt,
-           KdTreeParams params = {});
+    // In the open plane.
+    KdTree(std::span<const double> points, int ndim, KdTreeParams params = {})
+        : KdTree(points, ndim, detail::BoxView{}, params) {}
+
+    // In a periodic box, which is also where the dimension comes from.
+    // Points outside the box are wrapped into it, so the cloud need not
+    // be pre-wrapped; the indices are unaffected either way.
+    template<std::size_t D>
+    KdTree(std::span<const double> points, const PeriodicBox<double, D>& box,
+           KdTreeParams params = {})
+        : KdTree(points, static_cast<int>(D),
+                 detail::BoxView{box.origin, box.period}, params) {}
 
     ~KdTree();
     KdTree(KdTree&&) noexcept;
     KdTree& operator=(KdTree&&) noexcept;
 
-    std::size_t size() const;
-    const std::optional<PeriodicBox<double>>& box() const;
-    bool periodic() const { return box().has_value(); }
+    std::size_t size() const;  // points in the cloud
+    int ndim() const;
+    bool periodic() const;
 
-    // The k nearest neighbours of each query point, sorted by distance:
-    // idx and dist are nq*k, row-major, so the neighbours of query s sit
-    // at idx[s*k]. dist holds true Euclidean distances (minimum-image in
-    // a periodic box) and may be left empty when only the indices are
-    // wanted. Query points are wrapped into the box. OpenMP-parallel
-    // over the queries.
-    void knn(std::span<const double> qx, std::span<const double> qy, int k,
+    // The k nearest neighbours of each query point, sorted by distance.
+    // q is nq*ndim interleaved; idx and dist are nq*k row-major, so the
+    // neighbours of query s sit at idx[s*k]. dist holds true Euclidean
+    // distances (minimum-image in a periodic box) and may be left empty
+    // when only the indices are wanted. Query points are wrapped into
+    // the box. OpenMP-parallel over the queries.
+    void knn(std::span<const double> q, int k,
              std::span<std::intptr_t> idx, std::span<double> dist = {}) const;
 
     // The same, centred on the cloud's own points, in its own order.
@@ -107,10 +171,10 @@ public:
     // of query s are contiguous at ja[s*k], sorted by distance. I is the
     // index type of the CsrMatrix<T, I> they will feed.
     template<typename I = std::int32_t>
-    std::vector<I> stencils(std::span<const double> qx,
-                            std::span<const double> qy, int k) const {
-        std::vector<std::intptr_t> idx(qx.size() * static_cast<std::size_t>(k));
-        knn(qx, qy, k, idx);
+    std::vector<I> stencils(std::span<const double> q, int k) const {
+        const std::size_t nq = q.size() / static_cast<std::size_t>(ndim());
+        std::vector<std::intptr_t> idx(nq * static_cast<std::size_t>(k));
+        knn(q, k, idx);
         return narrow<I>(idx);
     }
 
@@ -125,6 +189,9 @@ public:
     }
 
 private:
+    KdTree(std::span<const double> points, int ndim, detail::BoxView box,
+           KdTreeParams params);
+
     template<typename I>
     static std::vector<I> narrow(const std::vector<std::intptr_t>& idx) {
         std::vector<I> ja(idx.size());
@@ -139,58 +206,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
-
-namespace detail {
-
-// ckdtree is double-only; a cloud of another coordinate type is
-// converted on the way in. The double case is a no-op that keeps the
-// caller's storage.
-template<typename T>
-struct AsDoubles {
-    explicit AsDoubles(std::span<const T> v) : buf(v.begin(), v.end()) {}
-    std::span<const double> get() const { return buf; }
-    std::vector<double> buf;
-};
-
-template<>
-struct AsDoubles<double> {
-    explicit AsDoubles(std::span<const double> v) : v_(v) {}
-    std::span<const double> get() const { return v_; }
-    std::span<const double> v_;
-};
-
-template<typename T>
-std::optional<PeriodicBox<double>> widen(const std::optional<PeriodicBox<T>>& b) {
-    if (!b) return std::nullopt;
-    return PeriodicBox<double>{
-        static_cast<double>(b->x0), static_cast<double>(b->y0),
-        static_cast<double>(b->Lx), static_cast<double>(b->Ly)};
-}
-
-} // namespace detail
-
-// One-shot k-nearest-neighbour stencils of the query points (qx, qy) in
-// the cloud (x, y): ja(k, nq) in Fortran order, as KdTree::stencils.
-// Without a box the cloud sits in the open plane.
-//
-// These build a tree per call. Hold a KdTree instead when the same
-// cloud is queried more than once.
-template<typename T, typename I = std::int32_t>
-std::vector<I> knn_stencils(std::span<const T> x, std::span<const T> y,
-                            std::span<const T> qx, std::span<const T> qy,
-                            int k, std::optional<PeriodicBox<T>> box = std::nullopt) {
-    const detail::AsDoubles<T> xd(x), yd(y), qxd(qx), qyd(qy);
-    return KdTree(xd.get(), yd.get(), detail::widen(box))
-        .stencils<I>(qxd.get(), qyd.get(), k);
-}
-
-// Stencils centred on the cloud's own points, as KdTree::stencils(k).
-template<typename T, typename I = std::int32_t>
-std::vector<I> knn_stencils(std::span<const T> x, std::span<const T> y,
-                            int k, std::optional<PeriodicBox<T>> box = std::nullopt) {
-    const detail::AsDoubles<T> xd(x), yd(y);
-    return KdTree(xd.get(), yd.get(), detail::widen(box)).stencils<I>(k);
-}
 
 } // namespace rbf::spatial
 
