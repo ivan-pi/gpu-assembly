@@ -10,6 +10,11 @@ cmake --build build
 ctest --test-dir build
 ```
 
+The flow benchmark examples (`examples/`, the Fortran module
+`rbf_benchmarks` and the header `rbf_flow_benchmarks.h`) build by
+default as the `rbf_benchmarks` target; pass
+`-DGPU_ASSEMBLY_BUILD_EXAMPLES=OFF` to leave them out.
+
 CI exercises GCC (`g++`/`gfortran`) and the LLVM toolchain
 (`clang++`/`flang`, versions 20 and 22). To build with LLVM flang:
 
