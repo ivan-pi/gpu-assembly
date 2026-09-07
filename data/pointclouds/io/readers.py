@@ -36,9 +36,10 @@ def plural(k, word):
 # ----------------------------------------------------------- text parsing
 
 
-# (line number, tokens) of every non-blank line; `#` starts a comment in the
-# formats that have them.
 def _lines_of(fname, comments):
+    """(line number, tokens) of every non-blank line; `#` starts a comment
+    in the formats that have them.
+    """
     out = []
     with open(fname) as f:
         for no, line in enumerate(f, 1):
@@ -50,18 +51,19 @@ def _lines_of(fname, comments):
     return out
 
 
-# All tokens through int or float, or None if one is not a number.
 def _nums(toks, conv):
+    """All tokens through int or float, or None if one is not a number."""
     try:
         return [conv(t) for t in toks]
     except ValueError:
         return None
 
 
-# The non-negative integers of the first line, and the lines after it:
-# (values, rows). `form` names the fields, `n nnz` say, and sets how many
-# there are.
 def _read_header(fname, form, comments):
+    """The non-negative integers of the first line, and the lines after it:
+    (values, rows). `form` names the fields, `n nnz` say, and sets how
+    many there are.
+    """
     lines = _lines_of(fname, comments)
     if not lines:
         raise FormatError(fname, "empty file")
@@ -74,10 +76,11 @@ def _read_header(fname, form, comments):
     return vals, lines[1:]
 
 
-# Every row through `convert`, which returns the values of a line or None: the
-# list of values, or FormatError naming every bad line. `form` describes a
-# line in the message.
 def _parse_rows(fname, rows, form, convert):
+    """Every row through `convert`, which returns the values of a line or
+    None: the list of values, or FormatError naming every bad line.
+    `form` describes a line in the message.
+    """
     out, bad = [], []
     for no, toks in rows:
         vals = convert(toks)
@@ -154,8 +157,8 @@ def read_node(fname):
     return table[:, 1:3], table[:, 3].astype(int)
 
 
-# (index, x, y, marker) of a node line, or None if malformed.
 def _node_line(toks, nattr, nmark):
+    """(index, x, y, marker) of a node line, or None if malformed."""
     if len(toks) != 3 + nattr + nmark:
         return None
     try:
@@ -169,8 +172,8 @@ def _node_line(toks, nattr, nmark):
         return None
 
 
-# The index column has to count from 0 or from 1.
 def _check_consecutive(fname, index, rows):
+    """The index column has to count from 0 or from 1."""
     expected = np.arange(index.size)
     if np.array_equal(index, expected + 1):
         log.info(
@@ -230,8 +233,8 @@ def read_graph(fname):
     return ia, ja
 
 
-# The rows in which some node is listed twice.
 def _rows_with_duplicates(ia, ja):
+    """The rows in which some node is listed twice."""
     n = len(ia) - 1
     # i * n + j of every entry
     keys = np.sort(np.repeat(np.arange(n), np.diff(ia)) * n + ja)

@@ -67,10 +67,11 @@ Store = namedtuple("Store", "px py grid queue count")
 # count    the number of points, the length of the queue
 
 
-# One coordinate brought into [0, length) through the periodic side, from at
-# most one length out; `wrap` does the same for arrays.
 @njit(cache=True)
 def wrap_coordinate(z, length):
+    """One coordinate brought into [0, length) through the periodic side,
+    from at most one length out; `wrap` does the same for arrays.
+    """
     if z < 0.0:
         z += length
     elif z >= length:
@@ -80,10 +81,11 @@ def wrap_coordinate(z, length):
     return z
 
 
-# Whether (x, y) is in the box, and where: brought in through a periodic side,
-# or out for good through a wall.
 @njit(cache=True)
 def into_box(box, x, y):
+    """Whether (x, y) is in the box, and where: brought in through a
+    periodic side, or out for good through a wall.
+    """
     if box.perx:
         x = wrap_coordinate(x, box.lx)
     elif x < 0.0 or x >= box.lx:
@@ -95,9 +97,9 @@ def into_box(box, x, y):
     return True, x, y
 
 
-# A difference of coordinates through the nearer of the two sides.
 @njit(cache=True)
 def minimum_image(d, length):
+    """A difference of coordinates through the nearer of the two sides."""
     if d > 0.5 * length:
         d -= length
     elif d < -0.5 * length:
@@ -105,10 +107,11 @@ def minimum_image(d, length):
     return d
 
 
-# The squared distance for a difference of two points, through the periodic
-# sides where that is shorter.
 @njit(cache=True)
 def squared_distance(box, dx, dy):
+    """The squared distance for a difference of two points, through the
+    periodic sides where that is shorter.
+    """
     if box.perx:
         dx = minimum_image(dx, box.lx)
     if box.pery:
@@ -116,24 +119,26 @@ def squared_distance(box, dx, dy):
     return dx * dx + dy * dy
 
 
-# The column and row of the cell (x, y) falls in; the last for a coordinate on
-# the far side.
 @njit(cache=True)
 def cell_of(cells, x, y):
+    """The column and row of the cell (x, y) falls in; the last for a
+    coordinate on the far side.
+    """
     return (min(int(x / cells.sx), cells.nx - 1), min(int(y / cells.sy), cells.ny - 1))
 
 
-# Whether the cell of (x, y) already holds a point.
 @njit(cache=True)
 def cell_taken(store, cells, x, y):
+    """Whether the cell of (x, y) already holds a point."""
     ci, cj = cell_of(cells, x, y)
     return store.grid[cj * cells.nx + ci] >= 0
 
 
-# Whether a point within r of (x, y) sits in the 5x5 cells around its own,
-# through the periodic sides where there are any.
 @njit(cache=True)
 def too_close(store, cells, box, x, y, r2):
+    """Whether a point within r of (x, y) sits in the 5x5 cells around
+    its own, through the periodic sides where there are any.
+    """
     ci, cj = cell_of(cells, x, y)
     for dj in range(-2, 3):
         jj = cj + dj
@@ -153,9 +158,9 @@ def too_close(store, cells, box, x, y, r2):
     return False
 
 
-# (x, y) stored, put in its cell and queued.
 @njit(cache=True)
 def insert_point(store, cells, x, y):
+    """(x, y) stored, put in its cell and queued."""
     n, qn = store.count[0], store.count[1]
     ci, cj = cell_of(cells, x, y)
     store.px[n] = x
@@ -166,10 +171,11 @@ def insert_point(store, cells, x, y):
     store.count[1] = qn + 1
 
 
-# Points inserted as they are; False at the first whose cell is taken, which
-# means it is closer than r to another.
 @njit(cache=True)
 def insert_points(store, cells, xs, ys):
+    """Points inserted as they are; False at the first whose cell is
+    taken, which means it is closer than r to another.
+    """
     for i in range(len(xs)):
         if cell_taken(store, cells, xs[i], ys[i]):
             return False
@@ -177,11 +183,12 @@ def insert_points(store, cells, xs, ys):
     return True
 
 
-# Points drawn from the queue until it is empty or there are nmax of them: a
-# queued point throws its k candidates and comes off, and every candidate that
-# fits is stored and queued in its turn.
 @njit(cache=True)
 def draw_points(store, cells, box, r, k, nmax, rng):
+    """Points drawn from the queue until it is empty or there are nmax of
+    them: a queued point throws its k candidates and comes off, and every
+    candidate that fits is stored and queued in its turn.
+    """
     if store.count[0] == 0 and nmax > 0:  # no seeds: start anywhere
         insert_point(store, cells, rng.random() * box.lx, rng.random() * box.ly)
     r2 = r * r

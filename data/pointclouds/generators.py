@@ -232,17 +232,19 @@ class RefinedCavity(NodeSet):
             title=f"refined cavity, size={Lx:g}x{Ly:g}, {distribution}, steps={steps}",
         )
 
-    # From a to b in a whole number of steps as close to h as possible; the
-    # end b is left out.
     @staticmethod
     def _side(a, b, h):
+        """From a to b in a whole number of steps as close to h as
+        possible; the end b is left out.
+        """
         return np.linspace(a, b, max(round((b - a) / h), 1), endpoint=False)
 
-    # Points about h apart on the boundary of the cavity inset by r, counter-
-    # clockwise from (r, r); a segment or a point when a side has shrunk to
-    # nothing.
     @classmethod
     def _ring(cls, r, Lx, Ly, h):
+        """Points about h apart on the boundary of the cavity inset by r,
+        counter-clockwise from (r, r); a segment or a point when a side
+        has shrunk to nothing.
+        """
         x0, x1, y0, y1 = r, Lx - r, r, Ly - r
         sx, sy = cls._side(x0, x1, h), cls._side(y0, y1, h)
         south = np.column_stack((sx, np.full(len(sx), y0)))

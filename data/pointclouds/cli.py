@@ -40,9 +40,10 @@ def output_stem(name, default):
     return name, default
 
 
-# An option stored with the method it stands for: -K 18 gives args.graph =
-# ("knn", 18).
 class Pair(argparse.Action):
+    """An option stored with the method it stands for: -K 18 gives
+    args.graph = ("knn", 18).
+    """
 
     def __call__(self, ap, namespace, value, option):
         setattr(namespace, self.dest, (self.const, value))

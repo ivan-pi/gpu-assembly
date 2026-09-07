@@ -14,9 +14,10 @@ import contextlib
 import sys
 
 
-# The file this stem and extension name, or standard output for `-`, which
-# stays open.
 def open_out(stem, ext):
+    """The file this stem and extension name, or standard output for `-`,
+    which stays open.
+    """
     return contextlib.nullcontext(sys.stdout) if stem == "-" else open(stem + ext, "w")
 
 
