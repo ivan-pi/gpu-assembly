@@ -88,16 +88,17 @@ import sys
 import numpy as np
 
 from pointclouds import stencils
-from pointclouds.cli import number, output_stem
-from pointclouds.io import write_graph, write_node, write_points
+from pointclouds.cli import add_series_options, number, series, stencil_report
+from pointclouds.io import write_graph, write_nodes
 from pointclouds.markers import HOLE, INTERIOR, MARKER_STYLE
 from pointclouds.poisson import PoissonDisk, wrap
 
 
 def circle(radius, centre, d):
     """Nodes on the circle, counter-clockwise from the x axis, as many as
-    keep consecutive ones at least d apart along the chord."""
-    n = int(np.pi / np.arcsin(min(1.0, d / (2.0 * radius))))
+    keep consecutive ones at least d apart along the chord; the radius
+    is at least d."""
+    n = int(np.pi / np.arcsin(d / (2.0 * radius)))
     phi = 2.0 * np.pi * np.arange(n) / n
     return centre + radius * np.column_stack((np.cos(phi), np.sin(phi)))
 
@@ -106,19 +107,17 @@ def sample(extent, d, candidates, hole, seed):
     """The nodes of one realization and their markers: the circle nodes
     first, if there is a hole, then the sample grown from them."""
     centre = 0.5 * extent
-    seeds = circle(hole, centre, d) if hole else None
+    seeds = circle(hole, centre, d) if hole else np.empty((0, 2))
     engine = PoissonDisk(
         d, extent, periodic=True, ncandidates=candidates, seed=seed, seeds=seeds
     )
     engine.fill_space()
     pts = engine.points
-    nb = 0 if seeds is None else len(seeds)
-    if hole:
-        inside = np.hypot(*(pts - centre).T) < hole
-        inside[:nb] = False  # the circle nodes sit on the hole, not in it
-        pts = pts[~inside]
+    inside = np.hypot(*(pts - centre).T) < (hole or 0.0)
+    inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
+    pts = pts[~inside]
     m = np.full(len(pts), INTERIOR)
-    m[:nb] = HOLE
+    m[: len(seeds)] = HOLE
     return pts, m
 
 
@@ -136,12 +135,13 @@ def tiled(pts, m, extent, tiles):
     return wrap(pts[order], extent * tiles), m[order]
 
 
-def plot(pts, m, rows, extent, tiles):
+def plot(pts, m, graph, extent, tiles):
     import matplotlib.pyplot as plt
 
     plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKER_STYLE)
-    if rows:  # one stencil, to see it wrap
-        middle = rows[len(pts) // 2]
+    if graph:  # one stencil, to see it wrap
+        ia, ja = graph
+        middle = ja[ia[len(pts) // 2] : ia[len(pts) // 2 + 1]]
         plt.scatter(
             pts[middle, 0],
             pts[middle, 1],
@@ -226,29 +226,11 @@ def main():
         "(default: 1 1, the sample alone)",
     )
 
-    stencils.add_options(ap, knn=21, why=", as in the poisson_32_21 case")
-
-    ap.add_argument(
-        "--seed",
-        type=int,
-        help="seed of the sample (default: drawn and reported)",
-    )
-    ap.add_argument(
-        "--realizations",
-        type=number(int, least=1),
-        default=1,
-        metavar="R",
-        help="independent clouds to write, numbered from 0 (default: 1)",
-    )
-    ap.add_argument(
-        "--no-graph",
-        action="store_true",
-        help="write the coordinates only, without the stencil graph",
-    )
-    ap.add_argument(
-        "--plot",
-        action="store_true",
-        help="show the first cloud, coloured by marker, with one stencil "
+    stencils.add_options(ap, knn=21, why="as in the poisson_32_21 case")
+    add_series_options(
+        ap,
+        "clouds",
+        plot="show the first cloud, coloured by marker, with one stencil "
         "and the outline of the tiles",
     )
     args = ap.parse_args()
@@ -259,97 +241,68 @@ def main():
     if args.solid_fraction is not None:
         if args.solid_fraction >= 1.0:
             ap.error("--solid-fraction must be less than 1")
-        hole = np.sqrt(args.solid_fraction * extent.prod() / np.pi)
+        hole = float(np.sqrt(args.solid_fraction * extent.prod() / np.pi))
     if hole is not None:
         if hole < d:
             ap.error(
-                f"a hole of radius {hole:g} is smaller than the distance "
-                f"{d:g} between nodes and would hold none on its circle"
+                f"the hole must be at least the distance {d:g} between nodes "
+                f"in radius, and {hole:g} is not"
             )
-        if 2.0 * hole >= extent.min():
+        if 2.0 * hole + d > extent.min():
             ap.error(
-                f"the hole must fit in the box: a radius of {hole:g} "
-                f"does not, the box is {extent.min():g} across"
+                f"the hole must leave a spacing between itself and its image "
+                f"across the periodic sides: a radius of {hole:g} in a box "
+                f"{extent.min():g} across does not"
             )
     if extent.min() < 2.0 * d:
         ap.error(
             f"the box is narrower than twice the distance {d:g}: no room for nodes"
         )
 
-    stencil = stencils.from_args(args, knn=21)
+    stencil = stencils.from_args(args)
     box = extent * tiles
     if not args.no_graph:
-        problem = stencils.check(stencil, box, True, np.inf)  # the count later
+        problem = stencils.check(stencil, box, True)
         if problem:
             ap.error(problem)
-
-    seed = np.random.SeedSequence().entropy if args.seed is None else args.seed
-    streams = np.random.SeedSequence(seed).spawn(args.realizations)
-
-    base, ext = output_stem(args.output, default=".points")
-    width = len(str(args.realizations - 1))
-
-    piped = base == "-"  # `-`, `-.points` or `-.node`
-    if piped and not args.no_graph:
-        ap.error(
-            "only one file fits down a pipe: add --no-graph to write the "
-            "coordinates to standard output, or name a file for the pair"
-        )
-    if piped and args.realizations > 1:
-        ap.error(
-            "a series needs file names to go in: --realizations cannot "
-            "write to standard output"
-        )
-    if args.seed is None:
-        print(f"seed {seed}", file=sys.stderr)
+    run = series(ap, args, default=".points")
 
     # The comment of a node file is the command that reproduces it.
-    command = (
-        f"produced by periodic_poisson.py --size {extent[0]:g} {extent[1]:g} "
-        f"--distance {d:g} --candidates {args.candidates} "
-        f"{f'--hole {hole:g} ' if hole is not None else ''}"
-        f"--tile {tiles[0]} {tiles[1]} "
-        f"{'--no-graph' if args.no_graph else f'--{stencil.kind} {stencil.reach:g}'} "
-        f"--seed {seed}"
+    lx, ly = extent.tolist()
+    if args.solid_fraction is not None:
+        cut = f"--solid-fraction {args.solid_fraction!r} "
+    else:
+        cut = f"--hole {hole!r} " if hole is not None else ""
+    options = (
+        f"produced by periodic_poisson.py --size {lx!r} {ly!r} --distance {d!r} "
+        f"--candidates {args.candidates} {cut}--tile {tiles[0]} {tiles[1]} "
+        f"{'--no-graph' if args.no_graph else stencil}"
     )
-    if args.realizations > 1:
-        command += f" --realizations {args.realizations}, number"
     area = box.prod() - (0.0 if hole is None else tiles.prod() * np.pi * hole**2)
 
-    for i, stream in enumerate(streams):
-        stem = base if args.realizations == 1 else f"{base}_{i:0{width}d}"
-        pts, m = sample(extent, d, args.candidates, hole, stream)
-        pts, m = tiled(pts, m, extent, tiles)
-        if not args.no_graph and stencils.check(stencil, box, True, len(pts)):
-            ap.error(stencils.check(stencil, box, True, len(pts)))
-
-        if ext == ".node":
-            write_node(
-                stem, pts, m, command if args.realizations == 1 else f"{command} {i}"
-            )
-        else:
-            write_points(stem, pts)
-
-        rows, graph = None, ""
+    for i, stream in enumerate(run.streams):
+        pts, m = tiled(*sample(extent, d, args.candidates, hole, stream), extent, tiles)
+        graph, report = None, ""
         if not args.no_graph:
-            rows = stencils.search(pts, box, True, stencil)
-            write_graph(stem, rows)
-            sizes = [len(row) for row in rows]
-            graph = (
-                f", {sum(sizes)} stencil entries, "
-                f"{min(sizes)} to {max(sizes)} per node"
-            )
+            try:
+                graph = stencils.search(pts, box, True, stencil)
+            except ValueError as e:
+                sys.exit(str(e))
+            report = stencil_report(graph[0])
 
+        write_nodes(run.stems[i], run.ext, pts, m, run.provenance(options, i))
+        if graph:
+            write_graph(run.stems[i], *graph)
         nb = np.count_nonzero(m)
         walls = f", {nb} of them on the cylinder{'s' if tiles.prod() > 1 else ''}"
         print(
-            f"{'standard output' if piped else stem}: {len(pts)} nodes"
-            f"{walls if nb else ''}, {len(pts) / area:.3g} per unit area{graph}",
+            f"{run.written(i)}: {len(pts)} nodes{walls if nb else ''}, "
+            f"{len(pts) / area:.3g} per unit area{report}",
             file=sys.stderr,
         )
 
         if args.plot and i == 0:
-            plot(pts, m, rows, extent, tiles)
+            plot(pts, m, graph, extent, tiles)
 
 
 if __name__ == "__main__":

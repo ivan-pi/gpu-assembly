@@ -73,9 +73,10 @@ import sys
 import numpy as np
 
 from pointclouds import stencils
-from pointclouds.cli import number, output_stem
-from pointclouds.io import write_graph, write_node, write_points
+from pointclouds.cli import add_series_options, number, series, stencil_report
+from pointclouds.io import write_graph, write_nodes
 from pointclouds.markers import INTERIOR, MARKER_STYLE, NORTH, SOUTH
+from pointclouds.poisson import wrap
 
 
 def grid(n, periodic):
@@ -105,19 +106,13 @@ def perturb(pts, m, sigma, box, periodic, rng):
     return pts
 
 
-def wrap(z, box):
-    """Into [0, box) through the periodic side."""
-    z = np.mod(z, box)
-    z[z >= box] = 0.0  # np.mod rounds up to the side
-    return z
-
-
-def plot(pts, m, rows):
+def plot(pts, m, graph):
     import matplotlib.pyplot as plt
 
     plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKER_STYLE)
-    if rows:  # one stencil, to see it wrap
-        middle = rows[len(pts) // 2]
+    if graph:  # one stencil, to see it wrap
+        ia, ja = graph
+        middle = ja[ia[len(pts) // 2] : ia[len(pts) // 2 + 1]]
         plt.scatter(
             pts[middle, 0],
             pts[middle, 1],
@@ -174,34 +169,15 @@ def main():
         "and periodic in x (default: periodic)",
     )
 
-    stencils.add_options(ap, knn=15, why=", the stencil size of the reference")
-
-    ap.add_argument(
-        "--seed",
-        type=int,
-        help="seed of the displacements (default: drawn and reported)",
-    )
-    ap.add_argument(
-        "--realizations",
-        type=number(int, least=1),
-        default=1,
-        metavar="R",
-        help="independent grids to write, numbered from 0 (default: 1)",
-    )
-    ap.add_argument(
-        "--no-graph",
-        action="store_true",
-        help="write the coordinates only, without the stencil graph",
-    )
-    ap.add_argument(
-        "--plot",
-        action="store_true",
-        help="show the first grid, coloured by marker, with one stencil",
+    stencils.add_options(ap, knn=15, why="the stencil size of the reference")
+    add_series_options(
+        ap, "grids", plot="show the first grid, coloured by marker, with one stencil"
     )
     args = ap.parse_args()
 
     n, sigma, periodic = args.nodes, args.sigma, args.geometry == "periodic"
     box = float(n)  # N by N at a spacing of one
+    extent, wraps = (box, box), (True, periodic)
     if sigma >= 0.5:
         print(
             f"warning: --sigma {sigma:g} moves a node out of its own cell, "
@@ -209,76 +185,38 @@ def main():
             file=sys.stderr,
         )
 
-    stencil = stencils.from_args(args, knn=15)
-
-    seed = np.random.SeedSequence().entropy if args.seed is None else args.seed
-    streams = np.random.SeedSequence(seed).spawn(args.realizations)
-
-    base, ext = output_stem(args.output, default=".points")
-    width = len(str(args.realizations - 1))
-
-    piped = base == "-"  # `-`, `-.points` or `-.node`
-    if piped and not args.no_graph:
-        ap.error(
-            "only one file fits down a pipe: add --no-graph to write the "
-            "coordinates to standard output, or name a file for the pair"
-        )
-    if piped and args.realizations > 1:
-        ap.error(
-            "a series needs file names to go in: --realizations cannot "
-            "write to standard output"
-        )
-
-    pts0, m = grid(n, periodic)
+    stencil = stencils.from_args(args)
     if not args.no_graph:
-        problem = stencils.check(stencil, (box, box), (True, periodic), len(pts0))
+        problem = stencils.check(stencil, extent, wraps)
         if problem:
             ap.error(problem)
-    if args.seed is None:
-        print(f"seed {seed}", file=sys.stderr)
+    run = series(ap, args, default=".points")
 
+    pts0, m = grid(n, periodic)
     # The comment of a node file is the command that reproduces it.
-    command = (
-        f"produced by perturbed_grid.py -n {n} --sigma {sigma:g} "
-        f"--geometry {args.geometry} "
-        f"{'--no-graph' if args.no_graph else f'--{stencil.kind} {stencil.reach:g}'} "
-        f"--seed {seed}"
+    options = (
+        f"produced by perturbed_grid.py -n {n} --sigma {sigma!r} "
+        f"--geometry {args.geometry} {'--no-graph' if args.no_graph else stencil}"
     )
-    if args.realizations > 1:
-        command += f" --realizations {args.realizations}, number"
     walls = f", {np.count_nonzero(m)} of them on a wall" if not periodic else ""
 
-    for i, stream in enumerate(streams):
-        stem = base if args.realizations == 1 else f"{base}_{i:0{width}d}"
+    for i, stream in enumerate(run.streams):
         pts = perturb(pts0, m, sigma, box, periodic, np.random.default_rng(stream))
-
-        if ext == ".node":
-            write_node(
-                stem, pts, m, command if args.realizations == 1 else f"{command} {i}"
-            )
-        else:
-            write_points(stem, pts)
-
-        rows, graph = None, ""
+        graph, report = None, ""
         if not args.no_graph:
             try:
-                rows = stencils.search(pts, (box, box), (True, periodic), stencil)
+                graph = stencils.search(pts, extent, wraps, stencil)
             except ValueError as e:
-                sys.exit(f"{e}, which takes a --sigma of about 0.5 or more")
-            write_graph(stem, rows)
-            sizes = [len(row) for row in rows]
-            graph = (
-                f", {sum(sizes)} stencil entries, "
-                f"{min(sizes)} to {max(sizes)} per node"
-            )
+                sys.exit(str(e))
+            report = stencil_report(graph[0])
 
-        print(
-            f"{'standard output' if piped else stem}: {len(pts)} nodes{walls}{graph}",
-            file=sys.stderr,
-        )
+        write_nodes(run.stems[i], run.ext, pts, m, run.provenance(options, i))
+        if graph:
+            write_graph(run.stems[i], *graph)
+        print(f"{run.written(i)}: {len(pts)} nodes{walls}{report}", file=sys.stderr)
 
         if args.plot and i == 0:
-            plot(pts, m, rows)
+            plot(pts, m, graph)
 
 
 if __name__ == "__main__":

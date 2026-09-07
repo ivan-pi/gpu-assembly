@@ -13,6 +13,10 @@ extension, so one stem names the whole case: `case.points` and
 import contextlib
 import sys
 
+import numpy as np
+
+ROWS = 50_000  # stencils of a graph file formatted at once
+
 
 def open_out(stem, ext):
     """The file this stem and extension name, or standard output for `-`,
@@ -38,13 +42,28 @@ def write_node(stem, pts, m, provenance):
             f.write(f"{i} {x!r} {y!r} {mi}\n")
 
 
-def write_graph(stem, rows):
-    """A graph file: the node count and the entry count, then the stencil
-    of each node, which starts with the node itself."""
+def write_nodes(stem, ext, pts, m, provenance):
+    """The nodes as the extension asks: a points file, or a node file with
+    the markers and the comment. The counterpart of the reader
+    `read_nodes`, which tells the two apart the same way."""
+    if ext == ".node":
+        write_node(stem, pts, m, provenance)
+    else:
+        write_points(stem, pts)
+
+
+def write_graph(stem, ia, ja):
+    """A graph file from the stencils in CSR form, the stencil of node i
+    at ja[ia[i]:ia[i + 1]]: the node count and the entry count, then one
+    stencil per line. The lines are formatted a chunk of rows at a time,
+    so that a big graph is never all text at once."""
+    n = len(ia) - 1
     with open_out(stem, ".graph") as f:
-        f.write(f"{len(rows)} {sum(len(row) for row in rows)}\n")
-        for row in rows:
-            f.write(" ".join(map(str, row)) + "\n")
+        f.write(f"{n} {ia[-1]}\n")
+        for a in range(0, n, ROWS):
+            b = min(a + ROWS, n)
+            rows = np.split(ja[ia[a] : ia[b]], ia[a + 1 : b] - ia[a])
+            f.write("\n".join(" ".join(map(str, row.tolist())) for row in rows) + "\n")
 
 
 def write_ordering(stem, iperm):

@@ -49,12 +49,13 @@ from math import ceil, sqrt
 import numpy as np
 from numba import njit
 
-__all__ = ["PoissonDisk"]
+__all__ = ["PoissonDisk", "wrap"]
 
 
 def wrap(z, box):
     """Coordinates z brought into [0, box) through the periodic side, for
-    arrays, with box a scalar or one length per column."""
+    arrays, with box a scalar or one length per column; the box arithmetic
+    the generators share too."""
     z = np.mod(z, box)
     z[z >= box] = 0.0  # np.mod rounds up to the side
     return z
