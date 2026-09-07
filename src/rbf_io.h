@@ -33,6 +33,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -308,7 +309,8 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
 // column must lie in [csr_base, csr_base + cols); all of this is asserted,
 // since a violation would write a file that solvers reject or misread.
 // The entry count is taken from ia, so the header can never disagree with
-// the body.
+// the body. I is deduced from ia and ja alone, so rows, cols and csr_base
+// can be plain integer literals whatever the index type.
 //
 // Pass a == nullptr to write the sparsity pattern alone, as Matrix Market's
 // "pattern" value type: (row, col) entries with no values. Useful before
@@ -319,9 +321,9 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
 // weights well above the accuracy the assembly is tested to.
 template <class T, class I>
 void write_matrix_market(const std::string& fname,
-                         I rows, I cols,
+                         std::type_identity_t<I> rows, std::type_identity_t<I> cols,
                          const I* ia, const I* ja, const T* a,
-                         I csr_base = 0)
+                         std::type_identity_t<I> csr_base = 0)
 {
     assert((csr_base == 0 || csr_base == 1) && "csr_base must be 0 or 1");
     assert(rows >= 0 && cols >= 0);
@@ -353,9 +355,9 @@ void write_matrix_market(const std::string& fname,
 // Sparsity pattern only, without having to name a value type at the call site.
 template <class I>
 void write_matrix_market_pattern(const std::string& fname,
-                                 I rows, I cols,
+                                 std::type_identity_t<I> rows, std::type_identity_t<I> cols,
                                  const I* ia, const I* ja,
-                                 I csr_base = 0)
+                                 std::type_identity_t<I> csr_base = 0)
 {
     write_matrix_market<double, I>(fname, rows, cols, ia, ja, nullptr, csr_base);
 }

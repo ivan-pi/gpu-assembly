@@ -200,6 +200,14 @@ static void test_matrix_market() {
     CHECK(mp.rows == 3 && mp.cols == 4 && mp.nnz == 6);
     CHECK(mp.i == m.i && mp.j == m.j);
 
+    // 64-bit indices with literal shape arguments
+    const std::vector<std::int64_t> ia64(ia.begin(), ia.end()), ja64(ja.begin(), ja.end());
+    rbf::io::write_matrix_market("c.mtx", 3, 4, ia64.data(), ja64.data(), a.data());
+    auto m64 = read_mtx("c.mtx");
+    CHECK(m64.i == m.i && m64.j == m.j && m64.v == m.v);
+    rbf::io::write_matrix_market_pattern("c.mtx", 3, 4, ia64.data(), ja64.data());
+    CHECK(read_mtx("c.mtx").pattern);
+
     // float values round-trip at float precision
     const std::vector<float> af{0.1f, 1.0f / 3.0f, 1e-30f, 123456.79f, -9.8765e-7f, 2.0f};
     rbf::io::write_matrix_market("f.mtx", 3, 4, ia.data(), ja.data(), af.data());
@@ -214,7 +222,7 @@ static void test_matrix_market() {
         }
     }
 
-    std::remove("a.mtx"); std::remove("b.mtx");
+    std::remove("a.mtx"); std::remove("b.mtx"); std::remove("c.mtx");
     std::remove("p.mtx"); std::remove("f.mtx");
 }
 
