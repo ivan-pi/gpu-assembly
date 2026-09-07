@@ -26,10 +26,24 @@ pip install scikit-sparse          # minimum degree, and the fill count
 ```
 
 scikit-sparse compiles against SuiteSparse, which it does not bring
-along: `apt install libsuitesparse-dev` on Debian and Ubuntu, `brew
-install suite-sparse` on macOS, before the pip line. The extras `tools`
-and `reorder` of `pip install -e "data[tools,reorder]"` pull in the same
-set.
+along, so install that first. On Debian and Ubuntu:
+
+```
+sudo apt install libsuitesparse-dev
+```
+
+On macOS:
+
+```
+brew install suite-sparse
+```
+
+The extras `tools` and `reorder` of the package pull in the same set
+in one go:
+
+```
+pip install -e "data[tools,reorder]"
+```
 
 ## Cases
 
@@ -125,10 +139,10 @@ options:
 file and writes it as an [ordering file](../docs/file_formats.md#ordering-file):
 
 - `rcm`, reverse Cuthill-McKee from scipy, reduces the bandwidth;
-- `nd`, the nested dissection of METIS through pymetis, reduces the fill
-  of a direct factorisation;
+- `nd`, the nested dissection of METIS through pymetis, reduces the
+  fill-in of a direct factorisation;
 - `amd`, the approximate minimum degree of SuiteSparse through
-  scikit-sparse, reduces the fill too, by greedy elimination.
+  scikit-sparse, reduces the fill-in too, by greedy elimination.
 
 The report on standard error gives the bandwidth before and after and,
 with scikit-sparse installed, the nonzeros of the Cholesky factor.
@@ -137,8 +151,8 @@ with scikit-sparse installed, the nonzeros of the Cholesky factor.
 ```
 usage: reorder_graph.py [-h] [-m {rcm,nd,amd}] [-o FILE] [--seed SEED] GRAPH
 
-Renumber the nodes of a graph file to reduce bandwidth (rcm) or fill (nd, amd)
-and write the ordering file (docs/file_formats.md).
+Renumber the nodes of a graph file to reduce bandwidth (rcm) or fill-in (nd,
+amd) and write the ordering file (docs/file_formats.md).
 
 positional arguments:
   GRAPH                 the .graph file to order

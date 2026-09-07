@@ -19,13 +19,17 @@ the figures.
 
 import argparse
 import functools
+import logging
+import logging.handlers
 import os
 import sys
 
 import numpy as np
 
-from pointclouds.io import (Report, plural, read_graph, read_nodes, read_ordering,
+from pointclouds.io import (FormatError, plural, read_graph, read_nodes, read_ordering,
                             stencils_to_csr)
+
+log = logging.getLogger("pointclouds")   # the notes of the readers, and of this tool
 
 
 # --------------------------------------------------------------- geometry
@@ -56,25 +60,20 @@ class Nodes:
     # reading
 
     @classmethod
-    def read(cls, fname, rep, period=None):
-        """Nodes from a .points or .node file, or None with the problems
-        recorded."""
-        got = read_nodes(fname, rep)
-        if got is None:
-            return None
-        nodes = cls(*got, fname, period)
-        nodes._check_coincident(rep)
-        return nodes
+    def read(cls, fname, period=None):
+        """Nodes from a .points or .node file."""
+        return cls(*read_nodes(fname), fname, period)
 
-    def _check_coincident(self, rep):
-        """Nodes at distance zero from another are a problem."""
+    def coincident(self):
+        """The problem with nodes at distance zero from another, or None."""
         j, d = self.nearest
         same = np.flatnonzero(d == 0)
-        if same.size:
-            pairs = sorted({(min(a, j[a]), max(a, j[a])) for a in same})
-            shown = ", ".join(f"({a}, {b})" for a, b in pairs[:5])
-            more = f", ... {len(pairs)} pairs" if len(pairs) > 5 else ""
-            rep.problem(self.fname, f"coincident nodes: {shown}{more}")
+        if not same.size:
+            return None
+        pairs = sorted({(min(a, j[a]), max(a, j[a])) for a in same})
+        shown = ", ".join(f"({a}, {b})" for a, b in pairs[:5])
+        more = f", ... {len(pairs)} pairs" if len(pairs) > 5 else ""
+        return f"{self.fname}: coincident nodes: {shown}{more}"
 
     # neighbours
 
@@ -224,10 +223,9 @@ class Graph:
     # reading
 
     @classmethod
-    def read(cls, fname, rep):
-        """A Graph from a graph file, or None if the file cannot be used."""
-        got = read_graph(fname, rep)
-        return None if got is None else cls(*got, fname)
+    def read(cls, fname):
+        """A Graph from a graph file."""
+        return cls(*read_graph(fname), fname)
 
     # renumbering
 
@@ -284,11 +282,9 @@ class Ordering:
         return self.iperm.size
 
     @classmethod
-    def read(cls, fname, rep):
-        """An Ordering from an ordering file, or None unless the values
-        are a permutation."""
-        iperm = read_ordering(fname, rep)
-        return None if iperm is None else cls(iperm, fname)
+    def read(cls, fname):
+        """An Ordering from an ordering file."""
+        return cls(read_ordering(fname), fname)
 
     def describe(self):
         print(f"{self.fname}: a permutation of {len(self)} nodes")
@@ -357,27 +353,55 @@ def check_options(args):
 
 # ------------------------------------------------------------------- main
 
-def read_files(args, rep):
+def held_notes():
+    """The handler that holds the notes back until they are flushed, so
+    that a file's notes come out under its description rather than while
+    it is being read."""
+    target = logging.StreamHandler(sys.stdout)
+    target.setFormatter(logging.Formatter("  note: %(message)s"))
+    held = logging.handlers.MemoryHandler(capacity=10_000, flushLevel=logging.CRITICAL + 1, target=target)
+    log.addHandler(held)
+    log.setLevel(logging.INFO)
+    return held
+
+
+def read_files(args, problems, notes):
     """Read and describe every file given, with its notes under it:
-    {class: object} for the files that could be read."""
+    {class: object} for the files that could be read, the problems of the
+    others appended to `problems`."""
     read = {}
     for kind, fname in args.given.items():
-        obj = kind.read(fname, rep, args.period) if kind is Nodes else kind.read(fname, rep)
-        if obj is not None:
+        try:
+            obj = kind.read(fname, args.period) if kind is Nodes else kind.read(fname)
+        except FormatError as e:
+            problems.extend(e.problems)
+        else:
             read[kind] = obj
             obj.describe()
-        rep.print_notes()
+            if kind is Nodes and obj.coincident():
+                problems.append(obj.coincident())
+        notes.flush()
     return read
 
 
-def check_counts(read, rep):
-    """A problem if the files disagree on the node count."""
+def counts_differ(read):
+    """The problem if the files disagree on the node count, or None."""
     counts = {obj.fname: len(obj) for obj in read.values()}
     if len(set(counts.values())) > 1:
-        rep.problem("files", "node counts differ: " + ", ".join(f"{f} has {n}" for f, n in counts.items()))
+        return "node counts differ: " + ", ".join(f"{f} has {n}" for f, n in counts.items())
+    return None
 
 
-def stencils_to_draw(args, nodes, graph, rep):
+def print_problems(problems):
+    """The list of problems, and nothing at all when there are none:
+    the exit status already says the files checked out."""
+    if problems:
+        print(f"{plural(len(problems), 'problem')}:")
+        for p in problems:
+            print(f"  {p}")
+
+
+def stencils_to_draw(args, nodes, graph):
     """The (node, members) stencils asked for, from the graph or as the k
     nearest neighbours; exits on a node index outside the cloud."""
     if not args.stencil:
@@ -387,13 +411,13 @@ def stencils_to_draw(args, nodes, graph, rep):
         sys.exit(f"--stencil: node {bad[0]} is outside [0, {len(nodes)})")
     if graph is not None:
         if args.k:
-            rep.note("--k ignored: the stencils are taken from the graph file")
+            log.info("--k ignored: the stencils are taken from the graph file")
         return [(i, graph.row(i)) for i in args.stencil]
     j, _ = nodes.neighbours(args.k - 1, args.stencil)
     return [(i, np.concatenate(([i], jj))) for i, jj in zip(args.stencil, j)]
 
 
-def draw(args, read, rep):
+def draw(args, read, notes):
     """One figure: the nodes, the spy plot, or both, renumbered by the
     ordering if one was given, and then the spy plot in file order too."""
     nodes, graph, ordering = read.get(Nodes), read.get(Graph), read.get(Ordering)
@@ -403,8 +427,8 @@ def draw(args, read, rep):
         if graph is not None:
             file_graph, graph = graph, graph.renumbered(ordering)
         print("ordering applied: nodes and stencils are in the new numbering below")
-    stencils = stencils_to_draw(args, nodes, graph, rep)
-    rep.print_notes()
+    stencils = stencils_to_draw(args, nodes, graph)
+    notes.flush()
 
     import matplotlib.pyplot as plt
     panels = int(args.plot) + int(args.spy) * (2 if file_graph is not None else 1)
@@ -431,16 +455,18 @@ def draw(args, read, rep):
 
 def main():
     args = parse_args()
-    rep = Report()
-    read = read_files(args, rep)
-    check_counts(read, rep)
-    rep.print_problems()
+    notes = held_notes()
+    problems = []
+    read = read_files(args, problems, notes)
+    if counts_differ(read):
+        problems.append(counts_differ(read))
+    print_problems(problems)
     if args.plot or args.spy:
-        if rep.problems:
+        if problems:
             print("no figure: fix the problems above first")
         else:
-            draw(args, read, rep)
-    sys.exit(1 if rep.problems else 0)
+            draw(args, read, notes)
+    sys.exit(1 if problems else 0)
 
 
 if __name__ == "__main__":
