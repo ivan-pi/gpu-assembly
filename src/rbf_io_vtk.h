@@ -48,29 +48,30 @@ struct VtkVector {
 };
 
 // Point cloud with fields as legacy VTK POLYDATA. Coordinates are
-// (x[i * point_stride], y[i * point_stride]) with z = 0, so interleaved
-// {x0, y0, x1, y1, ...} storage is written with x = p, y = p + 1,
-// point_stride = 2. Fields are the same length as the points and are given
+// (x[i * xy_stride], y[i * xy_stride]) with z = 0: xy_stride is the
+// spacing of consecutive coordinates, so interleaved {x0, y0, x1, y1, ...}
+// storage is written with x = p, y = p + 1, xy_stride = 2. Fields are the same length as the points and are given
 // as braced lists or containers of Column<T> and VtkVector<T>:
 //
 //     write_vtk_polydata("u.vtk", n, x, y, {{"u", u}, {"residual", r}});
 //     write_vtk_polydata("flow.vtk", n, x, y, {{"p", p}}, {{"U", ux, uy}});
 //
 // T is deduced from the coordinates only (type_identity), so the lists need
-// not name it. title is the file's second line, a free-text description the
-// legacy format requires to be present (at most 256 characters, no newline);
-// it may be empty.
+// not name it. title is the file's second line, the free-text header the
+// legacy format requires to be present and terminated by a newline; it may be
+// empty. The format caps it at 256 characters including the newline, so at
+// most 255 here, and it must not contain a line break.
 template <class T>
 void write_vtk_polydata(const std::string& fname, std::size_t n,
                         const T* x, const T* y,
                         List<Column<std::type_identity_t<T>>> scalars,
                         List<VtkVector<std::type_identity_t<T>>> vectors = {},
-                        std::size_t point_stride = 1,
+                        std::size_t xy_stride = 1,
                         std::string_view title = "rbf point cloud")
 {
     using detail::num;
-    assert(point_stride >= 1);
-    assert(title.size() <= 256 && title.find('\n') == std::string_view::npos);
+    assert(xy_stride >= 1);
+    assert(title.size() < 256 && title.find_first_of("\r\n") == std::string_view::npos);
     for ([[maybe_unused]] const auto& s : scalars) {
         assert(detail::vtk_name_ok(s.name) && "scalar name empty or contains whitespace");
         assert(s.v && s.stride >= 1);
@@ -88,7 +89,7 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
 
     out << "POINTS " << n << ' ' << tn << '\n';
     for (std::size_t i = 0; i < n; ++i)
-        out << num(x[i * point_stride]) << ' ' << num(y[i * point_stride]) << " 0\n";
+        out << num(x[i * xy_stride]) << ' ' << num(y[i * xy_stride]) << " 0\n";
 
     // one vertex cell per point, else the cloud has no renderable geometry
     out << "VERTICES " << n << ' ' << 2 * n << '\n';

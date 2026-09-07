@@ -26,9 +26,9 @@
 
 namespace rbf::io {
 
-// Coordinates are (x[i * point_stride], y[i * point_stride]), so interleaved
-// {x0, y0, x1, y1, ...} storage is written with x = p, y = p + 1,
-// point_stride = 2. Columns are the same length as the points, as a braced
+// Coordinates are (x[i * xy_stride], y[i * xy_stride]): xy_stride is the
+// spacing of consecutive coordinates, so interleaved {x0, y0, x1, y1, ...}
+// storage is written with x = p, y = p + 1, xy_stride = 2. Columns are the same length as the points, as a braced
 // list or a container of Column<T>:
 //
 //     write_columns("macros.dat", n, x, y, {{"rho", rho}, {"ux", ux}, {"uy", uy}});
@@ -38,10 +38,10 @@ template <class T>
 void write_columns(const std::string& fname, std::size_t n,
                    const T* x, const T* y,
                    List<Column<std::type_identity_t<T>>> columns,
-                   std::size_t point_stride = 1)
+                   std::size_t xy_stride = 1)
 {
     using detail::num;
-    assert(point_stride >= 1);
+    assert(xy_stride >= 1);
     for ([[maybe_unused]] const auto& c : columns) assert(c.v && c.stride >= 1);
 
     auto out = detail::open_out(fname);
@@ -51,7 +51,7 @@ void write_columns(const std::string& fname, std::size_t n,
     out << '\n';
 
     for (std::size_t i = 0; i < n; ++i) {
-        out << num(x[i * point_stride]) << ' ' << num(y[i * point_stride]);
+        out << num(x[i * xy_stride]) << ' ' << num(y[i * xy_stride]);
         for (const auto& c : columns) out << ' ' << num(c.v[i * c.stride]);
         out << '\n';
     }
