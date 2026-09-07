@@ -59,3 +59,35 @@ Scripts that produced a case go in `gen/`.
   refined towards the walls in three levels, as a `.node` file with
   markers for the four walls and the corners. Needs numpy; `--plot`
   needs matplotlib.
+
+## Inspecting
+
+`tools/inspect_points.py` reads and checks the files of a case and
+reports on them. It needs numpy; scipy and matplotlib are optional, for
+the neighbour search and the figures.
+
+```
+usage: inspect_points.py [-h] [--plot] [--labels] [--stencil I [I ...]]
+                         [--k K] [--periodic LX LY] [--spy] [--save FILE]
+                         FILE [FILE ...]
+
+Check and describe the files of a case (docs/file_formats.md): node and marker
+counts, nearest-neighbour statistics, graph statistics. Never writes a file.
+
+positional arguments:
+  FILE                 one each of .points or .node, .graph and .iperm; an
+                       ordering is applied to the others
+
+options:
+  -h, --help           show this help message and exit
+  --plot               draw the nodes, coloured by marker
+  --labels             write the index next to every node
+  --stencil I [I ...]  draw the stencils of these nodes, from the graph or the
+                       --k nearest neighbours
+  --k K                stencil size for --stencil without a graph file
+  --periodic LX LY     the periodic box [0, LX) x [0, LY): minimum-image
+                       distances
+  --spy                draw the sparsity pattern of the graph, before and
+                       after an ordering file
+  --save FILE          write the figure to FILE instead of showing it
+```
