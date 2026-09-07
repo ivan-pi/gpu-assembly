@@ -21,3 +21,8 @@ below.
 ## Generating
 
 Scripts that produced a case go in `gen/`.
+
+- `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
+  refined towards the walls in three levels, as a `.node` file with
+  markers for the four walls and the corners. Needs numpy; `--plot`
+  needs matplotlib.
