@@ -25,36 +25,28 @@
 #include <tuple>
 #include <vector>
 
+#include "rbf_spatial.h"
+
 namespace flow_benchmarks {
 
 /*
- * [0, Lx) x [0, Ly) with periodic images. The mode (nx, ny) has the wave
- * number (2 pi nx/Lx, 2 pi ny/Ly); in lattice units Lx = nx cells.
+ * The box is the library's rbf::spatial::PeriodicBox<T, 2>: [0, Lx) x
+ * [0, Ly) with periodic images, period = {Lx, Ly}. The mode (nx, ny)
+ * has the wave number (2 pi nx/Lx, 2 pi ny/Ly); in lattice units
+ * Lx = nx cells.
  */
+using rbf::spatial::PeriodicBox;
+
 template<typename T>
-struct periodic_box {
+std::array<T,2> wavenumber(const PeriodicBox<T,2>& box, int nx, int ny) {
+    return {2*std::numbers::pi_v<T>*nx/box.period[0],
+            2*std::numbers::pi_v<T>*ny/box.period[1]};
+}
 
-    T Lx, Ly;
-
-    periodic_box(T Lx, T Ly) : Lx(Lx), Ly(Ly) {
-        assert(Lx > 0 && Ly > 0 && "box sides must be positive");
-    }
-
-    std::array<T,2> wavenumber(int nx, int ny) const {
-        return {2*std::numbers::pi_v<T>*nx/Lx, 2*std::numbers::pi_v<T>*ny/Ly};
-    }
-
-    // The point mapped into the box
-    std::array<T,2> wrap(std::array<T,2> xy) const {
-        return {xy[0] - Lx*std::floor(xy[0]/Lx), xy[1] - Ly*std::floor(xy[1]/Ly)};
-    }
-
-    // The shortest of the displacement and its periodic images
-    std::array<T,2> minimum_image(std::array<T,2> d) const {
-        return {d[0] - Lx*std::round(d[0]/Lx), d[1] - Ly*std::round(d[1]/Ly)};
-    }
-
-}; // struct periodic_box
+template<typename T>
+bool box_ok(const PeriodicBox<T,2>& box) {
+    return box.period[0] > 0 && box.period[1] > 0;
+}
 
 
 /*
@@ -80,15 +72,16 @@ struct mode {
 template<typename T>
 struct shear_modes {
 
-    periodic_box<T> box;
+    PeriodicBox<T,2> box;
     std::vector<mode<T>> modes;
     T nu;
     std::array<T,2> drift;   // uniform velocity carrying the pattern
 
-    shear_modes(periodic_box<T> box, std::vector<mode<T>> modes, T nu,
+    shear_modes(PeriodicBox<T,2> box, std::vector<mode<T>> modes, T nu,
                 std::array<T,2> drift = {})
         : box(box), modes(std::move(modes)), nu(nu), drift(drift)
     {
+        assert(box_ok(box) && "box sides must be positive");
         assert(nu > 0 && "viscosity must be positive");
         assert(!this->modes.empty() && "at least one mode");
         ksqr_ = ksqr_of(this->modes[0]);
@@ -99,7 +92,7 @@ struct shear_modes {
                 assert(!same_line(this->modes[m], this->modes[n]) && "wave vectors must be distinct up to sign");
             assert(std::abs(ksqr_of(this->modes[m]) - ksqr_) <= 8*std::numeric_limits<T>::epsilon()*ksqr_
                    && "all modes must share the same |k|^2");
-            const auto [kx, ky] = box.wavenumber(this->modes[m].nx, this->modes[m].ny);
+            const auto [kx, ky] = wavenumber(box, this->modes[m].nx, this->modes[m].ny);
             const T a = this->modes[m].amplitude;
             terms_.push_back({kx, ky, -a*ky/knorm, a*kx/knorm, a, this->modes[m].phase});
             mean_ += a*a/2;
@@ -151,7 +144,7 @@ private:
     T ksqr_{}, mean_{};
 
     T ksqr_of(const mode<T>& m) const {
-        const auto [kx, ky] = box.wavenumber(m.nx, m.ny);
+        const auto [kx, ky] = wavenumber(box, m.nx, m.ny);
         return kx*kx + ky*ky;
     }
 
@@ -179,7 +172,7 @@ private:
 
 // One shear wave along the mode (nx, ny) with velocity amplitude u0
 template<typename T>
-shear_modes<T> shear_wave(periodic_box<T> box, int nx, int ny, T u0, T nu,
+shear_modes<T> shear_wave(PeriodicBox<T,2> box, int nx, int ny, T u0, T nu,
                           T phase = {}, std::array<T,2> drift = {}) {
     return shear_modes<T>(box, {{u0, nx, ny, phase}}, nu, drift);
 }
@@ -191,11 +184,11 @@ shear_modes<T> shear_wave(periodic_box<T> box, int nx, int ny, T u0, T nu,
 // with kx, ky the wave numbers of |nx|, |ny|; the signs of the mode
 // numbers do not matter.
 template<typename T>
-shear_modes<T> taylor_green(periodic_box<T> box, int nx, int ny, T u0, T nu,
+shear_modes<T> taylor_green(PeriodicBox<T,2> box, int nx, int ny, T u0, T nu,
                             std::array<T,2> drift = {}) {
     assert(nx != 0 && ny != 0 && "Taylor-Green needs both mode numbers");
     nx = std::abs(nx); ny = std::abs(ny);
-    const auto [kx, ky] = box.wavenumber(nx, ny);
+    const auto [kx, ky] = wavenumber(box, nx, ny);
     const T a = u0*std::sqrt((kx*kx + ky*ky)/(4*kx*ky));
     return shear_modes<T>(box, {{a, nx, ny, {}}, {a, nx, -ny, {}}}, nu, drift);
 }
@@ -214,20 +207,21 @@ shear_modes<T> taylor_green(periodic_box<T> box, int nx, int ny, T u0, T nu,
 template<typename T>
 struct acoustic_wave {
 
-    periodic_box<T> box;
+    PeriodicBox<T,2> box;
     int nx, ny;
     T delta, nu, nu_bulk, csqr, rho0, phase;
 
-    acoustic_wave(periodic_box<T> box, int nx, int ny, T delta, T nu,
+    acoustic_wave(PeriodicBox<T,2> box, int nx, int ny, T delta, T nu,
                   std::optional<T> nu_bulk = {}, T csqr = T(1.0)/3, T rho0 = T(1.0), T phase = {})
         : box(box), nx(nx), ny(ny), delta(delta), nu(nu),
           nu_bulk(nu_bulk.value_or(nu)), csqr(csqr), rho0(rho0), phase(phase)
     {
+        assert(box_ok(box) && "box sides must be positive");
         assert((nx != 0 || ny != 0) && "mode numbers must not both be zero");
         assert(delta > 0 && "relative density amplitude must be positive");
         assert(nu > 0 && this->nu_bulk >= 0 && "viscosities must be positive");
         assert(csqr > 0 && rho0 > 0 && "sound speed and density must be positive");
-        const auto [kx, ky] = box.wavenumber(nx, ny);
+        const auto [kx, ky] = wavenumber(box, nx, ny);
         kx_ = kx; ky_ = ky;
         gamma_ = (nu + this->nu_bulk)*ksqr()/2;
         assert(csqr*ksqr() > gamma_*gamma_ && "wave must be underdamped");
@@ -262,19 +256,20 @@ private:
 template<typename T>
 struct shear_layer {
 
-    periodic_box<T> box;
+    PeriodicBox<T,2> box;
     T u0, k, delta;
 
-    shear_layer(periodic_box<T> box, T u0, T k = T(80.0), T delta = T(0.05))
+    shear_layer(PeriodicBox<T,2> box, T u0, T k = T(80.0), T delta = T(0.05))
         : box(box), u0(u0), k(k), delta(delta)
     {
+        assert(box_ok(box) && "box sides must be positive");
         assert(k > 0 && "layer steepness must be positive");
     }
 
     std::tuple<T,T,T> operator()(std::array<T,2> xy) const {
-        const T yd = xy[1]/box.Ly;
+        const T yd = xy[1]/box.period[1];
         const T ux = u0*std::tanh(k*(yd <= T(0.5) ? yd - T(0.25) : T(0.75) - yd));
-        const T uy = u0*delta*std::sin(2*std::numbers::pi_v<T>*(xy[0]/box.Lx + T(0.25)));
+        const T uy = u0*delta*std::sin(2*std::numbers::pi_v<T>*(xy[0]/box.period[0] + T(0.25)));
         return {T{}, ux, uy};
     }
 
@@ -292,15 +287,16 @@ struct shear_layer {
 template<typename T>
 struct barotropic_vortex {
 
-    periodic_box<T> box;
+    PeriodicBox<T,2> box;
     T U0;
     std::array<T,2> center;
     T Rc, eps, rho0, csqr;
 
-    barotropic_vortex(periodic_box<T> box, T U0, std::array<T,2> center, T Rc, T eps,
+    barotropic_vortex(PeriodicBox<T,2> box, T U0, std::array<T,2> center, T Rc, T eps,
                       T rho0 = T(1.0), T csqr = T(1.0)/3 /* D2Q9, lattice units */)
         : box(box), U0(U0), center(center), Rc(Rc), eps(eps), rho0(rho0), csqr(csqr)
     {
+        assert(box_ok(box) && "box sides must be positive");
         assert(Rc > 0 && "vortex radius must be positive");
         assert(rho0 > 0 && csqr > 0 && "density and sound speed must be positive");
     }
