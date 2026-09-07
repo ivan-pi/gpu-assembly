@@ -5,9 +5,9 @@ project(gpu-assembly LANGUAGES CXX Fortran)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# The CUDA parts (cuSolverDx assembly kernels, CUDA Fortran demo) are
-# isolated behind this option so the host library and its tests build
-# with any C++/Fortran toolchain.
+# The CUDA parts (cuSolverDx assembly kernels, LBM D2Q9 kernels,
+# CUDA Fortran demo) are isolated behind this option so the host library
+# and its tests build with any C++/Fortran toolchain.
 option(GPU_ASSEMBLY_ENABLE_CUDA
     "Build the CUDA assembly kernels (requires the CUDA toolkit and MathDx)" OFF)
 
@@ -54,6 +54,11 @@ if(GPU_ASSEMBLY_ENABLE_CUDA)
             CUDA_SEPARABLE_COMPILATION ON
             INTERPROCEDURAL_OPTIMIZATION ON)
 
+    # D2Q9 lattice Boltzmann kernels (CUDA C++). d2q9_kernels.h declares the
+    # kernel templates, d2q9_kernels.cu instantiates them for float and double.
+    add_library(d2q9_kernels STATIC src/lbm/d2q9_kernels.cu)
+    target_include_directories(d2q9_kernels PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/lbm)
+
     # CUDA Fortran demo (one-stencil assembly + solve_dp kernel).
     # CMake has no CUDA Fortran language, so this is driven through the
     # Fortran compiler with -cuda and only works with nvfortran.
@@ -63,10 +68,19 @@ if(GPU_ASSEMBLY_ENABLE_CUDA)
             $<$<COMPILE_LANGUAGE:Fortran>:-cuda>)
         target_link_options(assemble_demo PRIVATE -cuda)
         target_link_libraries(assemble_demo PRIVATE rbf_operators)
+
+        # D2Q9 lattice Boltzmann kernels (CUDA Fortran twin of d2q9_kernels).
+        # Consumers get the module directory and the -cuda link flag.
+        add_library(d2q9_kernels_cuf STATIC src/lbm/d2q9_kernels.cuf)
+        target_compile_options(d2q9_kernels_cuf PRIVATE -cuda)
+        target_link_options(d2q9_kernels_cuf PUBLIC -cuda)
+        set_target_properties(d2q9_kernels_cuf PROPERTIES
+            Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod)
+        target_include_directories(d2q9_kernels_cuf PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/mod)
     else()
         message(WARNING
-            "CUDA Fortran demo (main.f90, rbf_cuda.f90) skipped: "
-            "requires the NVHPC Fortran compiler")
+            "CUDA Fortran sources (main.f90, rbf_cuda.f90, lbm/d2q9_kernels.cuf) "
+            "skipped: require the NVHPC Fortran compiler")
     endif()
 
     # NOTE: src/main.cpp is an API sketch, not yet a compiling

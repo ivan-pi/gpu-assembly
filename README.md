@@ -10,8 +10,8 @@ cmake --build build
 ctest --test-dir build
 ```
 
-The CUDA parts (cuSolverDx assembly kernels, CUDA Fortran demo) are
-opt-in and need the NVHPC toolchain plus MathDx:
+The CUDA parts (cuSolverDx assembly kernels, LBM D2Q9 kernels,
+CUDA Fortran demo) are opt-in and need the NVHPC toolchain plus MathDx:
 
 ```
 cmake -B build -DGPU_ASSEMBLY_ENABLE_CUDA=ON \
