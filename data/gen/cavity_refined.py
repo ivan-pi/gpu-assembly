@@ -74,7 +74,7 @@ from pointclouds.cli import number, output_stem
 from pointclouds.io import write_node, write_points
 from pointclouds.markers import CORNER, EAST, INTERIOR, MARKER_STYLE, NORTH, SOUTH, WEST
 
-SPACINGS = (1.0, 1.5, 2.5)     # at the wall, in the second band, in the middle
+SPACINGS = (1.0, 1.5, 2.5)  # at the wall, in the second band, in the middle
 
 TOL = 1e-9
 
@@ -104,11 +104,13 @@ def ring(x0, x1, y0, y1, h):
     if x1 - x0 < TOL and y1 - y0 < TOL:
         return np.array([[x0, y0]])
     if x1 - x0 < TOL:
-        return np.column_stack((np.full(len(side(y0, y1, h)) + 1, x0),
-                                np.append(side(y0, y1, h), y1)))
+        return np.column_stack(
+            (np.full(len(side(y0, y1, h)) + 1, x0), np.append(side(y0, y1, h), y1))
+        )
     if y1 - y0 < TOL:
-        return np.column_stack((np.append(side(x0, x1, h), x1),
-                                np.full(len(side(x0, x1, h)) + 1, y0)))
+        return np.column_stack(
+            (np.append(side(x0, x1, h), x1), np.full(len(side(x0, x1, h)) + 1, y0))
+        )
     sx, sy = side(x0, x1, h), side(y0, y1, h)
     south = np.column_stack((sx, np.full(len(sx), y0)))
     east = np.column_stack((np.full(len(sy), x1), sy))
@@ -140,7 +142,7 @@ def graded_coordinate(L, levels):
     if L - 2 * z[-1] > TOL:
         middle = side(z[-1], L - z[-1], levels[-1][0])
     else:
-        middle = np.empty(0)                 # the unit side: the bands meet
+        middle = np.empty(0)  # the unit side: the bands meet
     return np.concatenate((z[:-1], middle, L - z[::-1]))
 
 
@@ -170,51 +172,81 @@ distributions and the three bands of refinement."""
 
 
 def main():
-    ap = argparse.ArgumentParser(description=HELP,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("output", help="output file: a node file with the markers, or a "
-                    "points file without them if the name ends in .points; "
-                    "`-` is standard output")
-    ap.add_argument("--distribution", choices=("rings", "grid"), default="rings",
-                    help="concentric rectangles, or a tensor-product grid (default: rings)")
-    ap.add_argument("--size", nargs=2, type=number(float, above=0.0),
-                    metavar=("LX", "LY"),
-                    help="sides of the cavity in lattice units, at least the "
-                         "10 N the bands need (default: 10 N by 10 N, the bands "
-                         "alone)")
-    ap.add_argument("-n", "--steps", type=number(int, least=1), default=10, metavar="N",
-                    help="spacings across each band (default: 10)")
-    ap.add_argument("--plot", action="store_true", help="show the cloud, coloured by marker")
+    ap = argparse.ArgumentParser(
+        description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "output",
+        help="output file: a node file with the markers, or a "
+        "points file without them if the name ends in .points; "
+        "`-` is standard output",
+    )
+    ap.add_argument(
+        "--distribution",
+        choices=("rings", "grid"),
+        default="rings",
+        help="concentric rectangles, or a tensor-product grid (default: rings)",
+    )
+    ap.add_argument(
+        "--size",
+        nargs=2,
+        type=number(float, above=0.0),
+        metavar=("LX", "LY"),
+        help="sides of the cavity in lattice units, at least the "
+        "10 N the bands need (default: 10 N by 10 N, the bands "
+        "alone)",
+    )
+    ap.add_argument(
+        "-n",
+        "--steps",
+        type=number(int, least=1),
+        default=10,
+        metavar="N",
+        help="spacings across each band (default: 10)",
+    )
+    ap.add_argument(
+        "--plot", action="store_true", help="show the cloud, coloured by marker"
+    )
     args = ap.parse_args()
-    span = 2 * args.steps * sum(SPACINGS)        # the bands from both walls
+    span = 2 * args.steps * sum(SPACINGS)  # the bands from both walls
     Lx, Ly = (span, span) if args.size is None else args.size
     if min(Lx, Ly) < span - TOL:
-        ap.error(f"the cavity must be at least {span:g} by {span:g}, the width "
-                 f"of the three bands from both walls at --steps {args.steps}")
+        ap.error(
+            f"the cavity must be at least {span:g} by {span:g}, the width "
+            f"of the three bands from both walls at --steps {args.steps}"
+        )
 
     stem, suffix = output_stem(args.output, default=".node")
 
     for_rings = args.distribution == "rings"
     lv = levels(args.steps, for_rings)
     pts = rings(Lx, Ly, lv) if for_rings else grid(Lx, Ly, lv)
-    pts = np.round(pts, 12) + 0.0            # 0.1 + 0.2 style noise, and no -0.0
+    pts = np.round(pts, 12) + 0.0  # 0.1 + 0.2 style noise, and no -0.0
     m = markers(pts, Lx, Ly)
 
     if suffix == ".points":
-        write_points(stem, pts)                  # the format has no comments or markers
+        write_points(stem, pts)  # the format has no comments or markers
     else:
-        write_node(stem, pts, m,
-                   f"produced by cavity_refined.py --distribution {args.distribution} "
-                   f"--size {Lx:g} {Ly:g} --steps {args.steps}")
+        write_node(
+            stem,
+            pts,
+            m,
+            f"produced by cavity_refined.py --distribution {args.distribution} "
+            f"--size {Lx:g} {Ly:g} --steps {args.steps}",
+        )
 
     counts = np.bincount(m, minlength=6)
     written = "standard output" if stem == "-" else stem + suffix
-    print(f"{written}: {len(pts)} nodes, "
-          f"{counts[0]} interior, S {counts[1]} E {counts[2]} N {counts[3]} "
-          f"W {counts[4]}, {counts[5]} corners", file=sys.stderr)
+    print(
+        f"{written}: {len(pts)} nodes, "
+        f"{counts[0]} interior, S {counts[1]} E {counts[2]} N {counts[3]} "
+        f"W {counts[4]}, {counts[5]} corners",
+        file=sys.stderr,
+    )
 
     if args.plot:
         import matplotlib.pyplot as plt
+
         plt.scatter(pts[:, 0], pts[:, 1], c=m, s=4, **MARKER_STYLE)
         plt.axis("equal")
         plt.show()

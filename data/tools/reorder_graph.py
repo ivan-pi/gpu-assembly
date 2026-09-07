@@ -53,7 +53,7 @@ def adjacency_of(ia, ja):
     and 1 when one does; the orderings here take the pattern alone."""
     n = len(ia) - 1
     a = csr_array((np.ones(len(ja)), ja, ia), shape=(n, n))
-    upper = triu(a + a.T, k=1)                  # every edge once, without the self-loops
+    upper = triu(a + a.T, k=1)  # every edge once, without the self-loops
     adjacency = (upper + upper.T).tocsr()
     adjacency.sort_indices()
     return adjacency
@@ -63,7 +63,8 @@ def rcm(adjacency):
     """Return the inverse ordering, the new index of every node, by
     reverse Cuthill-McKee."""
     from scipy.sparse.csgraph import reverse_cuthill_mckee
-    perm = reverse_cuthill_mckee(adjacency, symmetric_mode=True)   # perm[new] = old
+
+    perm = reverse_cuthill_mckee(adjacency, symmetric_mode=True)  # perm[new] = old
     return np.argsort(perm)
 
 
@@ -76,10 +77,13 @@ def nd(adjacency, seed=None):
         import pymetis
     except ImportError:
         sys.exit("--method nd needs pymetis (pip install pymetis)")
-    options = pymetis.Options() if seed is None else pymetis.Options(seed=seed)   # METIS takes integers only
-    perm, iperm = pymetis.nested_dissection(pymetis.CSRAdjacency(adjacency.indptr, adjacency.indices),
-                                            options=options)
-    return np.asarray(iperm, dtype=int)         # perm is the other direction, argsort(iperm)
+    options = (
+        pymetis.Options() if seed is None else pymetis.Options(seed=seed)
+    )  # METIS takes integers only
+    perm, iperm = pymetis.nested_dissection(
+        pymetis.CSRAdjacency(adjacency.indptr, adjacency.indices), options=options
+    )
+    return np.asarray(iperm, dtype=int)  # perm is the other direction, argsort(iperm)
 
 
 def amd(adjacency):
@@ -87,8 +91,10 @@ def amd(adjacency):
     try:
         from sksparse.amd import amd as suitesparse_amd
     except ImportError:
-        sys.exit("--method amd needs scikit-sparse (pip install scikit-sparse, built against SuiteSparse)")
-    perm = suitesparse_amd(adjacency.tocsc())   # perm[new] = old
+        sys.exit(
+            "--method amd needs scikit-sparse (pip install scikit-sparse, built against SuiteSparse)"
+        )
+    perm = suitesparse_amd(adjacency.tocsc())  # perm[new] = old
     return np.argsort(perm)
 
 
@@ -125,14 +131,24 @@ def factor_nonzeros(adjacency, iperm):
 def parse_args():
     ap = argparse.ArgumentParser(
         description="Renumber the nodes of a graph file to reduce bandwidth (rcm) or "
-                    "fill-in (nd, amd) and write the ordering file (docs/file_formats.md).")
+        "fill-in (nd, amd) and write the ordering file (docs/file_formats.md)."
+    )
     ap.add_argument("graph", metavar="GRAPH", help="the .graph file to order")
-    ap.add_argument("-m", "--method", choices=METHODS, default="rcm",
-                    help="rcm: reverse Cuthill-McKee (default); nd: METIS nested dissection; "
-                         "amd: SuiteSparse approximate minimum degree")
-    ap.add_argument("-o", "--output", metavar="FILE",
-                    help="the ordering file, default GRAPH with the extension .iperm; "
-                         "- writes to standard output")
+    ap.add_argument(
+        "-m",
+        "--method",
+        choices=METHODS,
+        default="rcm",
+        help="rcm: reverse Cuthill-McKee (default); nd: METIS nested dissection; "
+        "amd: SuiteSparse approximate minimum degree",
+    )
+    ap.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help="the ordering file, default GRAPH with the extension .iperm; "
+        "- writes to standard output",
+    )
     ap.add_argument("--seed", type=int, help="the random seed of METIS, for nd")
     args = ap.parse_args()
     if args.output is None:
@@ -148,8 +164,10 @@ def main():
         sys.exit(str(e))
     adjacency = adjacency_of(ia, ja)
     n = adjacency.shape[0]
-    print(f"{args.graph}: {n} nodes, {len(ja)} entries, {adjacency.nnz // 2} undirected edges",
-          file=sys.stderr)
+    print(
+        f"{args.graph}: {n} nodes, {len(ja)} entries, {adjacency.nnz // 2} undirected edges",
+        file=sys.stderr,
+    )
 
     iperm = order(args.method, adjacency, args.seed)
     assert np.array_equal(np.sort(iperm), np.arange(n))

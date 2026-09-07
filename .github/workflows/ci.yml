@@ -79,3 +79,24 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  # The Python under data/: Black's formatting and Ruff's lint and import
+  # order, with the settings in data/pyproject.toml.
+  python-style:
+    name: black / ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install black ruff
+
+      - name: Check
+        working-directory: data
+        run: |
+          black --check --diff .
+          ruff check .

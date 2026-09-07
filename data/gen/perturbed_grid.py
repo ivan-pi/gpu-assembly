@@ -83,11 +83,11 @@ def grid(n, periodic):
     N by N + 1 on the channel, whose last row is the top wall."""
     x = np.arange(float(n))
     y = np.arange(float(n if periodic else n + 1))
-    xv, yv = np.meshgrid(x, y)                   # row by row, x fastest
+    xv, yv = np.meshgrid(x, y)  # row by row, x fastest
     pts = np.column_stack((xv.ravel(), yv.ravel()))
     m = np.full(len(pts), INTERIOR)
     if not periodic:
-        m[: n], m[len(pts) - n :] = SOUTH, NORTH
+        m[:n], m[len(pts) - n :] = SOUTH, NORTH
     return pts, m
 
 
@@ -101,14 +101,14 @@ def perturb(pts, m, sigma, box, periodic, rng):
     if periodic:
         pts[:, 1] = wrap(pts[:, 1], box)
     else:
-        pts[:, 1] = np.clip(pts[:, 1], 0.0, box)     # only reached by sigma >= 1
+        pts[:, 1] = np.clip(pts[:, 1], 0.0, box)  # only reached by sigma >= 1
     return pts
 
 
 def wrap(z, box):
     """Into [0, box) through the periodic side."""
     z = np.mod(z, box)
-    z[z >= box] = 0.0                            # np.mod rounds up to the side
+    z[z >= box] = 0.0  # np.mod rounds up to the side
     return z
 
 
@@ -119,21 +119,30 @@ def stencils(pts, box, periodic, kind, reach):
     if kind == "knn":
         adj = tree.query(pts, reach)[1]
         if not np.array_equal(adj[:, 0], np.arange(len(pts))):
-            sys.exit("a node is not its own nearest neighbour: two nodes coincide, "
-                     "which takes a --sigma of about 0.5 or more")
-        return adj.tolist()                      # the node itself opens each row
-    norm = np.inf if kind == "square" else 2     # the max norm bounds a square
+            sys.exit(
+                "a node is not its own nearest neighbour: two nodes coincide, "
+                "which takes a --sigma of about 0.5 or more"
+            )
+        return adj.tolist()  # the node itself opens each row
+    norm = np.inf if kind == "square" else 2  # the max norm bounds a square
     adj = tree.query_ball_point(pts, reach, p=norm)
     return [[i] + [j for j in row if j != i] for i, row in enumerate(adj)]
 
 
 def plot(pts, m, rows):
     import matplotlib.pyplot as plt
+
     plt.scatter(pts[:, 0], pts[:, 1], c=m, s=8, **MARKER_STYLE)
-    if rows:                                     # one stencil, to see it wrap
+    if rows:  # one stencil, to see it wrap
         middle = rows[len(pts) // 2]
-        plt.scatter(pts[middle, 0], pts[middle, 1], marker="s", s=24,
-                    facecolors="none", edgecolors="tab:orange")
+        plt.scatter(
+            pts[middle, 0],
+            pts[middle, 1],
+            marker="s",
+            s=24,
+            facecolors="none",
+            edgecolors="tab:orange",
+        )
     plt.axis("equal")
     plt.show()
 
@@ -147,47 +156,95 @@ realizations."""
 
 
 def main():
-    ap = argparse.ArgumentParser(description=HELP,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("output", help="output file: the points file and the graph "
-                    "file next to it, or a node file with the markers and the "
-                    "graph if the name ends in .node; `-` is standard output")
-    ap.add_argument("-n", "--nodes", type=number(int, least=2), required=True, metavar="N",
-                    help="nodes across the box")
-    ap.add_argument("-s", "--sigma", type=number(float, least=0.0), default=0.2,
-                    metavar="SIGMA",
-                    help="displacement of a node, in spacings: uniform on "
-                         "[-SIGMA, SIGMA] (default: 0.2)")
-    ap.add_argument("-g", "--geometry", choices=("periodic", "channel"),
-                    default="periodic",
-                    help="periodic on both sides, or walls at y = 0 and y = N "
-                         "and periodic in x (default: periodic)")
+    ap = argparse.ArgumentParser(
+        description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "output",
+        help="output file: the points file and the graph "
+        "file next to it, or a node file with the markers and the "
+        "graph if the name ends in .node; `-` is standard output",
+    )
+    ap.add_argument(
+        "-n",
+        "--nodes",
+        type=number(int, least=2),
+        required=True,
+        metavar="N",
+        help="nodes across the box",
+    )
+    ap.add_argument(
+        "-s",
+        "--sigma",
+        type=number(float, least=0.0),
+        default=0.2,
+        metavar="SIGMA",
+        help="displacement of a node, in spacings: uniform on "
+        "[-SIGMA, SIGMA] (default: 0.2)",
+    )
+    ap.add_argument(
+        "-g",
+        "--geometry",
+        choices=("periodic", "channel"),
+        default="periodic",
+        help="periodic on both sides, or walls at y = 0 and y = N "
+        "and periodic in x (default: periodic)",
+    )
 
     stencil = ap.add_mutually_exclusive_group()
-    stencil.add_argument("--knn", type=number(int, least=1), metavar="K",
-                         help="stencil of the K nearest nodes (default: 15, the "
-                              "stencil size of the reference)")
-    stencil.add_argument("--radius", type=number(float, above=0.0), metavar="R",
-                         help="stencil of the nodes within R spacings")
-    stencil.add_argument("--square", type=number(float, above=0.0), metavar="S",
-                         help="stencil of the nodes within S spacings in both x "
-                              "and y, a square of side 2 S")
+    stencil.add_argument(
+        "--knn",
+        type=number(int, least=1),
+        metavar="K",
+        help="stencil of the K nearest nodes (default: 15, the "
+        "stencil size of the reference)",
+    )
+    stencil.add_argument(
+        "--radius",
+        type=number(float, above=0.0),
+        metavar="R",
+        help="stencil of the nodes within R spacings",
+    )
+    stencil.add_argument(
+        "--square",
+        type=number(float, above=0.0),
+        metavar="S",
+        help="stencil of the nodes within S spacings in both x "
+        "and y, a square of side 2 S",
+    )
 
-    ap.add_argument("--seed", type=int,
-                    help="seed of the displacements (default: drawn and reported)")
-    ap.add_argument("--realizations", type=number(int, least=1), default=1, metavar="R",
-                    help="independent grids to write, numbered from 0 (default: 1)")
-    ap.add_argument("--no-graph", action="store_true",
-                    help="write the coordinates only, without the stencil graph")
-    ap.add_argument("--plot", action="store_true",
-                    help="show the first grid, coloured by marker, with one stencil")
+    ap.add_argument(
+        "--seed",
+        type=int,
+        help="seed of the displacements (default: drawn and reported)",
+    )
+    ap.add_argument(
+        "--realizations",
+        type=number(int, least=1),
+        default=1,
+        metavar="R",
+        help="independent grids to write, numbered from 0 (default: 1)",
+    )
+    ap.add_argument(
+        "--no-graph",
+        action="store_true",
+        help="write the coordinates only, without the stencil graph",
+    )
+    ap.add_argument(
+        "--plot",
+        action="store_true",
+        help="show the first grid, coloured by marker, with one stencil",
+    )
     args = ap.parse_args()
 
     n, sigma, periodic = args.nodes, args.sigma, args.geometry == "periodic"
-    box = float(n)                               # N by N at a spacing of one
+    box = float(n)  # N by N at a spacing of one
     if sigma >= 0.5:
-        print(f"warning: --sigma {sigma:g} moves a node out of its own cell, "
-              f"and nodes may end up on top of each other", file=sys.stderr)
+        print(
+            f"warning: --sigma {sigma:g} moves a node out of its own cell, "
+            f"and nodes may end up on top of each other",
+            file=sys.stderr,
+        )
 
     if args.radius is not None:
         kind, reach = "radius", args.radius
@@ -198,8 +255,10 @@ def main():
     if kind != "knn" and reach > 0.5 * n:
         # Beyond half the box a node is its own neighbour through the
         # periodic side, which the stencil of a node cannot hold twice.
-        ap.error(f"--{kind} reaches more than half way around the box: at most "
-                 f"{0.5 * n:g} spacings for -n {n}")
+        ap.error(
+            f"--{kind} reaches more than half way around the box: at most "
+            f"{0.5 * n:g} spacings for -n {n}"
+        )
 
     seed = np.random.SeedSequence().entropy if args.seed is None else args.seed
     streams = np.random.SeedSequence(seed).spawn(args.realizations)
@@ -207,13 +266,17 @@ def main():
     base, ext = output_stem(args.output, default=".points")
     width = len(str(args.realizations - 1))
 
-    piped = base == "-"                          # `-`, `-.points` or `-.node`
+    piped = base == "-"  # `-`, `-.points` or `-.node`
     if piped and not args.no_graph:
-        ap.error("only one file fits down a pipe: add --no-graph to write the "
-                 "coordinates to standard output, or name a file for the pair")
+        ap.error(
+            "only one file fits down a pipe: add --no-graph to write the "
+            "coordinates to standard output, or name a file for the pair"
+        )
     if piped and args.realizations > 1:
-        ap.error("a series needs file names to go in: --realizations cannot "
-                 "write to standard output")
+        ap.error(
+            "a series needs file names to go in: --realizations cannot "
+            "write to standard output"
+        )
 
     pts0, m = grid(n, periodic)
     if kind == "knn" and reach > len(pts0) and not args.no_graph:
@@ -222,10 +285,12 @@ def main():
         print(f"seed {seed}", file=sys.stderr)
 
     # The comment of a node file is the command that reproduces it.
-    command = (f"produced by perturbed_grid.py -n {n} --sigma {sigma:g} "
-               f"--geometry {args.geometry} "
-               f"{'--no-graph' if args.no_graph else f'--{kind} {reach:g}'} "
-               f"--seed {seed}")
+    command = (
+        f"produced by perturbed_grid.py -n {n} --sigma {sigma:g} "
+        f"--geometry {args.geometry} "
+        f"{'--no-graph' if args.no_graph else f'--{kind} {reach:g}'} "
+        f"--seed {seed}"
+    )
     if args.realizations > 1:
         command += f" --realizations {args.realizations}, number"
     walls = f", {np.count_nonzero(m)} of them on a wall" if not periodic else ""
@@ -235,8 +300,9 @@ def main():
         pts = perturb(pts0, m, sigma, box, periodic, np.random.default_rng(stream))
 
         if ext == ".node":
-            write_node(stem, pts, m,
-                       command if args.realizations == 1 else f"{command} {i}")
+            write_node(
+                stem, pts, m, command if args.realizations == 1 else f"{command} {i}"
+            )
         else:
             write_points(stem, pts)
 
@@ -245,11 +311,15 @@ def main():
             rows = stencils(pts, box, periodic, kind, reach)
             write_graph(stem, rows)
             sizes = [len(row) for row in rows]
-            graph = (f", {sum(sizes)} stencil entries, "
-                     f"{min(sizes)} to {max(sizes)} per node")
+            graph = (
+                f", {sum(sizes)} stencil entries, "
+                f"{min(sizes)} to {max(sizes)} per node"
+            )
 
-        print(f"{'standard output' if piped else stem}: {len(pts)} nodes{walls}{graph}",
-              file=sys.stderr)
+        print(
+            f"{'standard output' if piped else stem}: {len(pts)} nodes{walls}{graph}",
+            file=sys.stderr,
+        )
 
         if args.plot and i == 0:
             plot(pts, m, rows)

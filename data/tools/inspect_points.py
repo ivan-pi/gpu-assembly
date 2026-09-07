@@ -26,13 +26,20 @@ import sys
 
 import numpy as np
 
-from pointclouds.io import (FormatError, plural, read_graph, read_nodes, read_ordering,
-                            stencils_to_csr)
+from pointclouds.io import (
+    FormatError,
+    plural,
+    read_graph,
+    read_nodes,
+    read_ordering,
+    stencils_to_csr,
+)
 
-log = logging.getLogger("pointclouds")   # the notes of the readers, and of this tool
+log = logging.getLogger("pointclouds")  # the notes of the readers, and of this tool
 
 
 # --------------------------------------------------------------- geometry
+
 
 def minimum_image(diff, period):
     """Coordinate differences reduced to the nearest periodic image."""
@@ -42,6 +49,7 @@ def minimum_image(diff, period):
 
 
 # ------------------------------------------------------------------ nodes
+
 
 class Nodes:
     """A point cloud with a marker per node, 0 for interior, from a points
@@ -101,12 +109,14 @@ class Nodes:
         d = np.empty((len(which), k))
         chunk = max(1, 2_000_000 // len(self))
         for a in range(0, len(which), chunk):
-            q = which[a:a + chunk]
-            d2 = (minimum_image(xy[q, None, :] - xy[None, :, :], self.period) ** 2).sum(axis=-1)
+            q = which[a : a + chunk]
+            d2 = (minimum_image(xy[q, None, :] - xy[None, :, :], self.period) ** 2).sum(
+                axis=-1
+            )
             d2[np.arange(len(q)), q] = np.inf
             jj = np.argsort(d2, axis=1, kind="stable")[:, :k]
-            j[a:a + chunk] = jj
-            d[a:a + chunk] = np.sqrt(np.take_along_axis(d2, jj, axis=1))
+            j[a : a + chunk] = jj
+            d[a : a + chunk] = np.sqrt(np.take_along_axis(d2, jj, axis=1))
         return j, d
 
     @functools.cached_property
@@ -117,7 +127,12 @@ class Nodes:
 
     def renumbered(self, ordering):
         """The same nodes in the new numbering."""
-        return Nodes(self.xy[ordering.order], self.marker[ordering.order], self.fname, self.period)
+        return Nodes(
+            self.xy[ordering.order],
+            self.marker[ordering.order],
+            self.fname,
+            self.period,
+        )
 
     # reporting
 
@@ -134,23 +149,40 @@ class Nodes:
     def _print_box(self):
         """The bounding box, and the periodic box if one was declared."""
         lo, hi = self.xy.min(axis=0), self.xy.max(axis=0)
-        print(f"  bounding box: x in [{lo[0]:.6g}, {hi[0]:.6g}], y in [{lo[1]:.6g}, {hi[1]:.6g}]")
+        print(
+            f"  bounding box: x in [{lo[0]:.6g}, {hi[0]:.6g}], y in [{lo[1]:.6g}, {hi[1]:.6g}]"
+        )
         if self.period is not None:
-            outside = np.count_nonzero(((self.xy < 0) | (self.xy >= self.period)).any(axis=1))
-            print(f"  periodic box [0, {self.period[0]:.6g}) x [0, {self.period[1]:.6g}): "
-                  f"distances are minimum-image" + (f"; {outside} nodes lie outside the box" if outside else ""))
+            outside = np.count_nonzero(
+                ((self.xy < 0) | (self.xy >= self.period)).any(axis=1)
+            )
+            print(
+                f"  periodic box [0, {self.period[0]:.6g}) x [0, {self.period[1]:.6g}): "
+                f"distances are minimum-image"
+                + (f"; {outside} nodes lie outside the box" if outside else "")
+            )
 
     def _print_spacing(self):
         """The nearest-neighbour distance statistics."""
         j, d = self.nearest
         lo, hi = int(np.argmin(d)), int(np.argmax(d))
-        print(f"  nearest-neighbour distance: min {d[lo]:.6g} (nodes {lo} and {j[lo]}), "
-              f"max {d[hi]:.6g} (node {hi})")
+        print(
+            f"  nearest-neighbour distance: min {d[lo]:.6g} (nodes {lo} and {j[lo]}), "
+            f"max {d[hi]:.6g} (node {hi})"
+        )
         print(f"    mean {d.mean():.6g}, median {np.median(d):.6g}, std {d.std():.6g}")
 
     # drawing
 
-    PALETTE = ["tab:red", "tab:green", "tab:purple", "tab:brown", "tab:pink", "tab:olive", "tab:cyan"]
+    PALETTE = [
+        "tab:red",
+        "tab:green",
+        "tab:purple",
+        "tab:brown",
+        "tab:pink",
+        "tab:olive",
+        "tab:cyan",
+    ]
 
     def plot(self, ax, labels=False, stencils=()):
         """The nodes coloured by marker, optionally every index and the given
@@ -158,7 +190,13 @@ class Nodes:
         self._plot_markers(ax)
         if labels:
             for i, (x, y) in enumerate(self.xy):
-                ax.annotate(str(i), (x, y), xytext=(2, 2), textcoords="offset points", fontsize=6)
+                ax.annotate(
+                    str(i),
+                    (x, y),
+                    xytext=(2, 2),
+                    textcoords="offset points",
+                    fontsize=6,
+                )
         for s, (i, members) in enumerate(stencils):
             self._plot_stencil(ax, i, members, self.PALETTE[s % len(self.PALETTE)])
         ax.set_aspect("equal")
@@ -172,26 +210,54 @@ class Nodes:
         xy, marker = self.xy, self.marker
         interior = marker == 0
         if interior.any():
-            ax.plot(xy[interior, 0], xy[interior, 1], ".", color="0.55", ms=3,
-                    label=f"interior ({np.count_nonzero(interior)})")
+            ax.plot(
+                xy[interior, 0],
+                xy[interior, 1],
+                ".",
+                color="0.55",
+                ms=3,
+                label=f"interior ({np.count_nonzero(interior)})",
+            )
         for m in np.unique(marker[~interior]):
             sel = marker == m
-            ax.plot(xy[sel, 0], xy[sel, 1], "o", ms=3.5, label=f"marker {m} ({np.count_nonzero(sel)})")
+            ax.plot(
+                xy[sel, 0],
+                xy[sel, 1],
+                "o",
+                ms=3.5,
+                label=f"marker {m} ({np.count_nonzero(sel)})",
+            )
 
     def _plot_stencil(self, ax, i, members, color):
         """A circle about node i through its farthest member, the members
         ringed and the node filled; a wrapped member sits at its nearest image."""
         from matplotlib.patches import Circle
+
         centre = self.xy[i]
         at = centre + minimum_image(self.xy[members] - centre, self.period)
         r = np.linalg.norm(at - centre, axis=1).max()
         ax.add_patch(Circle(centre, r, fill=False, edgecolor=color, lw=1.2))
         ax.plot(at[:, 0], at[:, 1], "o", ms=8, mfc="none", mec=color, mew=1.2)
-        ax.plot(centre[0], centre[1], "o", ms=8, color=color, label=f"stencil of node {i} ({len(members)})")
-        ax.annotate(str(i), centre, xytext=(5, 5), textcoords="offset points", fontsize=8, color=color)
+        ax.plot(
+            centre[0],
+            centre[1],
+            "o",
+            ms=8,
+            color=color,
+            label=f"stencil of node {i} ({len(members)})",
+        )
+        ax.annotate(
+            str(i),
+            centre,
+            xytext=(5, 5),
+            textcoords="offset points",
+            fontsize=8,
+            color=color,
+        )
 
 
 # ------------------------------------------------------------------ graph
+
 
 class Graph:
     """The stencils of all nodes in CSR form, from a graph file."""
@@ -199,7 +265,7 @@ class Graph:
     def __init__(self, ia, ja, fname):
         self.fname = fname
         self.ia, self.ja = ia, ja
-        self.rows = np.repeat(np.arange(self.n), np.diff(ia))   # the row of every entry
+        self.rows = np.repeat(np.arange(self.n), np.diff(ia))  # the row of every entry
 
     def __len__(self):
         return self.n
@@ -214,7 +280,7 @@ class Graph:
 
     def row(self, i):
         """The stencil of node i."""
-        return self.ja[self.ia[i]:self.ia[i + 1]]
+        return self.ja[self.ia[i] : self.ia[i + 1]]
 
     def keys(self):
         """i * n + j of every entry: one integer per matrix position."""
@@ -231,7 +297,10 @@ class Graph:
 
     def renumbered(self, ordering):
         """The symmetric renumbering: rows moved and every entry relabelled."""
-        return Graph(*stencils_to_csr([ordering.iperm[self.row(o)] for o in ordering.order]), self.fname)
+        return Graph(
+            *stencils_to_csr([ordering.iperm[self.row(o)] for o in ordering.order]),
+            self.fname,
+        )
 
     # reporting
 
@@ -244,14 +313,20 @@ class Graph:
         if lengths.min() == lengths.max():
             print(f"  rows: {lengths[0]} entries each")
         else:
-            print(f"  rows: from {lengths.min()} to {lengths.max()} entries, mean {lengths.mean():.4g}")
+            print(
+                f"  rows: from {lengths.min()} to {lengths.max()} entries, mean {lengths.mean():.4g}"
+            )
         self_first = ja[self.ia[:-1]] == np.arange(n)
         if not self_first.all():
             has_self = np.isin(np.arange(n) * (n + 1), self.keys())
-            print(f"  {np.count_nonzero(~self_first)} rows do not start with their own node, "
-                  f"{np.count_nonzero(~has_self)} do not contain it")
+            print(
+                f"  {np.count_nonzero(~self_first)} rows do not start with their own node, "
+                f"{np.count_nonzero(~has_self)} do not contain it"
+            )
         sym = np.count_nonzero(np.isin(ja * n + rows, self.keys()))
-        print(f"  entries with their transpose stored: {sym} of {self.nnz} ({100 * sym / self.nnz:.1f}%)")
+        print(
+            f"  entries with their transpose stored: {sym} of {self.nnz} ({100 * sym / self.nnz:.1f}%)"
+        )
         print(f"  bandwidth: {np.abs(rows - ja).max()}")
 
     # drawing
@@ -259,8 +334,17 @@ class Graph:
     def spy(self, ax, title):
         """The sparsity pattern, one square per stored entry."""
         n = self.n
-        width = ax.figure.get_size_inches()[0] * ax.get_position().width * 72   # the axes, in points
-        ax.scatter(self.ja, self.rows, s=max(width / n, 0.8) ** 2, marker="s", color="black", linewidths=0)
+        width = (
+            ax.figure.get_size_inches()[0] * ax.get_position().width * 72
+        )  # the axes, in points
+        ax.scatter(
+            self.ja,
+            self.rows,
+            s=max(width / n, 0.8) ** 2,
+            marker="s",
+            color="black",
+            linewidths=0,
+        )
         ax.set_xlim(-0.5, n - 0.5)
         ax.set_ylim(n - 0.5, -0.5)
         ax.set_aspect("equal")
@@ -268,6 +352,7 @@ class Graph:
 
 
 # --------------------------------------------------------------- ordering
+
 
 class Ordering:
     """A renumbering from an ordering file: iperm[i] is the new index of
@@ -300,23 +385,53 @@ def parse_args():
     and `period` the periodic box as an array or None."""
     ap = argparse.ArgumentParser(
         description="Check and describe the files of a case (docs/file_formats.md): "
-                    "node and marker counts, nearest-neighbour statistics, graph "
-                    "statistics. Never writes a file.")
-    ap.add_argument("files", nargs="+", metavar="FILE",
-                    help="one each of .points or .node, .graph and .iperm; "
-                         "an ordering is applied to the others")
-    ap.add_argument("--plot", action="store_true", help="draw the nodes, coloured by marker")
-    ap.add_argument("--labels", action="store_true", help="write the index next to every node")
-    ap.add_argument("--stencil", nargs="+", type=int, default=[], metavar="I",
-                    help="draw the stencils of these nodes, from the graph "
-                         "or the --k nearest neighbours")
-    ap.add_argument("--k", type=int, default=0, metavar="K",
-                    help="stencil size for --stencil without a graph file")
-    ap.add_argument("--periodic", nargs=2, type=float, metavar=("LX", "LY"),
-                    help="the periodic box [0, LX) x [0, LY): minimum-image distances")
-    ap.add_argument("--spy", action="store_true",
-                    help="draw the sparsity pattern of the graph, before and after an ordering file")
-    ap.add_argument("--save", metavar="FILE", help="write the figure to FILE instead of showing it")
+        "node and marker counts, nearest-neighbour statistics, graph "
+        "statistics. Never writes a file."
+    )
+    ap.add_argument(
+        "files",
+        nargs="+",
+        metavar="FILE",
+        help="one each of .points or .node, .graph and .iperm; "
+        "an ordering is applied to the others",
+    )
+    ap.add_argument(
+        "--plot", action="store_true", help="draw the nodes, coloured by marker"
+    )
+    ap.add_argument(
+        "--labels", action="store_true", help="write the index next to every node"
+    )
+    ap.add_argument(
+        "--stencil",
+        nargs="+",
+        type=int,
+        default=[],
+        metavar="I",
+        help="draw the stencils of these nodes, from the graph "
+        "or the --k nearest neighbours",
+    )
+    ap.add_argument(
+        "--k",
+        type=int,
+        default=0,
+        metavar="K",
+        help="stencil size for --stencil without a graph file",
+    )
+    ap.add_argument(
+        "--periodic",
+        nargs=2,
+        type=float,
+        metavar=("LX", "LY"),
+        help="the periodic box [0, LX) x [0, LY): minimum-image distances",
+    )
+    ap.add_argument(
+        "--spy",
+        action="store_true",
+        help="draw the sparsity pattern of the graph, before and after an ordering file",
+    )
+    ap.add_argument(
+        "--save", metavar="FILE", help="write the figure to FILE instead of showing it"
+    )
     args = ap.parse_args()
     args.plot = args.plot or args.labels or bool(args.stencil)
     args.given = classify(args.files)
@@ -332,9 +447,13 @@ def classify(files):
     for f in files:
         kind = KINDS.get(os.path.splitext(f)[1])
         if kind is None:
-            sys.exit(f"{f}: unknown extension, expected .points, .node, .graph or .iperm")
+            sys.exit(
+                f"{f}: unknown extension, expected .points, .node, .graph or .iperm"
+            )
         if kind in given:
-            sys.exit(f"{f}: a {kind.__name__.lower()} file was already given, {given[kind]}")
+            sys.exit(
+                f"{f}: a {kind.__name__.lower()} file was already given, {given[kind]}"
+            )
         given[kind] = f
     return given
 
@@ -346,12 +465,15 @@ def check_options(args):
     if args.plot and Nodes not in args.given:
         sys.exit("--plot needs a points or node file")
     if args.stencil and Graph not in args.given and args.k < 2:
-        sys.exit("--stencil needs a graph file, or --k of at least 2 to build the stencils")
+        sys.exit(
+            "--stencil needs a graph file, or --k of at least 2 to build the stencils"
+        )
     if args.periodic and min(args.periodic) <= 0:
         sys.exit("--periodic: the box sides must be positive")
 
 
 # ------------------------------------------------------------------- main
+
 
 def held_notes():
     """The handler that holds the notes back until they are flushed, so
@@ -359,7 +481,9 @@ def held_notes():
     it is being read."""
     target = logging.StreamHandler(sys.stdout)
     target.setFormatter(logging.Formatter("  note: %(message)s"))
-    held = logging.handlers.MemoryHandler(capacity=10_000, flushLevel=logging.CRITICAL + 1, target=target)
+    held = logging.handlers.MemoryHandler(
+        capacity=10_000, flushLevel=logging.CRITICAL + 1, target=target
+    )
     log.addHandler(held)
     log.setLevel(logging.INFO)
     return held
@@ -388,7 +512,9 @@ def counts_differ(read):
     """The problem if the files disagree on the node count, or None."""
     counts = {obj.fname: len(obj) for obj in read.values()}
     if len(set(counts.values())) > 1:
-        return "node counts differ: " + ", ".join(f"{f} has {n}" for f, n in counts.items())
+        return "node counts differ: " + ", ".join(
+            f"{f} has {n}" for f, n in counts.items()
+        )
     return None
 
 
@@ -431,6 +557,7 @@ def draw(args, read, notes):
     notes.flush()
 
     import matplotlib.pyplot as plt
+
     panels = int(args.plot) + int(args.spy) * (2 if file_graph is not None else 1)
     fig, axes = plt.subplots(1, panels, figsize=(5.5 * panels, 5.2), squeeze=False)
     axes = iter(axes[0])
