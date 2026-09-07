@@ -47,16 +47,9 @@ from math import ceil, sqrt
 import numpy as np
 from numba import njit
 
-# wrap is public for use by generator scripts
-__all__ = ["PoissonDisk", "wrap"]
+from .nodeset import wrap
 
-
-def wrap(z, box):
-    """Coordinates z brought into [0, box) through the periodic side, for
-    arrays, with box a scalar or one length per column."""
-    z = np.mod(z, box)
-    z[z >= box] = 0.0  # np.mod rounds up to the side
-    return z
+__all__ = ["PoissonDisk"]
 
 
 # ------------------------------------------------------------------- Numba

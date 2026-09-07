@@ -100,18 +100,23 @@ Marker 0 is an interior node in all of them.
 
 Scripts that produced a case go in `gen/`, and what they share with the
 tools in the `pointclouds` package, laid out like the C++ library:
-`pointclouds.io` reads and writes the formats above, `pointclouds.cli`
-the command-line conventions, and `pointclouds.stencils` the selection
-of the stencils, by nearest neighbours, radius or range, as the one
-option `--graph METHOD=VALUE` offers it, with a search that wraps
-around the periodic sides of a box, and the boundary-marker convention
-of the node files. `pointclouds.poisson` fills a
-rectangle with points no two of which are closer than a radius, with
-either axis periodic or neither, from seed points if given, in whatever
-units the extent and the radius come in; its interface follows
-`scipy.stats.qmc.PoissonDisk`, and Bridson's loop is compiled by numba,
-so a million points take a few seconds; `tools/poisson_demo.py` shows a
-sample of it. The generators are:
+`pointclouds.nodeset` is the cloud itself: `NodeSet`, points with a
+marker per node and the box they live in, which writes its files,
+searches its stencils and draws itself; `Tiled`, copies of a periodic
+cloud laid side by side; and the boundary-marker convention of the node
+files as `MARKERS`. The clouds the generators make are its children in
+`pointclouds.generators`, so that a script is its command line and a
+constructor call. `pointclouds.io` reads and writes the formats above,
+`pointclouds.cli` the command-line conventions, and
+`pointclouds.stencils` selects the stencils of a cloud, by nearest
+neighbours, radius or range, as the one option `--graph METHOD=VALUE`
+offers it, with a search that wraps around the periodic sides of a box.
+`pointclouds.poisson` fills a rectangle with points no two of which are
+closer than a radius, with either axis periodic or neither, from seed
+points if given, in whatever units the extent and the radius come in;
+its interface follows `scipy.stats.qmc.PoissonDisk`, and Bridson's loop
+is compiled by numba, so a million points take a few seconds;
+`tools/poisson_demo.py` shows a sample of it. The generators are:
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with

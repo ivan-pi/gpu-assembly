@@ -1,33 +1,23 @@
-"""Stencil selection for the generators in data/gen. The stencil of a
-node is the set of nodes it interpolates from, and there are three ways
-to select it: its k nearest neighbours (knn), the nodes within a
-distance of it (radius), or the nodes within a distance of it along
-both axes, a square, which is an orthogonal range search (range).
-scipy's k-d tree does the searching, over a box periodic in either
-axis, so that a stencil next to a periodic side reaches around it.
-Every stencil starts with the node itself, which is what the graph file
-expects (docs/file_formats.md), and the stencils come back in the CSR
-form the readers use: (ia, ja), with the stencil of node i at
-ja[ia[i]:ia[i + 1]].
+"""Stencil selection. The stencil of a node is the set of nodes it
+interpolates from, and there are three ways to select it: its k nearest
+neighbours (knn), the nodes within a distance of it (radius), or the
+nodes within a distance of it along both axes, a square, which is an
+orthogonal range search (range). scipy's k-d tree does the searching,
+over a box periodic in either axis, so that a stencil next to a
+periodic side reaches around it. Every stencil starts with the node
+itself, which is what the graph file expects (docs/file_formats.md),
+and the stencils come back in the CSR form the readers use: (ia, ja),
+with the stencil of node i at ja[ia[i]:ia[i + 1]].
 
-A generator offers the choice as one option, --graph METHOD=VALUE,
-checks it against its box, and selects the stencils of the cloud:
+A generator offers the choice as one option, --graph METHOD=VALUE, and
+NodeSet.stencils runs the selection on its cloud and box:
 
     add_option(parser)
     ...
-    method, value = args.graph
-    problem = check(method, value, extent, periodic)
-    if problem:
-        parser.error(problem)
-    ...
-    ia, ja = select_stencils(pts, extent, periodic, method, value)
-
-The module also fixes the boundary markers of the node files, the
-convention the generators share, as MARKERS.
+    ia, ja = cloud.stencils(*args.graph)
 """
 
 import argparse
-from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -36,27 +26,6 @@ METHODS = ("knn", "radius", "range")
 # The default stencil: 18 nodes, the 6 terms of a second-order polynomial
 # plus 12, for every generator.
 DEFAULT_GRAPH = "knn=18"
-
-
-@dataclass(frozen=True)
-class Markers:
-    """The boundary markers of the node files: 0 for an interior node,
-    the walls numbered counter-clockwise from the bottom, then the
-    corners of a cavity, then a hole in the interior; and the style that
-    colours them the same in the --plot of every generator. MARKERS is
-    the one instance, and frozen: its fields cannot be reassigned."""
-
-    interior: int = 0
-    south: int = 1
-    east: int = 2
-    north: int = 3
-    west: int = 4
-    corner: int = 5
-    hole: int = 6
-    style: dict = field(default_factory=lambda: dict(cmap="tab10", vmin=0, vmax=9))
-
-
-MARKERS = Markers()
 
 
 def add_option(ap, default=DEFAULT_GRAPH):
@@ -104,35 +73,20 @@ def parse_graph(text):
     return method, distance
 
 
-def check(method, value, extent, periodic):
-    """What is wrong with the selection on the box `extent` = (Lx, Ly),
-    with `periodic` = (px, py) saying which axes wrap, or None: along a
-    periodic axis a stencil cannot reach more than half way around,
-    since beyond that a node meets its own image, which its stencil
-    cannot hold twice."""
-    if method == "knn":
-        return None
-    half = min((L for L, p in zip(extent, periodic) if p), default=np.inf) / 2
-    if value > half:
-        return (
-            f"--graph {method}={value:g} reaches more than half way around "
-            f"the box, which is {2 * half:g} across: at most {half:g}"
-        )
-    return None
-
-
-def select_stencils(pts, extent, periodic, method, value, order="distance"):
+def select_stencils(pts, boxsize, method, value, order="distance"):
     """The stencils of all nodes of `pts` in CSR form, (ia, ja): the node
     itself first in each, then its neighbours nearest first, or by index
-    with order="index". `extent` is the box (Lx, Ly) and `periodic` =
-    (px, py) says which axes the search wraps around. Raises ValueError
-    when two nodes coincide, which no stencil can tell apart."""
+    with order="index". `boxsize` gives the side of the box along every
+    periodic axis, around which the search wraps, and 0 for an axis that
+    does not. Raises ValueError when two nodes coincide, which no stencil
+    can tell apart, and for a distance that reaches more than half way
+    around the box, where a node meets its own image."""
     from scipy.spatial import cKDTree
 
     if order not in ("distance", "index"):
         raise ValueError(f"order is 'distance' or 'index', not '{order}'")
     n = len(pts)
-    tree = cKDTree(pts, boxsize=[L if p else 0.0 for L, p in zip(extent, periodic)])
+    tree = cKDTree(pts, boxsize=boxsize)
 
     if method == "knn":
         assert value <= n, "a stencil larger than the cloud"
@@ -145,6 +99,12 @@ def select_stencils(pts, extent, periodic, method, value, order="distance"):
 
     # radius and range: all pairs closer than the distance, in the norm
     # whose ball is the disk or the square
+    half = min((L for L in boxsize if L > 0), default=np.inf) / 2
+    if value > half:
+        raise ValueError(
+            f"a {method} of {value:g} reaches more than half way around the box, "
+            f"which is {2 * half:g} across: at most {half:g}"
+        )
     refuse_twins(*tree.query(pts, 2, workers=-1))
     p_norm = {"radius": 2, "range": np.inf}[method]
     pairs = tree.sparse_distance_matrix(tree, value, p=p_norm, output_type="coo_matrix")

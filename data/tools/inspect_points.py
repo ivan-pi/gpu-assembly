@@ -13,12 +13,10 @@ listed at the end and make the exit status 1. An ordering file is
 applied to the nodes and the graph before they are drawn, so --labels
 shows the new indices; only the spy plot also shows the file order.
 
-Needs numpy. scipy speeds up the neighbour search and matplotlib draws
-the figures.
+Needs numpy and scipy; matplotlib draws the figures.
 """
 
 import argparse
-import functools
 import logging
 import logging.handlers
 import os
@@ -30,230 +28,12 @@ from pointclouds.io import (
     FormatError,
     plural,
     read_graph,
-    read_nodes,
     read_ordering,
     stencils_to_csr,
 )
+from pointclouds.nodeset import NodeSet
 
 log = logging.getLogger("pointclouds")  # the notes of the readers, and of this tool
-
-
-# --------------------------------------------------------------- geometry
-
-
-def minimum_image(diff, period):
-    """Coordinate differences reduced to the nearest periodic image."""
-    if period is None:
-        return diff
-    return diff - period * np.round(diff / period)
-
-
-# ------------------------------------------------------------------ nodes
-
-
-class Nodes:
-    """A point cloud with a marker per node, 0 for interior, from a points
-    file (every marker 0) or a node file, and the periodic box its
-    distances are measured in, if any."""
-
-    def __init__(self, xy, marker, fname, period=None):
-        self.xy = xy
-        self.marker = marker
-        self.fname = fname
-        self.period = period
-
-    def __len__(self):
-        return len(self.xy)
-
-    # reading
-
-    @classmethod
-    def read(cls, fname, period=None):
-        """Nodes from a .points or .node file."""
-        return cls(*read_nodes(fname), fname, period)
-
-    def coincident(self):
-        """The problem with nodes at distance zero from another, or None."""
-        j, d = self.nearest
-        same = np.flatnonzero(d == 0)
-        if not same.size:
-            return None
-        pairs = sorted({(min(a, j[a]), max(a, j[a])) for a in same})
-        shown = ", ".join(f"({a}, {b})" for a, b in pairs[:5])
-        more = f", ... {len(pairs)} pairs" if len(pairs) > 5 else ""
-        return f"{self.fname}: coincident nodes: {shown}{more}"
-
-    # neighbours
-
-    def neighbours(self, k, which=None):
-        """Indices and distances of the k nearest other nodes of every node,
-        or of the nodes in `which`, nearest first."""
-        n = len(self)
-        which = np.arange(n) if which is None else np.asarray(which)
-        k = min(k, n - 1)
-        if k < 1:
-            return np.empty((len(which), 0), dtype=int), np.empty((len(which), 0))
-        try:
-            from scipy.spatial import cKDTree
-        except ImportError:
-            return self._neighbours_brute_force(k, which)
-        xy = self.xy if self.period is None else np.mod(self.xy, self.period)
-        d, j = cKDTree(xy, boxsize=self.period).query(xy[which], k + 1)
-        return j[:, 1:], d[:, 1:]
-
-    def _neighbours_brute_force(self, k, which):
-        """The same from the distances of the queried nodes to all others,
-        in chunks of rows."""
-        xy = self.xy
-        j = np.empty((len(which), k), dtype=int)
-        d = np.empty((len(which), k))
-        chunk = max(1, 2_000_000 // len(self))
-        for a in range(0, len(which), chunk):
-            q = which[a : a + chunk]
-            d2 = (minimum_image(xy[q, None, :] - xy[None, :, :], self.period) ** 2).sum(
-                axis=-1
-            )
-            d2[np.arange(len(q)), q] = np.inf
-            jj = np.argsort(d2, axis=1, kind="stable")[:, :k]
-            j[a : a + chunk] = jj
-            d[a : a + chunk] = np.sqrt(np.take_along_axis(d2, jj, axis=1))
-        return j, d
-
-    @functools.cached_property
-    def nearest(self):
-        """(index, distance) of the nearest other node of every node."""
-        j, d = self.neighbours(1)
-        return j.reshape(-1), d.reshape(-1)
-
-    def renumbered(self, ordering):
-        """The same nodes in the new numbering."""
-        return Nodes(
-            self.xy[ordering.order],
-            self.marker[ordering.order],
-            self.fname,
-            self.period,
-        )
-
-    # reporting
-
-    def describe(self):
-        """Print the counts, the bounding box and the spacing statistics."""
-        n, bnd = len(self), np.count_nonzero(self.marker)
-        print(f"{self.fname}: {n} nodes, {n - bnd} interior, {bnd} boundary")
-        values, counts = np.unique(self.marker, return_counts=True)
-        print("  markers: " + "  ".join(f"{v}: {c}" for v, c in zip(values, counts)))
-        self._print_box()
-        if n > 1:
-            self._print_spacing()
-
-    def _print_box(self):
-        """The bounding box, and the periodic box if one was declared."""
-        lo, hi = self.xy.min(axis=0), self.xy.max(axis=0)
-        print(
-            f"  bounding box: x in [{lo[0]:.6g}, {hi[0]:.6g}], y in [{lo[1]:.6g}, {hi[1]:.6g}]"
-        )
-        if self.period is not None:
-            outside = np.count_nonzero(
-                ((self.xy < 0) | (self.xy >= self.period)).any(axis=1)
-            )
-            print(
-                f"  periodic box [0, {self.period[0]:.6g}) x [0, {self.period[1]:.6g}): "
-                f"distances are minimum-image"
-                + (f"; {outside} nodes lie outside the box" if outside else "")
-            )
-
-    def _print_spacing(self):
-        """The nearest-neighbour distance statistics."""
-        j, d = self.nearest
-        lo, hi = int(np.argmin(d)), int(np.argmax(d))
-        print(
-            f"  nearest-neighbour distance: min {d[lo]:.6g} (nodes {lo} and {j[lo]}), "
-            f"max {d[hi]:.6g} (node {hi})"
-        )
-        print(f"    mean {d.mean():.6g}, median {np.median(d):.6g}, std {d.std():.6g}")
-
-    # drawing
-
-    PALETTE = [
-        "tab:red",
-        "tab:green",
-        "tab:purple",
-        "tab:brown",
-        "tab:pink",
-        "tab:olive",
-        "tab:cyan",
-    ]
-
-    def plot(self, ax, labels=False, stencils=()):
-        """The nodes coloured by marker, optionally every index and the given
-        (node, members) stencils."""
-        self._plot_markers(ax)
-        if labels:
-            for i, (x, y) in enumerate(self.xy):
-                ax.annotate(
-                    str(i),
-                    (x, y),
-                    xytext=(2, 2),
-                    textcoords="offset points",
-                    fontsize=6,
-                )
-        for s, (i, members) in enumerate(stencils):
-            self._plot_stencil(ax, i, members, self.PALETTE[s % len(self.PALETTE)])
-        ax.set_aspect("equal")
-        ax.set_xlabel("x")
-        ax.set_ylabel("y")
-        ax.legend(fontsize=8, markerscale=1.5)
-
-    def _plot_markers(self, ax):
-        """Interior nodes in grey, every marker value in its own colour, the
-        counts in the legend."""
-        xy, marker = self.xy, self.marker
-        interior = marker == 0
-        if interior.any():
-            ax.plot(
-                xy[interior, 0],
-                xy[interior, 1],
-                ".",
-                color="0.55",
-                ms=3,
-                label=f"interior ({np.count_nonzero(interior)})",
-            )
-        for m in np.unique(marker[~interior]):
-            sel = marker == m
-            ax.plot(
-                xy[sel, 0],
-                xy[sel, 1],
-                "o",
-                ms=3.5,
-                label=f"marker {m} ({np.count_nonzero(sel)})",
-            )
-
-    def _plot_stencil(self, ax, i, members, color):
-        """A circle about node i through its farthest member, the members
-        ringed and the node filled; a wrapped member sits at its nearest image."""
-        from matplotlib.patches import Circle
-
-        centre = self.xy[i]
-        at = centre + minimum_image(self.xy[members] - centre, self.period)
-        r = np.linalg.norm(at - centre, axis=1).max()
-        ax.add_patch(Circle(centre, r, fill=False, edgecolor=color, lw=1.2))
-        ax.plot(at[:, 0], at[:, 1], "o", ms=8, mfc="none", mec=color, mew=1.2)
-        ax.plot(
-            centre[0],
-            centre[1],
-            "o",
-            ms=8,
-            color=color,
-            label=f"stencil of node {i} ({len(members)})",
-        )
-        ax.annotate(
-            str(i),
-            centre,
-            xytext=(5, 5),
-            textcoords="offset points",
-            fontsize=8,
-            color=color,
-        )
 
 
 # ------------------------------------------------------------------ graph
@@ -377,12 +157,13 @@ class Ordering:
 
 # ------------------------------------------------------------ command line
 
-KINDS = {".points": Nodes, ".node": Nodes, ".graph": Graph, ".iperm": Ordering}
+KINDS = {".points": NodeSet, ".node": NodeSet, ".graph": Graph, ".iperm": Ordering}
+NAMES = {NodeSet: "points or node", Graph: "graph", Ordering: "ordering"}
 
 
 def parse_args():
     """The command line, with `given` mapping each file's class to its name
-    and `period` the periodic box as an array or None."""
+    and `box` the periodic box (extent, periodic) for NodeSet.read."""
     ap = argparse.ArgumentParser(
         description="Check and describe the files of a case (docs/file_formats.md): "
         "node and marker counts, nearest-neighbour statistics, graph "
@@ -436,7 +217,9 @@ def parse_args():
     args.plot = args.plot or args.labels or bool(args.stencil)
     args.given = classify(args.files)
     check_options(args)
-    args.period = np.array(args.periodic) if args.periodic else None
+    args.box = (
+        (args.periodic, (True, True)) if args.periodic else (None, (False, False))
+    )
     return args
 
 
@@ -451,9 +234,7 @@ def classify(files):
                 f"{f}: unknown extension, expected .points, .node, .graph or .iperm"
             )
         if kind in given:
-            sys.exit(
-                f"{f}: a {kind.__name__.lower()} file was already given, {given[kind]}"
-            )
+            sys.exit(f"{f}: a {NAMES[kind]} file was already given, {given[kind]}")
         given[kind] = f
     return given
 
@@ -462,7 +243,7 @@ def check_options(args):
     """Exit on an option that lacks the file it works on."""
     if args.spy and Graph not in args.given:
         sys.exit("--spy needs a graph file")
-    if args.plot and Nodes not in args.given:
+    if args.plot and NodeSet not in args.given:
         sys.exit("--plot needs a points or node file")
     if args.stencil and Graph not in args.given and args.k < 2:
         sys.exit(
@@ -496,21 +277,26 @@ def read_files(args, problems, notes):
     read = {}
     for kind, fname in args.given.items():
         try:
-            obj = kind.read(fname, args.period) if kind is Nodes else kind.read(fname)
+            obj = kind.read(fname, *args.box) if kind is NodeSet else kind.read(fname)
         except FormatError as e:
             problems.extend(e.problems)
         else:
             read[kind] = obj
             obj.describe()
-            if kind is Nodes and obj.coincident():
+            if kind is NodeSet and obj.coincident():
                 problems.append(obj.coincident())
         notes.flush()
     return read
 
 
+def name(obj):
+    """The file an object came from: a NodeSet carries it as its title."""
+    return obj.title if isinstance(obj, NodeSet) else obj.fname
+
+
 def counts_differ(read):
     """The problem if the files disagree on the node count, or None."""
-    counts = {obj.fname: len(obj) for obj in read.values()}
+    counts = {name(obj): len(obj) for obj in read.values()}
     if len(set(counts.values())) > 1:
         return "node counts differ: " + ", ".join(
             f"{f} has {n}" for f, n in counts.items()
@@ -546,10 +332,10 @@ def stencils_to_draw(args, nodes, graph):
 def draw(args, read, notes):
     """One figure: the nodes, the spy plot, or both, renumbered by the
     ordering if one was given, and then the spy plot in file order too."""
-    nodes, graph, ordering = read.get(Nodes), read.get(Graph), read.get(Ordering)
+    nodes, graph, ordering = read.get(NodeSet), read.get(Graph), read.get(Ordering)
     file_graph = None
     if ordering is not None:
-        nodes = nodes.renumbered(ordering) if nodes else None
+        nodes = nodes.renumbered(ordering.order) if nodes else None
         if graph is not None:
             file_graph, graph = graph, graph.renumbered(ordering)
         print("ordering applied: nodes and stencils are in the new numbering below")
@@ -564,7 +350,7 @@ def draw(args, read, notes):
     if args.plot:
         ax = next(axes)
         nodes.plot(ax, args.labels, stencils)
-        ax.set_title(os.path.basename(nodes.fname), fontsize=9)
+        ax.set_title(os.path.basename(nodes.title), fontsize=9)
     if args.spy:
         base = os.path.basename(graph.fname)
         if file_graph is not None:
