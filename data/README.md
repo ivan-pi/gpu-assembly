@@ -22,10 +22,11 @@ listed under [Extracted](#extracted).
 ## Extracted
 
 Node sets read off the figures of published papers with WebPlotDigitizer 4,
-as [node files](../docs/file_formats.md#node-file). Digitizing leaves a node
-up to a pixel from where it belongs, so wherever the shape of the boundary
-is known its nodes were reconstructed onto it to machine precision, which is
-what makes the normal taken from a boundary node exact.
+as [node files](../docs/file_formats.md#node-file). A digitized coordinate
+is imprecise, limited by the pixel resolution of the figure, so wherever the
+shape of the boundary is known its nodes were reconstructed onto it to
+machine precision, which is what makes the normal taken from a boundary node
+exact.
 
 | Case | Nodes | Boundary | Geometry | Markers | From |
 |---|---|---|---|---|---|
@@ -34,6 +35,7 @@ what makes the normal taken from a boundary node exact.
 | `musavi_disk_108.node` | 108 | 32 | the disk `r <= 1` about the origin | 1 circle | [2] |
 | `musavi_disk_409.node` | 409 | 64 | the disk `r <= 1` about the origin | 1 circle | [2] |
 | `musavi_disk_1501.node` | 1501 | 128 | the disk `r <= 1` about the origin | 1 circle | [2] |
+| `shu_square_4786.node` | 4786 | 264 | the square `[0, 1]^2` | 1 south, 2 east, 3 north, 4 west, 5 corner | [3] |
 
 Marker 0 is an interior node in all of them.
 
@@ -44,10 +46,14 @@ Marker 0 is an interior node in all of them.
    scattered nodes.
 2. Musavi and Ashrafizaadeh (2015), Phys. Rev. E 91, 023310,
    [doi:10.1103/PhysRevE.91.023310](https://doi.org/10.1103/PhysRevE.91.023310).
-   Three quasi-uniform clouds of the same disk, each spacing half the last:
-   0.196, 0.098, 0.049. Only the interior nodes are in the figures as
+   Three quasi-uniform clouds of the same disk at node spacings of about
+   0.2, 0.1 and 0.05. Only the interior nodes are in the figures as
    coordinates; the boundary nodes are equally spaced on the circle, one at
    `(1, 0)`.
+3. Shu, Ding and Zhao (2006), Comput. Math. Appl. 51, 1297-1310,
+   [doi:10.1016/j.camwa.2006.04.015](https://doi.org/10.1016/j.camwa.2006.04.015).
+   One quasi-uniform cloud, with 67 nodes along each wall, spaced more
+   closely towards the corners.
 
 ## Generating
 
