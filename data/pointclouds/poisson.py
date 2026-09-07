@@ -1,44 +1,8 @@
-"""Poisson disk sampling of a rectangle, optionally periodic in either
-axis: no two points closer than a radius r, and no room left for another
-one, drawn by Bridson's algorithm with the inner loop compiled by Numba.
+"""Poisson disk sampling of a rectangle, periodic in either axis.
 
-The rectangle is [0, Lx) x [0, Ly), and `periodic` says of each axis
-whether its two sides are one: neither for a box with walls, both for a
-periodic box, one for a channel. A periodic box, filled:
-
-    pts = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=True).fill_space()
-
-A channel, periodic in x, grown from its wall nodes, which then come
-first in the result:
-
-    sampler = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=(True, False))
-    sampler.add_points(walls)
-    sampler.fill_space()
-    pts = sampler.points
-
-Bridson's algorithm (2007): a grid of cells of side at most r / sqrt(2),
-so that a cell holds one point at most, and a queue of the points that
-still have candidates to throw. A queued point throws `ncandidates`
-candidates into the annulus between r and 2r around it; a candidate that
-finds no point within r in the 5x5 cells around its own is kept and
-queued.
-
-Along a periodic axis the search wraps: the cell index is taken modulo
-the cell count, and a difference of coordinates through the nearer of
-the two sides. The cells tile the extent exactly along such an axis,
-which makes them a little smaller than r / sqrt(2). With a partial last
-cell instead, the two cells beyond the seam would span less than r, the
-search would stop short of it, and points closer than r could face each
-other across the seam: the defect a sample that is wrapped afterwards
-shows, and the reason the sampler is periodic itself.
-
-The interface follows scipy.stats.qmc.PoissonDisk: `random` draws up to
-n more points, `fill_space` draws until nothing fits, `reset` goes back
-to the start, and a seed makes a sample reproducible. The loop, after
-Connor Johnson (2015), "Poisson Disk Sampling",
-<http://connor-johnson.com/2015/04/08/poisson-disk-sampling/>, is
-compiled by Numba on the first call of a process and cached next to this
-module.
+`PoissonDisk` draws points no two of which are closer than a radius,
+with no room left for another one, by Bridson's algorithm with the
+inner loop compiled by Numba.
 """
 
 from collections import namedtuple
@@ -221,11 +185,12 @@ class PoissonDisk:
     ----------
     radius : float
         The least distance between two points.
-    extent : (2,) array_like
+    extent : (2,) array_like, default (1.0, 1.0)
         ``(Lx, Ly)``.
-    periodic : bool or (2,) tuple of bool
-        Whether each axis wraps around.
-    ncandidates : int
+    periodic : bool or (2,) tuple of bool, default False
+        Whether each axis wraps around: neither for a box with walls, both
+        for a periodic box, one for a channel.
+    ncandidates : int, default 30
         Candidates a point throws before it is retired.
     seed : optional
         Anything ``numpy.random.default_rng`` accepts; None draws one.
@@ -237,6 +202,38 @@ class PoissonDisk:
     ----------
     points : (n, 2) ndarray
         Everything so far, seeds first, then in the order drawn.
+    radius, extent, periodic, ncandidates, seed
+        As given.
+
+    Notes
+    -----
+    Bridson's algorithm [1]_: a grid of cells of side at most
+    ``radius / sqrt(2)``, so that a cell holds one point at most, and a
+    queue of the points that still have candidates to throw. A queued
+    point throws `ncandidates` candidates into the annulus between the
+    radius and twice it; a candidate that finds no point within the radius
+    in the 5 by 5 cells around its own is kept and queued.
+
+    Along a periodic axis the search wraps: the cell index is taken modulo
+    the cell count, and a difference of coordinates through the nearer of
+    the two sides. The cells tile the extent exactly along such an axis,
+    which makes them a little smaller than ``radius / sqrt(2)``. With a
+    partial last cell instead, the two cells beyond the seam would span
+    less than the radius, the search would stop short of it, and points
+    closer than the radius could face each other across the seam: the
+    defect a sample that is wrapped afterwards shows, and the reason the
+    sampler is periodic itself.
+
+    The interface follows ``scipy.stats.qmc.PoissonDisk``. The loop, after
+    Johnson [2]_, is compiled by Numba on the first call of a process and
+    cached next to this module.
+
+    References
+    ----------
+    .. [1] R. Bridson, "Fast Poisson disk sampling in arbitrary
+       dimensions," ACM SIGGRAPH 2007 Sketches, 2007.
+    .. [2] C. Johnson, "Poisson Disk Sampling," 2015,
+       http://connor-johnson.com/2015/04/08/poisson-disk-sampling/
     """
 
     def __init__(
@@ -285,7 +282,22 @@ class PoissonDisk:
         self.add_points(self._seeds)
 
     def add_points(self, pts):
-        """Feed points to the queue as if drawn, wrapped through the periodic sides; two in one cell, closer than the radius, are refused."""
+        """Feed points to the queue as if drawn.
+
+        The seeds, or the nodes of an inner layer. They are wrapped through
+        the periodic sides.
+
+        Parameters
+        ----------
+        pts : (m, 2) array_like
+
+        Raises
+        ------
+        ValueError
+            For a point outside the rectangle along an axis with walls, and
+            for two of the points in one cell, which are closer than the
+            radius.
+        """
         pts = np.array(pts, float).reshape(-1, 2)
         if len(pts) == 0:
             return
@@ -298,7 +310,17 @@ class PoissonDisk:
             raise ValueError("two of the points are closer than the radius")
 
     def random(self, n=1):
-        """Draw up to `n` more points and return them; fewer when the space fills up first."""
+        """Draw up to `n` more points.
+
+        Parameters
+        ----------
+        n : int, default 1
+
+        Returns
+        -------
+        (k, 2) ndarray
+            The points drawn, fewer than `n` when the space fills up first.
+        """
         before = int(self._store.count[0])
         draw_points(
             self._store,
@@ -312,7 +334,13 @@ class PoissonDisk:
         return self.points[before:]
 
     def fill_space(self):
-        """Draw until nothing fits and return the points drawn by this call."""
+        """Draw until nothing fits.
+
+        Returns
+        -------
+        (k, 2) ndarray
+            The points drawn by this call.
+        """
         return self.random(len(self._store.px))
 
     @property

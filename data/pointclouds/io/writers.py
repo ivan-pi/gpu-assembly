@@ -1,13 +1,11 @@
-"""Writers for the files of docs/file_formats.md, which is where the
-details live: this module only puts them on disk. The generators in
-data/tools write the point, node and graph files, and reorder_graph.py
-the ordering file.
+"""Writers for the files of docs/file_formats.md.
 
-Every number is written as the shortest text that reads back to the same
-double, which is what `repr` gives, so a file reproduces the values it was
-given. A writer takes a stem rather than a file name and appends its own
-extension, so one stem names the whole case: `case.points` and
-`case.graph` are the pair the readers expect, in the same node numbering.
+Every number is written as the shortest text that reads back to the
+same double, which is what ``repr`` gives, so a file reproduces the
+values it was given. A writer takes a stem rather than a file name and
+appends its own extension, so one stem names the whole case:
+``case.points`` and ``case.graph`` are the pair the readers expect, in
+the same node numbering. The stem ``-`` writes to standard output.
 """
 
 import contextlib
@@ -22,7 +20,13 @@ def open_out(stem, ext):
 
 
 def write_points(stem, pts):
-    """Write a points file: the count, then a coordinate pair per line."""
+    """Write a points file: the count, then a coordinate pair per line.
+
+    Parameters
+    ----------
+    stem : str
+    pts : (n, 2) array_like
+    """
     with open_out(stem, ".points") as f:
         f.write(f"{len(pts)}\n")
         for x, y in pts.tolist():
@@ -30,7 +34,17 @@ def write_points(stem, pts):
 
 
 def write_node(stem, pts, m, title):
-    """Write a node file: the title as a comment, the header, then a numbered node with its marker per line."""
+    """Write a node file: a comment, the header, then a node per line.
+
+    Parameters
+    ----------
+    stem : str
+    pts : (n, 2) array_like
+    m : (n,) array_like of int
+        The marker of every node.
+    title : str
+        The comment on the first line.
+    """
     with open_out(stem, ".node") as f:
         f.write(f"# {title}\n")
         f.write(f"{len(pts)} 2 0 1\n")
@@ -39,7 +53,15 @@ def write_node(stem, pts, m, title):
 
 
 def write_graph(stem, ia, ja):
-    """Write a graph file from the stencils in CSR form, the stencil of node i at ``ja[ia[i]:ia[i + 1]]``: the node and edge counts, then one stencil per line."""
+    """Write a graph file: the node and edge counts, then a stencil per line.
+
+    Parameters
+    ----------
+    stem : str
+    ia, ja : array_like of int
+        The stencils in CSR form, that of node i at
+        ``ja[ia[i]:ia[i + 1]]``.
+    """
     starts = ia.tolist()
     with open_out(stem, ".graph") as f:
         f.write(f"{len(starts) - 1} {starts[-1]}\n")
@@ -48,7 +70,13 @@ def write_graph(stem, ia, ja):
 
 
 def write_ordering(stem, iperm):
-    """Write an ordering file: the new index of every node, one per line."""
+    """Write an ordering file: the new index of every node, one per line.
+
+    Parameters
+    ----------
+    stem : str
+    iperm : (n,) array_like of int
+    """
     with open_out(stem, ".iperm") as f:
         for i in iperm.tolist():
             f.write(f"{i}\n")

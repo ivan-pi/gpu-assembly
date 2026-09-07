@@ -1,15 +1,10 @@
-"""Readers for the points, node, graph and ordering files of
-docs/file_formats.md, which check what they read.
+"""Readers for the files of docs/file_formats.md, which check what they read.
 
-A reader takes a file name and returns the contents as numpy arrays, or
-raises FormatError when the file does not follow its format, with every
-problem found, so that a tool can list them all. What is worth knowing
-but is no problem -- a node file that counts from 1, lines after the end
-that the format allows -- goes to the logger of this module at level
-INFO, for a tool to show or ignore.
-
-Indices come back 0-based, as the formats have them; a node file that
-counts from 1 is accepted and reported from 0.
+A reader takes a file name and returns the contents as numpy arrays,
+or raises `FormatError` when the file does not follow its format, with
+every problem found, so that a tool can list them all. What is worth
+knowing but is no problem, a node file that counts from 1 say, goes to
+the logger of this module at level INFO. Indices come back 0-based.
 """
 
 import itertools
@@ -21,7 +16,20 @@ log = logging.getLogger(__name__)
 
 
 class FormatError(ValueError):
-    """A file that does not follow its format: `problems` lists what is wrong, each entry naming the file, and ``str()`` joins them by line."""
+    """A file that does not follow its format.
+
+    Parameters
+    ----------
+    fname : str
+        The file.
+    *messages : str
+        What is wrong, one entry per problem.
+
+    Attributes
+    ----------
+    problems : list of str
+        The messages, each naming the file; ``str()`` joins them by line.
+    """
 
     def __init__(self, fname, *messages):
         self.problems = [f"{fname}: {m}" for m in messages]
@@ -29,7 +37,17 @@ class FormatError(ValueError):
 
 
 def plural(k, word):
-    """Return the count and the word, with an s unless the count is 1."""
+    """A count and a word, with an s unless the count is 1.
+
+    Parameters
+    ----------
+    k : int
+    word : str
+
+    Returns
+    -------
+    str
+    """
     return f"{k} {word}{'' if k == 1 else 's'}"
 
 
@@ -97,7 +115,25 @@ def _parse_rows(fname, rows, form, convert):
 
 
 def read_nodes(fname):
-    """Read a points or node file, told apart by extension: ``(xy, markers)`` with a marker per node, 0 for interior."""
+    """The nodes of a points or node file, told apart by extension.
+
+    Parameters
+    ----------
+    fname : str
+        A ``.node`` file, or a points file under any other name.
+
+    Returns
+    -------
+    xy : (n, 2) ndarray
+    markers : (n,) ndarray of int
+        The marker of every node, 0 for an interior one.
+
+    Raises
+    ------
+    FormatError
+        For a file that does not follow its format, or a coordinate that
+        is not finite.
+    """
     reader = read_node if fname.endswith(".node") else read_points
     xy, marker = reader(fname)
     bad = np.flatnonzero(~np.isfinite(xy).all(axis=1))
@@ -111,7 +147,22 @@ def read_nodes(fname):
 
 
 def read_points(fname):
-    """Read a points file, ``n`` then n lines of ``x y``: ``(xy, markers)`` with every marker 0."""
+    """The nodes of a points file: the count, then a coordinate pair per line.
+
+    Parameters
+    ----------
+    fname : str
+
+    Returns
+    -------
+    xy : (n, 2) ndarray
+    markers : (n,) ndarray of int
+        All zero.
+
+    Raises
+    ------
+    FormatError
+    """
     (n,), rows = _read_header(fname, "n", comments=False)
     if len(rows) < n:
         raise FormatError(
@@ -134,7 +185,22 @@ def read_points(fname):
 
 
 def read_node(fname):
-    """Read a node file in Triangle's format, ``n 2 nattr nmark`` then ``i x y a... [marker]`` per node: ``(xy, markers)``."""
+    """The nodes of a node file, in Triangle's format.
+
+    Parameters
+    ----------
+    fname : str
+
+    Returns
+    -------
+    xy : (n, 2) ndarray
+    markers : (n,) ndarray of int
+        The marker of every node, 0 without a marker column.
+
+    Raises
+    ------
+    FormatError
+    """
     (n, dim, nattr, nmark), rows = _read_header(
         fname, "n dim nattr nmark", comments=True
     )
@@ -192,7 +258,18 @@ def _check_consecutive(fname, index, rows):
 
 
 def stencils_to_csr(stencils):
-    """Return the row pointer and the column indices of a list of stencils, ``(ia, ja)``."""
+    """Stencils as lists, in CSR form.
+
+    Parameters
+    ----------
+    stencils : list of list of int
+
+    Returns
+    -------
+    ia, ja : ndarray of int
+        The row pointer and the column indices: stencil i is
+        ``ja[ia[i]:ia[i + 1]]``.
+    """
     ia = np.cumsum([0, *map(len, stencils)])
     ja = np.fromiter(
         itertools.chain.from_iterable(stencils), dtype=int, count=int(ia[-1])
@@ -201,7 +278,23 @@ def stencils_to_csr(stencils):
 
 
 def read_graph(fname):
-    """Read a graph file, ``n nnz`` then a line of 0-based indices per node: the stencils in CSR form as ``(ia, ja)``."""
+    """The stencils of a graph file, in CSR form.
+
+    Parameters
+    ----------
+    fname : str
+
+    Returns
+    -------
+    ia, ja : ndarray of int
+        The row pointer and the column indices, 0-based.
+
+    Raises
+    ------
+    FormatError
+        For a file that does not follow its format, an entry outside the
+        node count, or a node listed twice in one stencil.
+    """
     (n, nnz), rows = _read_header(fname, "n nnz", comments=False)
     if len(rows) != n:
         raise FormatError(
@@ -245,7 +338,21 @@ def _rows_with_duplicates(ia, ja):
 
 
 def read_ordering(fname):
-    """Read an ordering file, one integer per line and no header: `iperm`, the new index of every node, checked to be a permutation."""
+    """The permutation of an ordering file.
+
+    Parameters
+    ----------
+    fname : str
+
+    Returns
+    -------
+    (n,) ndarray of int
+        The new index of every node, checked to be a permutation.
+
+    Raises
+    ------
+    FormatError
+    """
     vals = _parse_rows(
         fname,
         _lines_of(fname, comments=False),

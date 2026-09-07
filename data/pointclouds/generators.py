@@ -1,10 +1,15 @@
-"""The clouds the generators in data/tools build, as children of NodeSet:
-a perturbed grid, a Poisson disk sample of a periodic box with or
-without a hole, and the refined cavity. A child's constructor makes the
-points and the markers and hands them to NodeSet with the box and the
-title; what a script adds is its command line. Lengths are in lattice
-units throughout, with the spacing 1: scaling a case to other units is
-left to whoever needs it.
+"""The clouds the generators build, as children of `NodeSet`.
+
+A child's constructor makes the points and the markers and hands them
+to `NodeSet` with the box and the title. Lengths are in lattice units
+throughout, with the spacing 1: scaling a case to other units is left
+to whoever needs it.
+
+.. autosummary::
+
+   PerturbedGrid
+   PoissonBox
+   RefinedCavity
 """
 
 import numpy as np
@@ -13,34 +18,39 @@ from .nodeset import MARKERS, NodeSet, boundary_first
 
 
 class PerturbedGrid(NodeSet):
-    """The node layout of Strzelczyk and Matyka (2022), "How nodes
-    layout, refinement and velocity discretization influence convergence
-    of the meshless lattice Boltzmann method",
-    <https://ssrn.com/abstract=4070398>, Figs. 4 and 8: an N by N
-    Cartesian grid with its lowest node at the origin, every coordinate
-    displaced by an amount uniform on [-sigma, sigma] spacings. The
-    reference uses sigma = 0, 0.02 and 0.2; a node stays in its own cell
-    for sigma < 0.5.
+    """A Cartesian grid with every node moved by a small random amount.
 
-    The box is N by N. With `geometry` "periodic" both sides are
-    periodic, as in the Taylor-Green test, and a node that leaves the
-    box comes back through the opposite side. With "channel" the box is
-    periodic in x with walls at y = 0 and y = N, as in the Poiseuille
-    test: the grid has N + 1 rows, the first on the bottom wall (marker
-    south) and the last on the top (marker north), and a wall node
-    slides along its wall but does not leave it. The nodes come row by
-    row from y = 0, x fastest, so the wall nodes are the first N and the
-    last N.
+    The node layout of Strzelczyk and Matyka [1]_, Figs. 4 and 8: an N by
+    N grid with its lowest node at the origin, every coordinate displaced
+    by an amount uniform on ``[-sigma, sigma]`` spacings. The box is N by
+    N.
 
     Parameters
     ----------
     n : int
-        Nodes across the box, which is N by N in lattice units.
-    sigma : float
-        The displacement of a node, uniform on ``[-sigma, sigma]`` spacings.
+        Nodes across the box.
+    sigma : float, default 0.2
+        The displacement of a node, in spacings. The reference uses 0,
+        0.02 and 0.2; a node stays in its own cell below 0.5.
     geometry : {"periodic", "channel"}
+        Both sides periodic, as in the Taylor-Green test, or periodic in
+        x with walls at ``y = 0`` and ``y = N``, as in the Poiseuille test.
     seed : int, optional
         Of the displacements; random when not given.
+
+    Notes
+    -----
+    On the channel the grid has N + 1 rows, the first on the bottom wall
+    (marker south) and the last on the top (marker north); a wall node
+    slides along its wall but does not leave it. The nodes come row by row
+    from ``y = 0``, x fastest, so the wall nodes are the first N and the
+    last N.
+
+    References
+    ----------
+    .. [1] Strzelczyk and Matyka, "How nodes layout, refinement and
+       velocity discretization influence convergence of the meshless
+       lattice Boltzmann method," 2022, https://ssrn.com/abstract=4070398
     """
 
     def __init__(self, n, sigma=0.2, *, geometry="periodic", seed=None):
@@ -68,32 +78,40 @@ class PerturbedGrid(NodeSet):
 
 
 class PoissonBox(NodeSet):
-    """A Poisson disk sample of the periodic box [0, Lx) x [0, Ly): no
-    two nodes closer than `distance`, and no room left for another one,
-    from `candidates` throws per node (pointclouds.poisson); about
-    0.65 / distance^2 nodes per unit area at the default, more with more
-    candidates up to a point.
+    """A Poisson disk sample of a periodic box, with or without a hole.
 
-    With a `hole`, the disk of that radius about the centre of the box is
-    cut out: nodes are laid on its circle first, as many as keep them
-    `distance` apart, with the marker hole; the sample grows from them,
-    so the nearest nodes sit about a spacing off the circle; and what
-    lands inside is discarded. That is the unit cell of a square array of
-    cylinders. The hole is at least `distance` in radius and leaves that
-    much to its image across the periodic sides.
+    No two nodes are closer than `distance` and no room is left for
+    another one, drawn by `pointclouds.poisson.PoissonDisk`: about
+    ``0.65 / distance**2`` nodes per unit area with the default number of
+    candidates, more with more of them up to a point.
 
     Parameters
     ----------
     extent : (2,) array_like
         The box ``[0, Lx) x [0, Ly)``.
-    distance : float
-        The least distance between two nodes, 1 in lattice units.
-    candidates : int
-        The throws a node makes before it is retired; more pack tighter.
+    distance : float, default 1.0
+        The least distance between two nodes.
+    candidates : int, default 100
+        The throws a node makes before it is retired.
     hole : float, optional
         The radius of the disk cut out of the middle of the box.
     seed : int, optional
         Of the sample; random when not given.
+
+    Raises
+    ------
+    ValueError
+        For a box narrower than twice the distance, and for a hole
+        smaller than the distance in radius or closer than that to its
+        image across the periodic sides.
+
+    Notes
+    -----
+    With a hole, nodes are laid on its circle first, as many as keep them
+    `distance` apart, with the marker hole; the sample grows from them, so
+    the nearest nodes sit about a spacing off the circle; and what lands
+    inside is discarded. That is the unit cell of a square array of
+    cylinders.
     """
 
     def __init__(self, extent, distance=1.0, *, candidates=100, hole=None, seed=None):
@@ -145,39 +163,51 @@ class PoissonBox(NodeSet):
 
 
 class RefinedCavity(NodeSet):
-    """The lid-driven cavity [0, Lx] x [0, Ly], refined towards the walls
-    in three bands of `steps` spacings each: the spacing is 1 at the
-    wall, 1.5 in the second band and 2.5 in the middle, so the bands from
-    both walls fill a cavity of 10 steps, the size a bare `steps` gives,
-    and a bigger `size` = (Lx, Ly) gets its middle at the coarsest
-    spacing. The proportions are those of the figure in Lin, Wu and
-    Zhang (2019), "A mesh-free radial basis function-based
-    semi-Lagrangian lattice Boltzmann method for incompressible flows",
-    Int. J. Numer. Meth. Fluids 91, 198-211.
+    """The lid-driven cavity, refined towards the walls in three bands.
 
-    Two distributions realise the spacings. "rings" are concentric
-    rectangles inset from the walls, the points h apart along a ring and
-    consecutive rings h apart, ending in the centre point of a square,
-    or in a segment for a rectangle; each side of a ring holds a whole
-    number of spacings, so the spacing along a ring can differ from h by
-    a fraction of a percent. "grid" is the tensor product of 1-d
-    coordinates graded the same way: rows and columns line up, but a
-    point near the middle of a wall sits in a cell of h by 2.5 h. Both
-    put the wall nodes first, from the wall inwards for the rings, row
-    by row for the grid.
+    The spacing is 1 at the wall, 1.5 in the second band and 2.5 in the
+    middle, each band `steps` spacings wide, so the bands from both walls
+    fill a cavity of ``10 * steps``; a bigger `size` gets its middle at
+    the coarsest spacing. The proportions are those of the figure in Lin,
+    Wu and Zhang [1]_, which shows the point distribution without
+    specifying it.
+
+    Parameters
+    ----------
+    steps : int, default 10
+        Spacings across each band.
+    size : (2,) tuple of float, optional
+        The cavity ``(Lx, Ly)``, at least ``10 * steps`` on either side.
+    distribution : {"rings", "grid"}
+        Concentric rectangles inset from the walls, or the tensor product
+        of 1-d coordinates graded the same way.
+
+    Raises
+    ------
+    ValueError
+        For a size smaller than the bands need.
+
+    Notes
+    -----
+    The rings have their points h apart along a ring and consecutive
+    rings h apart, and end in the centre point of a square or in a
+    segment for a rectangle; each side of a ring holds a whole number of
+    spacings, so the spacing along a ring can differ from h by a fraction
+    of a percent. In the grid, rows and columns line up, but a point near
+    the middle of a wall sits in a cell of h by 2.5 h. Both put the wall
+    nodes first, from the wall inwards for the rings, row by row for the
+    grid.
 
     The markers are south, east, north (the lid) and west for the walls,
     and corner where two walls meet, since a corner node carries the
     boundary data of both walls, which differ in the cavity; whoever
     assembles the boundary conditions decides what a corner gets.
 
-    Parameters
+    References
     ----------
-    steps : int
-        Spacings across each band.
-    size : (2,) tuple of float, optional
-        The cavity ``(Lx, Ly)``, at least the 10 steps of the bands.
-    distribution : {"rings", "grid"}
+    .. [1] Lin, Wu and Zhang, "A mesh-free radial basis function-based
+       semi-Lagrangian lattice Boltzmann method for incompressible
+       flows," Int. J. Numer. Meth. Fluids 91, 198-211, 2019.
     """
 
     SPACINGS = (1.0, 1.5, 2.5)  # at the wall, in the second band, in the middle

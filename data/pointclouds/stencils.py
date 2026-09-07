@@ -1,23 +1,10 @@
-"""Stencil selection. The stencil of a node is the set of nodes it
-interpolates from, and there are three ways to select it: its k nearest
-neighbours (knn), the nodes within a distance of it (radius), or the
-nodes within a distance of it along both axes, a square, which is an
-orthogonal range search (range). scipy's k-d tree does the searching,
-over a box periodic in either axis, so that a stencil next to a
-periodic side reaches around it. Every stencil starts with the node
-itself, which is what the graph file expects (docs/file_formats.md),
-then its neighbours nearest first, and the stencils come back in the
-CSR form the readers use: (ia, ja), with the stencil of node i at
-ja[ia[i]:ia[i + 1]].
+"""Stencil selection: the nodes a node interpolates from.
 
-    ia, ja = select_stencils(pts, boxsize)          # the KNN nearest
-    ia, ja = select_stencils(pts, boxsize, "radius", 2.5)
-
-`boxsize` gives the side of the box along every periodic axis, around
-which the search wraps, and 0 for an axis that does not; NodeSet passes
-its own. Two nodes that coincide are refused, since no stencil can tell
-them apart, and so is a distance that reaches more than half way around
-the box, where a node meets its own image.
+Three ways to select them: the k nearest neighbours, the nodes within
+a distance, or the nodes within a distance along both axes, a square,
+which is an orthogonal range search. scipy's k-d tree does the
+searching, over a box periodic in either axis. `KNN` is the default
+stencil size.
 """
 
 import numpy as np
@@ -27,7 +14,10 @@ KNN = 18  # the default stencil: the 6 terms of a second-order polynomial plus 1
 
 
 def select_stencils(pts, boxsize, method="knn", value=KNN):
-    """Select the stencil of every node of a cloud.
+    """The stencil of every node of a cloud, as a graph in CSR form.
+
+    Every stencil starts with the node itself, which is what the graph
+    file expects, then holds its neighbours nearest first.
 
     Parameters
     ----------
@@ -37,16 +27,16 @@ def select_stencils(pts, boxsize, method="knn", value=KNN):
         The side of the box along every periodic axis, around which the
         search wraps, and 0 for an axis that does not.
     method : {"knn", "radius", "range"}
-        The k nearest neighbours, the nodes within a distance, or the nodes
-        within a distance along both axes, a square.
+        The k nearest neighbours, the nodes within a distance, or the
+        nodes within a distance along both axes, a square.
     value : int or float
-        The k of knn, the distance of the others.
+        The k of knn, the distance of the others; `KNN` by default.
 
     Returns
     -------
-    ia, ja : ndarray
-        The stencils in CSR form, that of node i at ``ja[ia[i]:ia[i + 1]]``:
-        the node itself first, then its neighbours nearest first.
+    ia, ja : ndarray of int
+        The row pointer and the column indices: the stencil of node i is
+        ``ja[ia[i]:ia[i + 1]]``.
 
     Raises
     ------

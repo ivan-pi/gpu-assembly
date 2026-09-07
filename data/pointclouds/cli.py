@@ -18,7 +18,23 @@ from .stencils import KNN
 
 
 def number(kind, *, least=None, above=None):
-    """Return an argparse type with a bound: `least` inclusive, `above` exclusive."""
+    """An argparse type with a bound.
+
+    Parameters
+    ----------
+    kind : type
+        `int` or `float`.
+    least : number, optional
+        The value must be at least this.
+    above : number, optional
+        The value must be greater than this.
+
+    Returns
+    -------
+    callable
+        Parses a string to `kind` and raises ``argparse.ArgumentTypeError``
+        outside the bound, which argparse reports naming the option.
+    """
 
     def parse(text):
         value = kind(text)  # a ValueError here: "invalid int"
@@ -33,7 +49,22 @@ def number(kind, *, least=None, above=None):
 
 
 def output_stem(name, default):
-    """Return the stem of an output name and the extension that picks its format: the one it ends in, or `default` if none."""
+    """The stem of an output name and the extension that picks its format.
+
+    Parameters
+    ----------
+    name : str
+        The output argument of a generator.
+    default : {".points", ".node"}
+        The extension when `name` ends in neither.
+
+    Returns
+    -------
+    stem : str
+        `name` without the extension.
+    ext : str
+        The extension `name` ends in, or `default`.
+    """
     for ext in (".node", ".points"):
         if name.endswith(ext):
             return name.removesuffix(ext), ext
@@ -50,10 +81,17 @@ class Pair(argparse.Action):
 
 
 def add_graph_options(ap):
-    """How the stencil graph is selected, one of --knn-graph K,
-    --radius-graph R and --range-graph S, as args.graph = (method, value)
-    for NodeSet.stencils, or None for --no-graph; the KNN nearest nodes of
-    pointclouds.stencils unless given."""
+    """Add the options that select the stencil graph to a parser.
+
+    One of ``--knn-graph K`` (``-K``), ``--radius-graph R`` (``-R``),
+    ``--range-graph S`` and ``--no-graph``, mutually exclusive, parsed to
+    ``args.graph = (method, value)`` for `NodeSet.stencils`, or None for
+    ``--no-graph``; the `KNN` nearest nodes unless given.
+
+    Parameters
+    ----------
+    ap : argparse.ArgumentParser
+    """
     group = ap.add_mutually_exclusive_group()
     pair = dict(dest="graph", action=Pair)
     group.add_argument(
@@ -94,7 +132,14 @@ def add_graph_options(ap):
 
 
 def show(cloud, graph=None):
-    """Show the figure of --plot: the cloud, with the stencil of its middle node when a graph is given."""
+    """Show the figure of ``--plot``.
+
+    Parameters
+    ----------
+    cloud : NodeSet
+    graph : tuple of ndarray, optional
+        ``(ia, ja)``, to draw the stencil of the middle node too.
+    """
     import matplotlib.pyplot as plt
 
     stencils = []

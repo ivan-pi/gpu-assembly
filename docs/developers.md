@@ -28,10 +28,12 @@ pre-commit run --hook-stage manual clang-tidy --all-files
 A block the formatter must leave alone, such as a hand-aligned table,
 sits between `// clang-format off` and `// clang-format on`.
 
-Python docstrings follow the NumPy convention: the sections on the
-classes and functions of the `pointclouds` package that a user calls, a
-short summary on everything else, and code that explains itself where
-it can.
+Python docstrings follow the [numpydoc style
+guide](https://numpydoc.readthedocs.io/en/latest/format.html): the
+sections on the classes and functions of the `pointclouds` package that
+a user calls, a short summary on everything else, and code that
+explains itself where it can. Lines of a docstring stay within 75
+characters, as the guide asks.
 
 The reformatting commit that introduced the style is listed in
 `.git-blame-ignore-revs`; `git blame` skips it after
