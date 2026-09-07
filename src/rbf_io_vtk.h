@@ -42,11 +42,7 @@ template <> constexpr const char* vtk_type_name<double>() { return "double"; }
 
 // A named per-node scalar: v[i * stride] is the value at node i.
 template <class T>
-struct VtkScalar {
-    std::string_view name;
-    const T* v;
-    std::size_t stride = 1;
-};
+using VtkScalar = Column<T>;
 
 // A named per-node 2-d vector: (x[i * stride], y[i * stride]) at node i; the
 // z component is written as 0. Interleaved {ux0, uy0, ux1, ...} storage is

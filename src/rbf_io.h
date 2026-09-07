@@ -10,6 +10,8 @@
 //   read_ordering, write_ordering    ordering file (.iperm): one new index per node
 //   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
+// rbf_io_vtk.h and rbf_io_gnuplot.h add the plotting formats.
+//
 // Every reader checks that the file opened. Readers whose format carries a
 // count also check that they got that many, exiting with a message rather
 // than returning a short container.
@@ -79,6 +81,15 @@ inline void expect_end(std::istream& in, const std::string& fname,
 }
 
 } // namespace detail
+
+// A named per-node column: v[i * stride] is the value at node i. The
+// writers that take fields (VTK, gnuplot columns) take lists of these.
+template <class T>
+struct Column {
+    std::string_view name;
+    const T* v;
+    std::size_t stride = 1;
+};
 
 // ---------------------------------------------------------------------------
 // Points file (.points)

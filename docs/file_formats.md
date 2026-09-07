@@ -1,9 +1,10 @@
 # File formats
 
-The formats read and written by `rbf::io` (`src/rbf_io.h`, `src/rbf_io_vtk.h`).
-Two of them are our own plain-text formats, two are borrowed from Triangle
-and METIS, and the last two are standards of which only the parts we use
-are described here.
+The formats read and written by `rbf::io` (`src/rbf_io.h`,
+`src/rbf_io_vtk.h`, `src/rbf_io_gnuplot.h`). Two of them are our own
+plain-text formats, two are borrowed from Triangle and METIS, and the rest
+are standards or conventions of which only the parts we use are described
+here.
 
 | Format | Extension | Read | Write |
 |---|---|---|---|
@@ -13,6 +14,7 @@ are described here.
 | [Ordering file](#ordering-file) | `.iperm` | `Permutation::read`, `read_ordering` | `Permutation::write`, `write_ordering` |
 | [Matrix Market](#matrix-market) | `.mtx` | | `write_matrix_market`, `write_matrix_market_pattern` |
 | [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata`, `write_lbm_vtk_polydata` |
+| [Columns](#columns) | `.dat` | | `write_columns` |
 
 The points file and the graph file go together: one gives the point cloud,
 the other the stencil of every node, in the same numbering. A case is
@@ -189,3 +191,31 @@ type` with a zero third component. Names are single tokens: legacy VTK
 reads them up to the next whitespace. `write_lbm_vtk_polydata` is the
 lattice-Boltzmann special case, with the fields named `Density` and
 `Velocity`.
+
+
+## Columns
+
+Whitespace-separated columns, one node per line, for gnuplot and anything
+else that reads plain numeric text (`numpy.loadtxt`, pandas). The first line
+is a `#` comment naming the columns, which gnuplot skips:
+
+```
+# x y rho ux uy
+0.5 0.5 1 0 0
+...
+```
+
+```cpp
+rbf::io::write_columns("macros.dat", n, x, y, {{"rho", rho}, {"ux", ux}, {"uy", uy}});
+rbf::io::write_columns("rcond.dat", n, x, y, {{"rcond", rc}});
+```
+
+```gnuplot
+plot 'macros.dat' using 1:2:3 with points palette     # rho over (x, y)
+plot 'macros.dat' using 1:2:4:5 with vectors          # velocity
+```
+
+Values carry full precision for the type written. The points file and the
+node file can be plotted the same way by skipping their header line:
+`plot 'case.points' skip 1 using 1:2`, and `plot 'case.node' skip 1 using
+2:3:4 with points palette` to colour by marker.

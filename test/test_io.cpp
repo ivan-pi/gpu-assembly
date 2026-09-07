@@ -1,4 +1,4 @@
-// Round-trip tests for rbf_io.h and rbf_io_vtk.h.
+// Round-trip tests for rbf_io.h, rbf_io_vtk.h and rbf_io_gnuplot.h.
 //
 // Build and run via CMake, from the repository root:
 //
@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "rbf_io.h"
+#include "rbf_io_gnuplot.h"
 #include "rbf_io_vtk.h"
 #include "rbf_nodeset.h"
 
@@ -354,6 +355,49 @@ static void test_vtk_polydata() {
         std::remove(fn);
 }
 
+static void test_gnuplot_columns() {
+    const std::vector<double> x = awkward, y{1, 2, 3, 4, 5, 6};
+    const std::vector<double> rho{10, 11, 12, 13, 14, 15}, rc{0.5, 0.25, 0.125, 1.0 / 3.0, 1e-300, 0};
+    const std::size_t n = x.size();
+
+    rbf::io::write_columns("m.dat", n, x.data(), y.data(), {{"rho", rho.data()}, {"rcond", rc.data()}});
+    {
+        std::ifstream in("m.dat");
+        std::string header; std::getline(in, header);
+        CHECK(header == "# x y rho rcond");
+        for (std::size_t i = 0; i < n; ++i) {
+            double a, b, c, d;
+            in >> a >> b >> c >> d;
+            CHECK(a == x[i] && b == y[i] && c == rho[i] && d == rc[i]);
+        }
+        std::string rest; in >> rest;
+        CHECK(rest.empty() && in.eof());
+    }
+
+    // no columns beyond the coordinates; interleaved points through the stride
+    std::vector<double> p(2 * n);
+    for (std::size_t i = 0; i < n; ++i) { p[2*i] = x[i]; p[2*i + 1] = y[i]; }
+    rbf::io::write_columns("a.dat", n, x.data(), y.data(), {});
+    rbf::io::write_columns("b.dat", n, p.data(), p.data() + 1, {}, 2);
+    CHECK(same_file("a.dat", "b.dat"));
+    {
+        std::ifstream in("a.dat");
+        std::string header; std::getline(in, header);
+        CHECK(header == "# x y");
+    }
+
+    // a runtime-built column list
+    std::vector<rbf::io::Column<double>> cols{{"rho", rho.data()}};
+    rbf::io::write_columns("c.dat", n, x.data(), y.data(), cols);
+    {
+        std::ifstream in("c.dat");
+        std::string header; std::getline(in, header);
+        CHECK(header == "# x y rho");
+    }
+
+    for (const char* fn : {"m.dat", "a.dat", "b.dat", "c.dat"}) std::remove(fn);
+}
+
 int main() {
     test_read_points();
     test_node_file();
@@ -361,6 +405,7 @@ int main() {
     test_ordering();
     test_matrix_market();
     test_vtk_polydata();
+    test_gnuplot_columns();
 
     if (failures) {
         std::printf("%d failure(s)\n", failures);
