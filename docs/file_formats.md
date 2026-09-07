@@ -40,7 +40,7 @@ The order of the lines is the node numbering, which the graph file refers
 to. `read_points` returns separate `x` and `y` arrays (SoA, the layout the
 assembly kernels take); `read_points_aos` fills a container of two-element
 structs or arrays. Anything after the `n`-th pair is ignored. A short file
-is an error.
+or a coordinate that is not finite is an error.
 
 ## Graph file
 
@@ -61,7 +61,9 @@ so far. Rows may have different lengths, but every row must have at least
 one entry, since a node with no neighbours gives a singular system.
 
 Indices are 0-based. An index outside `[0, n)` is an error, which is also
-how a 1-based file is caught: its largest index equals `n`.
+how a 1-based file is caught: its largest index equals `n`. An index listed
+twice in the same row is an error too, since it would put two entries at
+one matrix position.
 
 `read_graph_csr(fname, k)` with `k > 0` declares that every row has exactly
 `k` entries, as for k-nearest-neighbour stencils. The file format is the

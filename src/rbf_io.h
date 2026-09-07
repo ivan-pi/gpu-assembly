@@ -22,6 +22,7 @@
 
 #include <cassert>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -155,6 +156,7 @@ namespace detail {
 template <class T, class OnCount, class OnPoint>
 void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_point)
 {
+    static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     auto in = open_in(fname);
     std::string line;
     std::size_t n = 0;
@@ -169,6 +171,8 @@ void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_poi
         T px, py;
         if (!(c.next(px) && c.next(py)) || !c.at_end())
             fail(fname, "line " + std::to_string(i + 2) + ": expected \"x y\"");
+        if (!std::isfinite(px) || !std::isfinite(py))
+            fail(fname, "line " + std::to_string(i + 2) + ": coordinate is not finite");
         on_point(px, py);
     }
 }
@@ -223,6 +227,7 @@ std::size_t read_nodes(const std::string& fname,
                        std::vector<T>& x, std::vector<T>& y, std::vector<int>& marker,
                        std::vector<T>* attributes = nullptr)
 {
+    static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     auto in = detail::open_in(fname);
     x.clear(); y.clear(); marker.clear();
     if (attributes) attributes->clear();
@@ -254,6 +259,7 @@ std::size_t read_nodes(const std::string& fname,
         std::size_t idx;
         double px, py;
         if (!(c.next(idx) && c.next(px) && c.next(py))) fail_here("expected \"index x y ...\"");
+        if (!std::isfinite(px) || !std::isfinite(py)) fail_here("coordinate is not finite");
         if (i == 0) {
             if (idx > 1) fail_here("vertex numbering must start at 0 or 1");
             first = idx;
@@ -285,6 +291,7 @@ void write_nodes(const std::string& fname, std::size_t n,
                  const T* x, const T* y, const int* marker = nullptr,
                  std::size_t nattr = 0, const T* attributes = nullptr)
 {
+    static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     using detail::num;
     assert(nattr == 0 || attributes);
     auto out = detail::open_out(fname);
@@ -311,13 +318,14 @@ void write_nodes(const std::string& fname, std::size_t n,
 //
 // Rows may have different lengths, but every row must have at least one
 // entry (a node with no neighbours gives a singular system), every index
-// must lie in [0, n), the entry count must match nnz, and nothing may
-// follow the n-th row. With k > 0 every row must hold exactly k entries and
+// must lie in [0, n) and appear at most once per row, the entry count must
+// match nnz, and nothing may follow the n-th row. With k > 0 every row must hold exactly k entries and
 // the header must satisfy nnz == n * k. Returns {ia, ja} with ia 0-based.
 template <class I = std::int32_t>
 std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fname,
                                                          int k = 0)
 {
+    static_assert(std::is_integral_v<I> && std::is_signed_v<I>, "index type must be a signed integer");
     assert(k >= 0 && "k must be 0 (ragged rows) or the row length");
     auto in = detail::open_in(fname);
 
@@ -338,6 +346,7 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
     ia.reserve(n + 1);
     ia.push_back(0);
     ja.reserve(nnz);
+    std::vector<std::size_t> last_row(n, n);   // row in which each index was last seen
 
     for (std::size_t i = 0; i < n; ++i) {
         if (!std::getline(in, line))
@@ -351,6 +360,10 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
             if (j < 0 || static_cast<std::size_t>(j) >= n)
                 detail::fail(fname, "row " + std::to_string(i) + ": index " + std::to_string(j)
                                     + " outside [0, " + std::to_string(n) + "); indices are 0-based");
+            if (last_row[j] == i)
+                detail::fail(fname, "row " + std::to_string(i) + ": index " + std::to_string(j)
+                                    + " listed twice");
+            last_row[j] = i;
             ja.push_back(j);
         }
         if (len == 0)
@@ -382,6 +395,7 @@ std::pair<std::vector<I>, std::vector<I>> read_graph_csr(const std::string& fnam
 template <class I = std::int32_t>
 std::vector<I> read_ordering(const std::string& fname)
 {
+    static_assert(std::is_integral_v<I> && std::is_signed_v<I>, "index type must be a signed integer");
     auto in = detail::open_in(fname);
     std::vector<I> iperm;
     for (I v; in >> v; ) iperm.push_back(v);
@@ -407,6 +421,15 @@ std::vector<I> read_ordering(const std::string& fname)
 template <class I>
 void write_ordering(const std::string& fname, std::size_t n, const I* iperm)
 {
+    static_assert(std::is_integral_v<I>, "index type must be integral");
+#ifndef NDEBUG
+    std::vector<char> seen(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        assert(iperm[i] >= 0 && static_cast<std::size_t>(iperm[i]) < n && "iperm index out of range");
+        assert(!seen[iperm[i]] && "iperm index listed twice: not a permutation");
+        seen[iperm[i]] = 1;
+    }
+#endif
     auto out = detail::open_out(fname);
     for (std::size_t i = 0; i < n; ++i) out << iperm[i] << '\n';
 }
@@ -435,6 +458,8 @@ void write_matrix_market(const std::string& fname,
                          const I* ia, const I* ja, const T* a,
                          int csr_base = 0)
 {
+    static_assert(std::is_integral_v<I>, "index type must be integral");
+    static_assert(std::is_floating_point_v<T>, "value type must be floating point");
     using detail::num;
     assert((csr_base == 0 || csr_base == 1) && "csr_base must be 0 or 1");
     assert(ia[0] == csr_base && "ia does not start at the declared csr_base");

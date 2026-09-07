@@ -70,6 +70,8 @@ void write_vtk_polydata(const std::string& fname, std::size_t n,
                         std::size_t xy_stride = 1,
                         std::string_view title = "rbf point cloud")
 {
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
+                  "legacy VTK arrays are float or double");
     using detail::num;
     assert(xy_stride >= 1);
     assert(title.size() < 256 && title.find_first_of("\r\n") == std::string_view::npos);
