@@ -37,10 +37,8 @@
  * compile out with NDEBUG.
  *
  * For a box of side L the wave numbers must be integer multiples of
- * 2*pi/L for the field to be periodic. The cases do not know the box,
- * so `wavenumber(n, L)` builds such a wave number from a mode number,
- * and the two decaying cases answer `periodic(Lx, Ly)` for the caller to
- * assert.
+ * 2*pi/L for the field to be periodic; `wavenumber(n, L)` builds the
+ * wave number of the n-th mode.
  */
 
 #include <array>
@@ -58,14 +56,6 @@ template<typename T>
 T wavenumber(int n, T L) {
     assert(L > 0 && "box side must be positive");
     return 2*pi<T>*n/L;
-}
-
-// Whether the wave number k fits an integer number of periods in L
-template<typename T>
-bool periodic(T k, T L, T tol = T(1e-10)) {
-    assert(L > 0 && "box side must be positive");
-    const T n = k*L/(2*pi<T>);
-    return std::abs(n - std::round(n)) <= tol*std::max(T(1), std::abs(n));
 }
 
 
@@ -99,9 +89,6 @@ struct shear_wave {
 
     T ksqr() const { return kx*kx + ky*ky; }
     T time_constant() const { return T(1.0)/(nu*ksqr()); }
-    bool periodic(T Lx, T Ly) const {
-        return flow_benchmarks::periodic(kx, Lx) && flow_benchmarks::periodic(ky, Ly);
-    }
 
     // Time at which the amplitude has dropped to the fraction frac of u0
     T decay_time(T frac) const {
@@ -183,9 +170,6 @@ struct taylor_green {
 
     T ksqr() const { return kx*kx + ky*ky; }
     T time_constant() const { return T(1.0)/(nu*ksqr()); }
-    bool periodic(T Lx, T Ly) const {
-        return flow_benchmarks::periodic(kx, Lx) && flow_benchmarks::periodic(ky, Ly);
-    }
 
     // Time at which the amplitude has dropped to the fraction frac of u0
     T decay_time(T frac) const {

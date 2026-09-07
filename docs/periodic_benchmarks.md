@@ -73,16 +73,12 @@ conform to the deferred `fields` binding of the abstract parent
 All cases are periodic on a box of side `L` only if the wave numbers are
 integer multiples of `2 pi/L`. In lattice units on an `nx` by `ny` grid
 that is `kx = 2 pi/nx` and `ky = 2 pi/ny` for the fundamental mode. The
-cases do not know the box, so the C++ header offers `wavenumber(n, L)`
-to build the wave number of the `n`-th mode, and the shear wave and
-Taylor-Green answer `periodic(Lx, Ly)` for the caller to assert (the
-shear layer carries its own `L` and is periodic on that box by
-construction):
+C++ header offers `wavenumber(n, L)` to build the wave number of the
+`n`-th mode:
 
 ```cpp
 using namespace flow_benchmarks;
 taylor_green<double> tg{wavenumber(1, L), wavenumber(1, L), nu, u0};
-assert(tg.periodic(L, L));
 ```
 
 ## Parameter checks
@@ -102,9 +98,9 @@ The decaying cases also assert a non-negative time in every evaluation,
 since a benchmark starts from the initial field and a negative time
 would silently grow the amplitude; `decay_time` asserts a fraction in
 `(0, 1]` and `viscosity` two amplitudes of the same sign at two distinct
-instants. Not checked is anything that needs the box or the lattice: the
-periodicity above, and the Mach number `u0/cs`, which should stay small.
-The Fortran types have no constructor and carry no checks.
+instants. Not checked is anything that needs the box or the lattice:
+periodicity, and the Mach number `u0/cs`, which should stay small. The
+Fortran types have no constructor and carry no checks.
 
 ## Shear wave
 
