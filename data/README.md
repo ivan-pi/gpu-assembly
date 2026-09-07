@@ -98,44 +98,31 @@ Marker 0 is an interior node in all of them.
 
 ## Generating
 
-What the scripts share is the `pointclouds` package, laid out like the
-C++ library:
-`pointclouds.nodeset` is the cloud itself: `NodeSet`, points with a
-marker per node and the box they live in, which writes its files,
-selects its stencils and draws itself; `TiledNodeSet`, copies of a
-periodic cloud laid side by side; and the boundary-marker convention of
-the node files as `MARKERS`. The clouds the generators make are its
-children in `pointclouds.generators`, so that a script is its command
-line and a constructor call. `pointclouds.io` reads and writes the
-formats above, `pointclouds.cli` the command-line conventions, among
-them the options that select the stencil graph (`--knn-graph K`,
-`--radius-graph R` or `--range-graph S`), `pointclouds.stencils` the selection itself, with a
-search that wraps around the periodic sides of a box, and
-`pointclouds.periodic` the box arithmetic. `pointclouds.poisson` fills a rectangle with points no two of which are
-closer than a radius, with either axis periodic or neither, from seed
-points if given, in whatever units the extent and the radius come in;
-its interface follows `scipy.stats.qmc.PoissonDisk`, and Bridson's loop
-is compiled by numba, so a million points take a few seconds;
-`tools/poisson_demo.py` shows a sample of it. The generators are:
+The scripts share the `pointclouds` package, laid out like the C++
+library:
 
-- `tools/refined_cavity.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
-  refined towards the walls in three levels, as a `.node` file with
-  markers for the four walls and the corners.
-- `tools/perturbed_grid.py`: a Cartesian grid with every node displaced by
-  a small random amount, periodic on both sides or a channel with walls
-  at the top and bottom, as a `.points` or a `.node` file together with
-  the `.graph` of its stencils, whose search wraps around the periodic
-  sides.
-- `tools/poisson_box.py`: a Poisson disk sample of a periodic box, no
-  two nodes closer than a distance, either filling the box or laid
-  around a circular hole in its middle with nodes on the circle, the unit
-  cell of a square array of cylinders; as a `.points` or a `.node` file
-  with the `.graph` of its stencils. `--tile MX MY` lays copies of the
-  sample side by side into a bigger box, or a finer cloud of the same
-  physical box, for the cost of sampling one copy.
+- `pointclouds.nodeset`: `NodeSet`, a cloud with a marker per node and
+  the box it lives in, which writes, selects its stencils and draws
+  itself; `TiledNodeSet`, copies of it side by side; `MARKERS`.
+- `pointclouds.generators`: the clouds the generators make, as children
+  of `NodeSet`, so that a script is its command line and a constructor.
+- `pointclouds.stencils`: the stencil selection, by nearest neighbours,
+  radius or range, wrapping around the periodic sides of the box.
+- `pointclouds.poisson`: a Poisson disk sampler of a rectangle, periodic
+  or not, after `scipy.stats.qmc.PoissonDisk` and compiled by numba;
+  `tools/poisson_demo.py` shows a sample of it.
+- `pointclouds.periodic`, `pointclouds.io`, `pointclouds.cli`: the box
+  arithmetic, the file formats above, the command-line conventions.
 
-They work in lattice units, in which the spacing is 1; scaling a case to
-other units is left to whoever needs it. `--help` describes the rest.
+The generators, in lattice units with the spacing 1; `--help` has the
+rest:
+
+- `tools/refined_cavity.py`: the lid-driven cavity, refined towards the
+  walls in three levels, with markers for the walls and the corners.
+- `tools/perturbed_grid.py`: a Cartesian grid with every node displaced
+  by a small random amount, periodic or a channel with walls.
+- `tools/poisson_box.py`: a Poisson disk sample of a periodic box, alone
+  or around a circular hole (an array of cylinders), tiled if asked.
 
 ## Inspecting
 
