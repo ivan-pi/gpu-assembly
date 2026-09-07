@@ -7,9 +7,9 @@
 // velocity error against the analytic decay.
 //
 // Every axis of variation is a command-line option; see usage(). The
-// choices that change types (collision, stepper, backend, stencil size)
-// are resolved once in make_stepper()/dispatch_assembly(); the time loop
-// itself makes one virtual call per step.
+// choices that change types (collision, stepper, backend) are resolved
+// once in make_stepper(); the time loop itself makes one virtual call per
+// step.
 
 #include <algorithm>
 #include <chrono>
@@ -142,37 +142,19 @@ static void make_nodes(const Options& o, std::vector<T>& x, std::vector<T>& y, T
         }
 }
 
-// --- assembly dispatch ---------------------------------------------------
+// --- assembly -------------------------------------------------------------
 
-template<int N, int P, int Q>
+// The reference host assembler; an existing host assembly API plugs in
+// here through a lambda with the same four arguments.
 static lbm::StreamingWeights<T, I> assemble_weights(const Options& o, T dt,
         std::span<const T> x, std::span<const T> y, const rbf::PeriodicBox<T>& box) {
-    rbf::HostAssembler<N, P, Q, T, I> assemble(x, y, &box);
+    rbf::HostAssembler<T, I> assemble(x, y, o.poly, o.phs, &box);
     auto knn = [&](std::span<const T> qx, std::span<const T> qy, int k) {
         return rbf::periodic_knn<T, I>(x, y, box, qx, qy, k);
     };
     const auto scheme = o.scheme == "lw" ? lbm::Scheme::lax_wendroff : lbm::Scheme::semi_lagrangian;
     const auto st = o.stencils == "departure" ? lbm::Stencils::departure : lbm::Stencils::arrival;
-    return lbm::build_streaming_weights<L>(scheme, st, dt, x, y, N, assemble, knn, &box);
-}
-
-static lbm::StreamingWeights<T, I> dispatch_assembly(const Options& o, T dt,
-        std::span<const T> x, std::span<const T> y, const rbf::PeriodicBox<T>& box) {
-#define LBM_CASE(N, P, Q) \
-    if (o.k == N && o.poly == P && o.phs == Q) return assemble_weights<N, P, Q>(o, dt, x, y, box);
-    LBM_CASE(13, 2, 3)
-    LBM_CASE(21, 2, 3)
-    LBM_CASE(21, 3, 3)
-    LBM_CASE(21, 4, 3)
-    LBM_CASE(21, 4, 5)
-    LBM_CASE(28, 4, 3)
-    LBM_CASE(37, 4, 3)
-    LBM_CASE(37, 5, 3)
-    LBM_CASE(37, 6, 5)
-#undef LBM_CASE
-    std::fprintf(stderr, "unsupported (k, poly, phs) = (%d, %d, %d); add an LBM_CASE\n",
-                 o.k, o.poly, o.phs);
-    std::exit(2);
+    return lbm::build_streaming_weights<L>(scheme, st, dt, x, y, o.k, assemble, knn, &box);
 }
 
 // --- stepper factory -----------------------------------------------------
@@ -260,7 +242,7 @@ int main(int argc, char** argv) {
 
     // assembly
     auto t0 = clock::now();
-    const auto weights = dispatch_assembly(o, dt, x, y, box);
+    const auto weights = assemble_weights(o, dt, x, y, box);
     auto t1 = clock::now();
     Op A(weights);
     auto t2 = clock::now();

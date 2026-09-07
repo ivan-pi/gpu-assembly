@@ -44,7 +44,6 @@ target_include_directories(lbm INTERFACE
 target_link_libraries(lbm INTERFACE rbf)
 find_package(Eigen3 3.3 QUIET CONFIG)
 if(Eigen3_FOUND)
-    message(STATUS "Eigen3 ${Eigen3_VERSION} found: enabling the Eigen streaming backend")
     target_link_libraries(lbm INTERFACE Eigen3::Eigen)
     target_compile_definitions(lbm INTERFACE LBM_WITH_EIGEN)
 endif()

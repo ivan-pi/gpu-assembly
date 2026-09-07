@@ -69,7 +69,7 @@ static void test_assembly_polynomial() {
     auto pxy = [](T x, T)   { return -1 + 0.2*x; };
     auto pyy = [](T, T)     { return 0.5; };
 
-    rbf::HostAssembler<K, P, PHS, T, I> assemble(c.x, c.y, nullptr);
+    rbf::HostAssembler<T, I> assemble(c.x, c.y, P, PHS, nullptr);
     const T ox = 0.37, oy = -0.21;
     const rbf::Functional<T> ops[6] = {
         {rbf::functional::value, ox, oy},
@@ -125,7 +125,7 @@ static lbm::StreamingWeights<T, I> weights_for(lbm::Scheme sc, lbm::Stencils st,
 
 static void test_streaming_weights() {
     Cloud c = jittered(16, 0.3);
-    rbf::HostAssembler<K, P, PHS, T, I> assemble(c.x, c.y, &c.box);
+    rbf::HostAssembler<T, I> assemble(c.x, c.y, P, PHS, &c.box);
     auto knn = [&](std::span<const T> qx, std::span<const T> qy, int k) {
         return rbf::periodic_knn<T, I>(c.x, c.y, c.box, qx, qy, k);
     };
@@ -221,7 +221,7 @@ static Run run(const lbm::StreamingWeights<T, I>& w, const Op& A,
 
 static void test_steppers_and_decay() {
     Cloud c = jittered(24, 0.25);
-    rbf::HostAssembler<K, P, PHS, T, I> assemble(c.x, c.y, &c.box);
+    rbf::HostAssembler<T, I> assemble(c.x, c.y, P, PHS, &c.box);
     auto knn = [&](std::span<const T> qx, std::span<const T> qy, int k) {
         return rbf::periodic_knn<T, I>(c.x, c.y, c.box, qx, qy, k);
     };

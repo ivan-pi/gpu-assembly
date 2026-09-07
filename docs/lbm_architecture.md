@@ -19,7 +19,7 @@ The first design decision is *when* each of them is decided.
 | Stencil centring | arrival point (one pattern), departure point (one pattern per direction) | assembly time; one flag at run time | `StreamingWeights::shared_pattern`, `EllView::shared` |
 | Execution space | host/OpenMP, CUDA; OpenMP target, OpenACC to come | compile time (tag type) | `lbm::space::*`, `Array<T,Space>`, `Exec<Space>` (`lbm_space.h`) |
 | Streaming backend | native ELL kernels, Eigen; MKL, cuSPARSE to come | compile time (streamer class) | `NativeStreamer`, `EigenStreamer`, ... |
-| Assembly implementation | host reference LU; LAPACK; cuSolverDx | compile time (callable) | `rbf::HostAssembler` (`rbf_assembly.h`), `assemble_interp_weights` (`rbf_operators.h`) |
+| Assembly implementation | host API (run-time sizes and operators); device API (static) | callable, adapted once | `rbf::HostAssembler` (`rbf_assembly.h`) as stand-in; `assemble_interp_weights` (`rbf_operators.h`) |
 
 "Compile time" means a template parameter; the driver resolves the
 command-line choice once, in a factory, and the time loop then makes one
@@ -53,7 +53,8 @@ contains recipes that call an assembler and return weights.
 
 The only trace a scheme leaves at run time is the pattern count: arrival
 point stencils share one pattern between all directions, departure point
-stencils have one per direction. A kernel specialised on `Shared` loads
+stencils (semi-Lagrangian only; Lax-Wendroff expands about the arrival
+point) have one per direction. A kernel specialised on `Shared` loads
 each column index once and reuses it for all Q-1 directions.
 
 The distinction is not academic. On a jittered 96x96 cloud with k = 21,
@@ -172,7 +173,7 @@ pick between two instantiations of the same kernel, not a per-node branch.
  nodes x, y ─────► periodic_knn ────► ja (n x k) ──────┐
                                                         │
  scheme, dt ─────► centres + functionals ───────────────┼──► assemble(centres, ja, functionals)
-                   (lbm_schemes.h)                      │        rbf::HostAssembler  |  device twin
+                   (lbm_schemes.h)                      │        host API (run-time)  |  device API (static)
                                                         │             │
                                                         ▼             ▼
                                               StreamingWeights  (host, row-major fixed-k CSR)
@@ -226,41 +227,44 @@ which with nvc++ means compiling the translation unit with `-mp=gpu` or
 `-acc` and letting the compiler see the whole functor; that is the case
 here because all kernels are header templates.
 
-### 4.3 Assembly API (`rbf_assembly.h`, `rbf_rbffd.h`)
+### 4.3 Assembly: two APIs, one contract (`rbf_assembly.h`)
 
-An assembler is a callable with the contract
+There are two assembly APIs by design, and they are not meant to share
+code:
+
+- **Device** (`rbf_operators.h`): static. Stencil size, degree, PHS
+  exponent and the operator set are template parameters of
+  `interp_config`, and only conventional operator sets are offered. A GPU
+  pays for the specialisation once and gains throughput on every stencil.
+- **Host**: dynamic. Stencil size, degree, exponent and the list of
+  functionals are run-time values. A CPU has the latency to branch once
+  per column, and the flexibility is worth more than the specialisation.
+  The existing host API (not yet in the repository) is this API; nothing
+  here depends on its argument list.
+
+What the LBM layer needs from either is one callable:
 
 ```cpp
 std::vector<std::vector<T>>
-operator()(std::span<const T> xc, std::span<const T> yc,      // stencil centres, length n
-           std::span<const I> ja,                              // n*k column indices, row-major
-           std::span<const rbf::Functional<T>> L) const;       // what to evaluate, local frame
+assemble(std::span<const T> xc, std::span<const T> yc,      // stencil centres, length n
+         std::span<const I> ja,                              // n*k column indices, row-major
+         std::span<const rbf::Functional<T>> L);             // what to evaluate, local frame
 // returns one n*k weight array per functional, laid out like ja
 ```
 
-The cloud that `ja` indexes and the periodic box are bound at
-construction. A `Functional` is `{value | dx | dy | dxx | dxy | dyy |
-laplace, x, y}` with `(x, y)` relative to the stencil centre. Centres are
-passed separately from the cloud because departure-point stencils are
-centred on points that are not nodes.
+with `Functional = {value | dx | dy | dxx | dxy | dyy | laplace, x, y}`,
+`(x, y)` relative to the stencil centre. Centres are passed separately
+from the cloud because departure-point stencils are centred on points
+that are not nodes. The existing host API is adapted to this with a
+lambda; the device API with a small host class around
+`assemble_interp_weights` plus a download.
 
-`rbf_rbffd.h` holds what the host and device assemblers share: the PHS
-kernels and their derivatives, the monomial basis and its derivatives,
-`fill_matrix` and `fill_rhs_functionals`. It is plain C++ under a host
-compiler and `__host__ __device__` under nvcc. `rbf_operators.h` (the
-cuSolverDx kernel) now includes it instead of carrying its own copy; a
-device assembler that satisfies the contract above is a thin host class
-around `assemble_interp_weights` plus `download`.
-
-`HostAssembler<N, P, Q>` is the reference implementation: per stencil,
-gather with minimum-image displacements, fill, dense LU with partial
-pivoting, scatter the first N rows of each solution. The stencil size N
-is a template parameter to match `interp_config` on the device, so the
-driver dispatches the runtime `--k --poly --phs` through a small table
-(`LBM_CASE` in `lbm_bench.cpp`). The existing optimised CPU assembly
-replaces the solve, not the interface: LAPACK `dgesv`, a factorisation
-reused across functionals, or blocking over stencils all fit behind the
-same call.
+`rbf::HostAssembler` is a self-contained stand-in for the host API so
+that the layer can be built and tested without it: per stencil, gather
+with minimum-image displacements, fill the collocation matrix, one
+right-hand side per functional (the functional is chosen once per column,
+each case being the plain formula for that derivative), dense LU, scatter
+the first k rows. It is written for clarity, not speed.
 
 ### 4.4 Scheme recipes (`lbm_schemes.h`)
 
@@ -273,7 +277,6 @@ so that queries need not be nodes) and produces `StreamingWeights`:
 | semi-Lagrangian / arrival | 1 | 1 | value at `-c_q dt`, q = 1..Q-1 |
 | semi-Lagrangian / departure | Q-1 | Q-1 | value at (0,0) about the departure point |
 | Lax-Wendroff / arrival | 1 | 1 | dx, dy, dxx, dxy, dyy at (0,0), combined per direction |
-| Lax-Wendroff / departure | not defined | | |
 
 The Lax-Wendroff combination needs the identity, so it locates the node
 in its own stencil row rather than assuming it is first.
@@ -436,7 +439,7 @@ change for either.
 | `collide_bgk`, `d2q9_collide`, `bgk_kernel_split` | `collision::BGK` + `CollideKernel` + `MacroPtrs` |
 | `D2Q9SL` with its `#ifdef` ladder | one streamer class per backend |
 | `Stream_cuSPARSE` | the cuSPARSE streamer, to be written to the contract in 2.2 |
-| `rbfx_assembly_periodic_xy` (Fortran) | `rbf::HostAssembler` + `PeriodicBox` + `Functional` |
+| `rbfx_assembly_periodic_xy` (Fortran) | the host assembly API, adapted to the contract in 4.3; `rbf::HostAssembler` stands in until it lands |
 | `plbm_mod` x3 (OpenACC / OpenMP target / CUDA Fortran) | one kernel set + `Exec<Space>` specialisations |
 | `collision_bw`, `streaming_bw`, `total_bw` | `Stepper::bytes_per_step()` |
 | `flow_benchmarks.hpp` | `examples/rbf_flow_benchmarks.h`, unchanged apart from a `ky/kx` typo |
@@ -445,8 +448,8 @@ change for either.
 ## 8. Status
 
 Built and tested on the host (g++ 13, OpenMP, Eigen 3.4; `ctest`):
-`rbf_rbffd.h`, `rbf_periodic.h`, `rbf_assembly.h`, all of `src/lbm/`
-except the CUDA branches, `examples/lbm_bench.cpp`, `test/test_lbm.cpp`.
+`rbf_periodic.h`, `rbf_assembly.h`, all of `src/lbm/` except the CUDA
+branches, `examples/lbm_bench.cpp`, `test/test_lbm.cpp`.
 The tests cover polynomial exactness of the assembly for all six
 functionals, row sums of all three weight recipes, collision invariants,
 agreement of the three stepper/backend combinations, and a Taylor-Green
@@ -455,10 +458,9 @@ Lax-Wendroff/TRT, both within 1%).
 
 Compiles under nvcc by construction but not exercised here (no CUDA
 toolchain in the development container): `Array<T, space::Cuda>`,
-`Exec<space::Cuda>`, the `LBM_HD` kernels as device code, and the change
-to `rbf_operators.h` (it now includes `rbf_rbffd.h`; its include of
-`cuda_arch.hpp` was also corrected to `cuda_arch.h`, the file that
-exists).
+`Exec<space::Cuda>`, the `LBM_HD` kernels as device code.
+`rbf_operators.h` is untouched apart from its include of
+`cuda_arch.hpp`, corrected to `cuda_arch.h`, the file that exists.
 
 Not written: the MKL and cuSPARSE streamers, the device assembler wrapper,
 the OpenMP-target space, mixed-precision weights, boundary conditions.
