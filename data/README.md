@@ -23,6 +23,7 @@ below.
 Scripts that produced a case go in `gen/`, and what they share -- the
 writers for the formats above, the boundary-marker convention and the
 command-line conventions -- in the `gen/pointclouds` package beside them.
+The generators are:
 
 - `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
   refined towards the walls in three levels, as a `.node` file with
