@@ -22,10 +22,11 @@ listed under [Extracted](#extracted).
 ## Extracted
 
 Node sets read off the figures of published papers with WebPlotDigitizer 4,
-as [node files](../docs/file_formats.md#node-file). They carry no stencil
-graph; `NodeSet::stencils` builds one from the coordinates. Digitizing
-leaves a node up to a pixel from where it belongs, so the nodes on a
-boundary were put back onto it exactly and their outward normals are exact.
+as [node files](../docs/file_formats.md#node-file). Digitizing leaves a node
+up to a pixel from where it belongs, so wherever the shape of the boundary
+is known its nodes were reconstructed onto it. Every boundary below is a
+circle or a straight wall, so every boundary node satisfies the equation of
+its boundary to machine precision, and the normal taken from it is exact.
 
 | Case | Nodes | Boundary | Geometry | Markers | From |
 |---|---|---|---|---|---|
