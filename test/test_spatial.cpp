@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <numeric>
@@ -98,7 +99,13 @@ static void check_row(const Box<D>& b, std::span<const double> pts,
 }
 
 static void test_box() {
+    // an aggregate: nested braces, or designated initialisers
     const PeriodicBox<double, 2> b{{-1.0, 2.0}, {4.0, 3.0}};
+    const PeriodicBox<double, 2> same{.origin = {-1.0, 2.0}, .period = {4.0, 3.0}};
+    CHECK(b.origin == same.origin && b.period == same.period);
+    // and the origin defaults to zero
+    const PeriodicBox<double, 2> at_zero{.period = {4.0, 3.0}};
+    CHECK(at_zero.origin == (std::array<double, 2>{0.0, 0.0}));
     CHECK(b.ndim == 2);
 
     // wrap lands in [origin, origin+L), from either side and from far away
@@ -109,12 +116,13 @@ static void test_box() {
     CHECK(b.wrap(0, -1.0 - 1e-18) >= -1.0 && b.wrap(0, -1.0 - 1e-18) < 3.0);
     CHECK(std::abs(b.wrap(1, 2.0 + 3.0) - 2.0) < 1e-15);
 
-    // minimum image is the shortest of the images, half a period away
-    // from zero going to -L/2 as Fortran's anint does
+    // minimum image is the shortest of the images
     CHECK(std::abs(b.minimum_image(0, 0.5) - 0.5) < 1e-15);
     CHECK(std::abs(b.minimum_image(0, 3.0) - (-1.0)) < 1e-15);
-    CHECK(std::abs(b.minimum_image(0, 2.0) - (-2.0)) < 1e-15);
     CHECK(std::abs(b.minimum_image(1, -2.0) - 1.0) < 1e-15);
+    // exactly half a period: the two images are equidistant, so only
+    // the magnitude is pinned down
+    CHECK(std::abs(std::abs(b.minimum_image(0, 2.0)) - 2.0) < 1e-15);
 
     // the whole-point forms agree with the per-axis ones
     const std::array<double, 2> p{3.5, 5.0};
@@ -188,7 +196,7 @@ static void search_on(const char* what, const Box<D>& b, std::size_t n, int k) {
     // the distances that come with the indices are the true ones
     std::vector<std::intptr_t> idx(nq * static_cast<std::size_t>(k));
     std::vector<double> d(idx.size());
-    tree.knn(q, k, idx, d);
+    tree.query(q, k, idx, d);
     for (std::size_t i = 0; i < idx.size(); ++i) {
         const auto s = i / static_cast<std::size_t>(k);
         const double want = dist<D>(b, &pts[idx[i]*D], &q[s*D]);

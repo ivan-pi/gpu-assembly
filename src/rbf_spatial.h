@@ -32,8 +32,10 @@ namespace rbf::spatial {
 
 namespace detail {
 
-// x reduced into [0, L). The loops catch the case where x is so far
-// outside that x - L*floor(x/L) rounds up to L itself.
+// x reduced into [0, L). The guard is not paranoia and not about large
+// x: for x a hair below zero, say -1e-30, the difference rounds up to L
+// itself and lands outside the interval. One pass fixes it; ckdtree's
+// own wrap_position guards the same way.
 template<typename T>
 T fold(T x, T L) {
     x -= L * std::floor(x / L);
@@ -61,11 +63,16 @@ struct PeriodicBox {
         return origin[d] + detail::fold(x - origin[d], period[d]);
     }
 
-    // The shortest of the displacement and its periodic images. Matches
-    // Fortran's anint (half away from zero), so a displacement of
-    // exactly half a period maps to -L/2.
+    // The shortest of the displacement and its periodic images.
+    //
+    // rint, not round: this runs in the assembly inner loop, and
+    // std::round is a libm call on both compilers at the baseline ISA
+    // while std::rint is an instruction. They differ only for a
+    // displacement of exactly half a period, where the two images are
+    // equidistant and either answer is as good -- rint takes the even
+    // one, Fortran's anint the one away from zero.
     T minimum_image(std::size_t d, T dx) const {
-        return dx - period[d] * std::round(dx / period[d]);
+        return dx - period[d] * std::rint(dx / period[d]);
     }
 
     std::array<T, D> wrap(std::array<T, D> p) const {
@@ -154,18 +161,22 @@ public:
     int ndim() const;
     bool periodic() const;
 
-    // The k nearest neighbours of each query point, sorted by distance.
+    // The k nearest neighbours of each query point, sorted by distance
+    // -- cKDTree.query, with its eps, p and distance_upper_bound fixed
+    // at the exact Euclidean search.
+    //
     // q is nq*ndim interleaved; idx and dist are nq*k row-major, so the
     // neighbours of query s sit at idx[s*k]. dist holds true Euclidean
     // distances (minimum-image in a periodic box) and may be left empty
     // when only the indices are wanted. Query points are wrapped into
-    // the box. OpenMP-parallel over the queries.
-    void knn(std::span<const double> q, int k,
-             std::span<std::intptr_t> idx, std::span<double> dist = {}) const;
+    // the box. OpenMP-parallel over the queries, which is what SciPy's
+    // `workers` does too.
+    void query(std::span<const double> q, int k,
+               std::span<std::intptr_t> idx, std::span<double> dist = {}) const;
 
     // The same, centred on the cloud's own points, in its own order.
-    void knn(int k, std::span<std::intptr_t> idx,
-             std::span<double> dist = {}) const;
+    void query(int k, std::span<std::intptr_t> idx,
+               std::span<double> dist = {}) const;
 
     // Fixed-k stencils as ja(k, nq) in Fortran order: the k neighbours
     // of query s are contiguous at ja[s*k], sorted by distance. I is the
@@ -174,7 +185,7 @@ public:
     std::vector<I> stencils(std::span<const double> q, int k) const {
         const std::size_t nq = q.size() / static_cast<std::size_t>(ndim());
         std::vector<std::intptr_t> idx(nq * static_cast<std::size_t>(k));
-        knn(q, k, idx);
+        query(q, k, idx);
         return narrow<I>(idx);
     }
 
@@ -184,7 +195,7 @@ public:
     template<typename I = std::int32_t>
     std::vector<I> stencils(int k) const {
         std::vector<std::intptr_t> idx(size() * static_cast<std::size_t>(k));
-        knn(k, idx);
+        query(k, idx);
         return narrow<I>(idx);
     }
 

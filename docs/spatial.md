@@ -78,17 +78,25 @@ stencils need:
 auto ja = tree.stencils(q, k);      // q interleaved, nq*ndim
 ```
 
-`knn` is the same search with the distances kept:
+`query` is the same search with the distances kept, and carries SciPy's
+name:
 
 ```cpp
 std::vector<std::intptr_t> idx(nq * k);
 std::vector<double> d(nq * k);
-tree.knn(q, k, idx, d);             // d may be left empty
+tree.query(q, k, idx, d);           // d may be left empty
 ```
 
 Distances are true Euclidean distances, minimum-image in a periodic box.
-Both entry points are OpenMP-parallel over the query points; the tree is
-immutable once built, so const queries are thread-safe.
+
+Both entry points are OpenMP-parallel over the query points, in blocks.
+That is safe because `query_knn` takes the tree by const pointer and
+keeps every scrap of query state local: the node pool, both heaps and
+the wrapped query point are locals of `query_single_point`, and the only
+static in the file is a function-local constant. SciPy leans on the same
+property -- `cKDTree.query`'s `workers` splits the query points into
+contiguous ranges and calls `query_knn` on the shared tree from several
+threads with the GIL released.
 
 `KdTreeParams` (leaf size, median vs. midpoint splitting, whether node
 boxes are shrunk onto their points) tunes the build. It trades build
@@ -108,7 +116,7 @@ Where the two line up:
 | --- | --- |
 | `cKDTree(data, leafsize, compact_nodes, balanced_tree, boxsize)` | `KdTree(points, box, params)` |
 | `boxsize=None` | the `(points, ndim)` constructor |
-| `.query(x, k)` -> `(d, i)` | `.knn(q, k, idx, dist)` |
+| `.query(x, k)` -> `(d, i)` | `.query(q, k, idx, dist)` |
 | `.n`, `.m` | `.size()`, `.ndim()` |
 
 Two deliberate differences. `boxsize` is lengths only, with the box
@@ -118,7 +126,8 @@ wraps for you. And `boxsize` may zero out a single axis to leave it
 aperiodic, which `PeriodicBox` does not expose.
 
 `query`'s `eps`, `p` and `distance_upper_bound` are fixed here at the
-exact Euclidean search: `0`, `2` and infinity. The vendored ckdtree also
+exact Euclidean search: `0`, `2` and infinity. `workers` has no
+analogue: the query is always parallel. The vendored ckdtree also
 carries radius queries (`query_ball_point`, `query_ball_tree`), all-pairs
 searches (`query_pairs`), neighbour counts and sparse distance matrices,
 compiled into the `ckdtree` target but not wrapped.
