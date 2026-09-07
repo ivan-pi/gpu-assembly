@@ -81,13 +81,13 @@ positional arguments:
 options:
   -h, --help           show this help message and exit
   --plot               draw the nodes, coloured by marker
-  --labels             with --plot: the index next to every node
-  --stencil I [I ...]  with --plot: the stencils of these nodes, from the
-                       graph or the --k nearest neighbours
+  --labels             write the index next to every node
+  --stencil I [I ...]  draw the stencils of these nodes, from the graph or the
+                       --k nearest neighbours
   --k K                stencil size for --stencil without a graph file
   --periodic LX LY     the periodic box [0, LX) x [0, LY): minimum-image
                        distances
-  --spy                the sparsity pattern of the graph, before and after an
-                       ordering file
+  --spy                draw the sparsity pattern of the graph, before and
+                       after an ordering file
   --save FILE          write the figure to FILE instead of showing it
 ```
