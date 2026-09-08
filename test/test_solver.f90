@@ -16,7 +16,7 @@
 ! than internal ones: a bind(c) callback must not need a trampoline.
 module test_solver_support
 use, intrinsic :: iso_c_binding, only: c_int, c_double, c_ptr, c_f_pointer
-use rbf_ellpack, only: ellpack_mv_row
+use rbf_ellpack, only: ellpack_mv
 implicit none
 private
 
@@ -31,7 +31,7 @@ type :: csr
     real(c_double), allocatable :: val(:)
 end type
 
-! The same in ELLPACK, row layout, for the rbf_ellpack product
+! The same in ELLPACK, a(n, nnzrow), for the rbf_ellpack product
 type :: ell
     integer(c_int) :: n, nnzrow
     integer(c_int), allocatable :: ja(:, :)
@@ -91,7 +91,7 @@ contains
         end do
     end subroutine
 
-    ! The product of the matrix behind data, of the interface rbf_matvec_t
+    ! The product of the matrix behind data, of the interface matvec_t
     subroutine matvec(nr, nc, alpha, x, y, data) bind(c)
         integer(c_int), value :: nr, nc
         real(c_double), value :: alpha
@@ -112,15 +112,15 @@ contains
         integer :: i, j, p
         E%n = A%n
         E%nnzrow = 3
-        allocate(E%ja(3, A%n), E%a(3, A%n))
+        allocate(E%ja(A%n, 3), E%a(A%n, 3))
         do i = 1, A%n
-            E%ja(:, i) = i - 1
-            E%a(:, i) = 0
+            E%ja(i, :) = i - 1
+            E%a(i, :) = 0
             j = 0
             do p = A%ia(i) + 1, A%ia(i + 1)
                 j = j + 1
-                E%ja(j, i) = A%ja(p)
-                E%a(j, i) = A%val(p)
+                E%ja(i, j) = A%ja(p)
+                E%a(i, j) = A%val(p)
             end do
         end do
     end subroutine
@@ -135,7 +135,7 @@ contains
         type(ell), pointer :: E
         call c_f_pointer(data, E)
         call check(nr == E%n .and. nc == E%n, "ellpack_matvec: dimensions")
-        call ellpack_mv_row(E%n, E%nnzrow, alpha, E%a, E%ja, E%nnzrow, x, 1.0_c_double, y)
+        call ellpack_mv(E%n, E%nnzrow, alpha, E%a, E%ja, E%n, x, 1.0_c_double, y)
     end subroutine
 
     ! The identity, needing no context
@@ -173,15 +173,15 @@ call apply(A, 1.0_c_double, u, b)
 ! Every optional argument absent: BiCGSTAB with the Jacobi preconditioner
 x = 0
 status = solve_sparse(A%n, size(A%val), A%val, A%ia, A%ja, b, x)
-call check(status == RBF_SOLVER_SUCCESS, "csr defaults: status")
+call check(status == SOLVER_SUCCESS, "csr defaults: status")
 call check(maxval(abs(x - u)) < 1.0e-8_c_double, "csr defaults: solution")
 
 ! Conjugate gradient with incomplete Cholesky, keywords, the results asked for
 x = 0
 status = solve_sparse(A%n, size(A%val), A%val, A%ia, A%ja, b, x, &
-    res_error=err, res_iter=iter, method=RBF_SOLVER_CONJUGATE_GRADIENT, &
-    precond=RBF_PRECOND_INCOMPLETE, tolerance=1.0e-12_c_double)
-call check(status == RBF_SOLVER_SUCCESS, "csr cg/ichol: status")
+    res_error=err, res_iter=iter, method=SOLVER_CG, &
+    precond=PRECOND_ILU, tolerance=1.0e-12_c_double)
+call check(status == SOLVER_SUCCESS, "csr cg/ichol: status")
 call check(err >= 0 .and. err <= 1.0e-12_c_double, "csr cg/ichol: residual")
 ! Eigen counts completed passes, so an exact preconditioner reports 0
 call check(iter >= 0 .and. iter <= 2*n, "csr cg/ichol: iterations")
@@ -191,14 +191,14 @@ call check(maxval(abs(x - u)) < 1.0e-9_c_double, "csr cg/ichol: solution")
 x = 0
 status = solve_sparse(A%n, size(A%val), A%val, A%ia, A%ja, b, x, &
     res_iter=iter, max_iter=1, tolerance=1.0e-14_c_double)
-call check(status == RBF_SOLVER_NO_CONVERGENCE, "csr limit: status")
+call check(status == SOLVER_NO_CONVERGENCE, "csr limit: status")
 call check(iter == 1, "csr limit: iterations")
 
 ! Matrix-free, the matrix reaching the callback through the context pointer
 x = 0
 status = solve_sparse(n, n, matvec, c_loc(A), b, x, res_error=err, res_iter=iter, &
-    method=RBF_SOLVER_CONJUGATE_GRADIENT, tolerance=1.0e-12_c_double)
-call check(status == RBF_SOLVER_SUCCESS, "mf cg: status")
+    method=SOLVER_CG, tolerance=1.0e-12_c_double)
+call check(status == SOLVER_SUCCESS, "mf cg: status")
 call check(err >= 0 .and. err <= 1.0e-12_c_double, "mf cg: residual")
 call check(maxval(abs(x - u)) < 1.0e-9_c_double, "mf cg: solution")
 
@@ -207,7 +207,7 @@ call to_ellpack(A, E)
 x = 0
 status = solve_sparse(n, n, ellpack_matvec, c_loc(E), b, x, res_error=err, &
     tolerance=1.0e-12_c_double)
-call check(status == RBF_SOLVER_SUCCESS, "mf ellpack: status")
+call check(status == SOLVER_SUCCESS, "mf ellpack: status")
 call check(maxval(abs(x - u)) < 1.0e-9_c_double, "mf ellpack: solution")
 
 ! Eigen's CSR product against the reference: y = A u, then y = -0.5 y + 2 A u
@@ -221,7 +221,7 @@ call check(maxval(abs(y - (2*b - 0.5_c_double))) < 1.0e-14_c_double, "csr_mv: be
 ! The callback without a context: the identity, so x = b
 x = 0
 status = solve_sparse(n, n, identity, c_null_ptr, b, x, res_iter=iter)
-call check(status == RBF_SOLVER_SUCCESS, "mf identity: status")
+call check(status == SOLVER_SUCCESS, "mf identity: status")
 call check(maxval(abs(x - b)) < 1.0e-12_c_double, "mf identity: solution")
 
 if (failures > 0) then

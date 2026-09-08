@@ -20,10 +20,10 @@
 namespace {
 
 // The status codes of the header are Eigen's, by construction.
-static_assert(RBF_SOLVER_SUCCESS == static_cast<int>(Eigen::Success));
-static_assert(RBF_SOLVER_NUMERICAL_ISSUE == static_cast<int>(Eigen::NumericalIssue));
-static_assert(RBF_SOLVER_NO_CONVERGENCE == static_cast<int>(Eigen::NoConvergence));
-static_assert(RBF_SOLVER_INVALID_INPUT == static_cast<int>(Eigen::InvalidInput));
+static_assert(SOLVER_SUCCESS == static_cast<int>(Eigen::Success));
+static_assert(SOLVER_NUMERICAL_ISSUE == static_cast<int>(Eigen::NumericalIssue));
+static_assert(SOLVER_NO_CONVERGENCE == static_cast<int>(Eigen::NoConvergence));
+static_assert(SOLVER_INVALID_INPUT == static_cast<int>(Eigen::InvalidInput));
 
 using Scalar = double;
 using Vector = Eigen::Vector<Scalar, Eigen::Dynamic>;
@@ -83,7 +83,7 @@ using ConjugateGradient = Eigen::ConjugateGradient<CsrMatrix, Eigen::Lower | Eig
 // One method over the three preconditioners; Incomplete is the
 // factorization that suits the method.
 template <template <class> class Method, class Incomplete>
-int solve_csr(rbf_precond_t precond,
+int solve_csr(solver_precond precond,
               const CsrMap& A,
               const double* b,
               double* x,
@@ -92,15 +92,15 @@ int solve_csr(rbf_precond_t precond,
               Controls c) {
     const auto n = A.rows();
     switch (precond) {
-        case RBF_PRECOND_IDENTITY:
+        case PRECOND_NONE:
             return run<Method<Eigen::IdentityPreconditioner>>(A, b, x, n, res_error, res_iter, c);
-        case RBF_PRECOND_DIAGONAL:
+        case PRECOND_JACOBI:
             return run<Method<Eigen::DiagonalPreconditioner<Scalar>>>(A, b, x, n, res_error,
                                                                       res_iter, c);
-        case RBF_PRECOND_INCOMPLETE:
+        case PRECOND_ILU:
             return run<Method<Incomplete>>(A, b, x, n, res_error, res_iter, c);
     }
-    return RBF_SOLVER_INVALID_INPUT;
+    return SOLVER_INVALID_INPUT;
 }
 
 // --- Matrix-free ---
@@ -131,8 +131,7 @@ public:
         IsRowMajor = false
     };
 
-    Callback(int nr, int nc, rbf_matvec_t mv, void* data)
-        : nr_(nr), nc_(nc), mv_(mv), data_(data) {}
+    Callback(int nr, int nc, rbf_matvec mv, void* data) : nr_(nr), nc_(nc), mv_(mv), data_(data) {}
 
     Index rows() const { return nr_; }
     Index cols() const { return nc_; }
@@ -153,7 +152,7 @@ public:
 
 private:
     int nr_, nc_;
-    rbf_matvec_t mv_;
+    rbf_matvec mv_;
     void* data_;
 };
 
@@ -195,67 +194,67 @@ void rbf_csr_mv_dp(int nr,
         yv = beta * yv + alpha * (A * xv);
 }
 
-int rbf_solve_sparse_csr_dp(int n,
-                            int nnz,
-                            const double* val,
-                            const int* ia,
-                            const int* ja,
-                            const double* b,
-                            double* x,
-                            double* res_error,
-                            int* res_iter,
-                            const rbf_solver_method_t* method,
-                            const rbf_precond_t* precond,
-                            const int* max_iter,
-                            const double* tolerance) {
+int rbf_solve_csr_dp(int n,
+                     int nnz,
+                     const double* val,
+                     const int* ia,
+                     const int* ja,
+                     const double* b,
+                     double* x,
+                     double* res_error,
+                     int* res_iter,
+                     const solver_method* method,
+                     const solver_precond* precond,
+                     const int* max_iter,
+                     const double* tolerance) {
     if (n <= 0 || nnz < 0 || !val || !ia || !ja || !b || !x || ia[n] != nnz)
-        return RBF_SOLVER_INVALID_INPUT;
+        return SOLVER_INVALID_INPUT;
 
-    const rbf_solver_method_t m = method ? *method : RBF_SOLVER_BICGSTAB;
-    const rbf_precond_t p = precond ? *precond : RBF_PRECOND_DIAGONAL;
+    const solver_method m = method ? *method : SOLVER_BICGSTAB;
+    const solver_precond p = precond ? *precond : PRECOND_JACOBI;
     const Controls c{max_iter, tolerance};
 
     const CsrMap A(n, n, nnz, ia, ja, val);
 
     switch (m) {
-        case RBF_SOLVER_BICGSTAB:
+        case SOLVER_BICGSTAB:
             return solve_csr<BiCGSTAB, Eigen::IncompleteLUT<Scalar>>(p, A, b, x, res_error,
                                                                      res_iter, c);
-        case RBF_SOLVER_CONJUGATE_GRADIENT:
+        case SOLVER_CG:
             return solve_csr<ConjugateGradient, Eigen::IncompleteCholesky<Scalar>>(
                 p, A, b, x, res_error, res_iter, c);
     }
-    return RBF_SOLVER_INVALID_INPUT;
+    return SOLVER_INVALID_INPUT;
 }
 
-int rbf_solve_sparse_mf_dp(int nr,
-                           int nc,
-                           rbf_matvec_t mv,
-                           void* data,
-                           const double* b,
-                           double* x,
-                           double* res_error,
-                           int* res_iter,
-                           const rbf_solver_method_t* method,
-                           const int* max_iter,
-                           const double* tolerance) {
-    if (nr <= 0 || nc <= 0 || nr != nc || !mv || !b || !x) return RBF_SOLVER_INVALID_INPUT;
+int rbf_solve_mf_dp(int nr,
+                    int nc,
+                    rbf_matvec mv,
+                    void* data,
+                    const double* b,
+                    double* x,
+                    double* res_error,
+                    int* res_iter,
+                    const solver_method* method,
+                    const int* max_iter,
+                    const double* tolerance) {
+    if (nr <= 0 || nc <= 0 || nr != nc || !mv || !b || !x) return SOLVER_INVALID_INPUT;
 
-    const rbf_solver_method_t m = method ? *method : RBF_SOLVER_BICGSTAB;
+    const solver_method m = method ? *method : SOLVER_BICGSTAB;
     const Controls c{max_iter, tolerance};
 
     const Callback A(nr, nc, mv, data);
 
     switch (m) {
-        case RBF_SOLVER_BICGSTAB:
+        case SOLVER_BICGSTAB:
             return run<Eigen::BiCGSTAB<Callback, Eigen::IdentityPreconditioner>>(
                 A, b, x, nc, res_error, res_iter, c);
-        case RBF_SOLVER_CONJUGATE_GRADIENT:
+        case SOLVER_CG:
             return run<Eigen::ConjugateGradient<Callback, Eigen::Lower | Eigen::Upper,
                                                 Eigen::IdentityPreconditioner>>(
                 A, b, x, nc, res_error, res_iter, c);
     }
-    return RBF_SOLVER_INVALID_INPUT;
+    return SOLVER_INVALID_INPUT;
 }
 
 }  // extern "C"

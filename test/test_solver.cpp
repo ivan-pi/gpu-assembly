@@ -100,20 +100,19 @@ static void callback(int nr, int nc, double alpha, const double* x, double* y, v
 
 // Every method and preconditioner on one matrix, against its known
 // solution, from a zero initial guess.
-static void test_csr(const Csr& A, const std::vector<double>& u, rbf_solver_method_t method) {
+static void test_csr(const Csr& A, const std::vector<double>& u, solver_method method) {
     std::vector<double> b(u.size(), 0);
     A.apply(1, u.data(), b.data());
 
-    for (const auto precond :
-         {RBF_PRECOND_IDENTITY, RBF_PRECOND_DIAGONAL, RBF_PRECOND_INCOMPLETE}) {
+    for (const auto precond : {PRECOND_NONE, PRECOND_JACOBI, PRECOND_ILU}) {
         std::vector<double> x(u.size(), 0);
         double err = -1;
         int iter = -1;
         const double tol = 1e-12;
         const int status =
-            rbf_solve_sparse_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(),
-                                    x.data(), &err, &iter, &method, &precond, nullptr, &tol);
-        CHECK(status == RBF_SOLVER_SUCCESS);
+            rbf_solve_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(),
+                             x.data(), &err, &iter, &method, &precond, nullptr, &tol);
+        CHECK(status == SOLVER_SUCCESS);
         CHECK(err >= 0 && err <= tol);
         CHECK(iter >= 0 && iter <= 2 * A.n);
         CHECK(max_abs_diff(x, u) < 1e-9);
@@ -121,9 +120,7 @@ static void test_csr(const Csr& A, const std::vector<double>& u, rbf_solver_meth
 }
 
 // The matrix-free solver on the same system, unpreconditioned.
-static void test_matrix_free(const Csr& A,
-                             const std::vector<double>& u,
-                             rbf_solver_method_t method) {
+static void test_matrix_free(const Csr& A, const std::vector<double>& u, solver_method method) {
     std::vector<double> b(u.size(), 0);
     A.apply(1, u.data(), b.data());
 
@@ -131,9 +128,9 @@ static void test_matrix_free(const Csr& A,
     double err = -1;
     int iter = -1;
     const double tol = 1e-12;
-    const int status = rbf_solve_sparse_mf_dp(A.n, A.n, callback, const_cast<Csr*>(&A), b.data(),
-                                              x.data(), &err, &iter, &method, nullptr, &tol);
-    CHECK(status == RBF_SOLVER_SUCCESS);
+    const int status = rbf_solve_mf_dp(A.n, A.n, callback, const_cast<Csr*>(&A), b.data(), x.data(),
+                                       &err, &iter, &method, nullptr, &tol);
+    CHECK(status == SOLVER_SUCCESS);
     CHECK(err >= 0 && err <= tol);
     CHECK(iter >= 0 && iter <= 2 * A.n);
     CHECK(max_abs_diff(x, u) < 1e-9);
@@ -149,17 +146,15 @@ static void test_defaults_and_guess() {
     // every optional argument left out: BiCGSTAB, Jacobi, 2n
     // iterations, epsilon
     std::vector<double> x(u.size(), 0);
-    CHECK(rbf_solve_sparse_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(),
-                                  x.data(), nullptr, nullptr, nullptr, nullptr, nullptr,
-                                  nullptr) == RBF_SOLVER_SUCCESS);
+    CHECK(rbf_solve_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(), x.data(),
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) == SOLVER_SUCCESS);
     CHECK(max_abs_diff(x, u) < 1e-9);
 
     // the exact solution as initial guess needs no iteration at all
     x = u;
     int iter = -1;
-    CHECK(rbf_solve_sparse_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(),
-                                  x.data(), nullptr, &iter, nullptr, nullptr, nullptr,
-                                  nullptr) == RBF_SOLVER_SUCCESS);
+    CHECK(rbf_solve_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(), x.data(),
+                           nullptr, &iter, nullptr, nullptr, nullptr, nullptr) == SOLVER_SUCCESS);
     CHECK(iter == 0);
     CHECK(max_abs_diff(x, u) == 0);
 }
@@ -203,38 +198,36 @@ static void test_failures() {
     const double tol = 1e-14;
     double err = -1;
     int iter = -1;
-    CHECK(rbf_solve_sparse_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(),
-                                  x.data(), &err, &iter, nullptr, nullptr, &one,
-                                  &tol) == RBF_SOLVER_NO_CONVERGENCE);
+    CHECK(rbf_solve_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(), x.data(),
+                           &err, &iter, nullptr, nullptr, &one, &tol) == SOLVER_NO_CONVERGENCE);
     CHECK(iter == 1);
     CHECK(err > tol);
 
     // the same through the callback
-    CHECK(rbf_solve_sparse_mf_dp(A.n, A.n, callback, const_cast<Csr*>(&A), b.data(), x.data(), &err,
-                                 &iter, nullptr, &one, &tol) == RBF_SOLVER_NO_CONVERGENCE);
+    CHECK(rbf_solve_mf_dp(A.n, A.n, callback, const_cast<Csr*>(&A), b.data(), x.data(), &err, &iter,
+                          nullptr, &one, &tol) == SOLVER_NO_CONVERGENCE);
     CHECK(iter == 1);
 
     // INVALID_INPUT: a null array, a row pointer that disagrees with
     // nnz, an enumerator outside the enum, a rectangular operator
-    CHECK(rbf_solve_sparse_csr_dp(A.n, A.nnz(), nullptr, A.ia.data(), A.ja.data(), b.data(),
-                                  x.data(), nullptr, nullptr, nullptr, nullptr, nullptr,
-                                  nullptr) == RBF_SOLVER_INVALID_INPUT);
-    CHECK(rbf_solve_sparse_csr_dp(A.n, A.nnz() - 1, A.val.data(), A.ia.data(), A.ja.data(),
-                                  b.data(), x.data(), nullptr, nullptr, nullptr, nullptr, nullptr,
-                                  nullptr) == RBF_SOLVER_INVALID_INPUT);
-    const auto bad_method = static_cast<rbf_solver_method_t>(7);
-    CHECK(rbf_solve_sparse_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(),
-                                  x.data(), nullptr, nullptr, &bad_method, nullptr, nullptr,
-                                  nullptr) == RBF_SOLVER_INVALID_INPUT);
-    const auto bad_precond = static_cast<rbf_precond_t>(7);
-    CHECK(rbf_solve_sparse_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(),
-                                  x.data(), nullptr, nullptr, nullptr, &bad_precond, nullptr,
-                                  nullptr) == RBF_SOLVER_INVALID_INPUT);
-    CHECK(rbf_solve_sparse_mf_dp(A.n, A.n + 1, callback, const_cast<Csr*>(&A), b.data(), x.data(),
-                                 nullptr, nullptr, nullptr, nullptr,
-                                 nullptr) == RBF_SOLVER_INVALID_INPUT);
-    CHECK(rbf_solve_sparse_mf_dp(A.n, A.n, nullptr, nullptr, b.data(), x.data(), nullptr, nullptr,
-                                 nullptr, nullptr, nullptr) == RBF_SOLVER_INVALID_INPUT);
+    CHECK(rbf_solve_csr_dp(A.n, A.nnz(), nullptr, A.ia.data(), A.ja.data(), b.data(), x.data(),
+                           nullptr, nullptr, nullptr, nullptr, nullptr,
+                           nullptr) == SOLVER_INVALID_INPUT);
+    CHECK(rbf_solve_csr_dp(A.n, A.nnz() - 1, A.val.data(), A.ia.data(), A.ja.data(), b.data(),
+                           x.data(), nullptr, nullptr, nullptr, nullptr, nullptr,
+                           nullptr) == SOLVER_INVALID_INPUT);
+    const auto bad_method = static_cast<solver_method>(7);
+    CHECK(rbf_solve_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(), x.data(),
+                           nullptr, nullptr, &bad_method, nullptr, nullptr,
+                           nullptr) == SOLVER_INVALID_INPUT);
+    const auto bad_precond = static_cast<solver_precond>(7);
+    CHECK(rbf_solve_csr_dp(A.n, A.nnz(), A.val.data(), A.ia.data(), A.ja.data(), b.data(), x.data(),
+                           nullptr, nullptr, nullptr, &bad_precond, nullptr,
+                           nullptr) == SOLVER_INVALID_INPUT);
+    CHECK(rbf_solve_mf_dp(A.n, A.n + 1, callback, const_cast<Csr*>(&A), b.data(), x.data(), nullptr,
+                          nullptr, nullptr, nullptr, nullptr) == SOLVER_INVALID_INPUT);
+    CHECK(rbf_solve_mf_dp(A.n, A.n, nullptr, nullptr, b.data(), x.data(), nullptr, nullptr, nullptr,
+                          nullptr, nullptr) == SOLVER_INVALID_INPUT);
 }
 
 int main() {
@@ -243,15 +236,15 @@ int main() {
 
     // symmetric positive definite: both methods
     const Csr spd = laplacian(m);
-    test_csr(spd, u, RBF_SOLVER_CONJUGATE_GRADIENT);
-    test_csr(spd, u, RBF_SOLVER_BICGSTAB);
-    test_matrix_free(spd, u, RBF_SOLVER_CONJUGATE_GRADIENT);
-    test_matrix_free(spd, u, RBF_SOLVER_BICGSTAB);
+    test_csr(spd, u, SOLVER_CG);
+    test_csr(spd, u, SOLVER_BICGSTAB);
+    test_matrix_free(spd, u, SOLVER_CG);
+    test_matrix_free(spd, u, SOLVER_BICGSTAB);
 
     // nonsymmetric: BiCGSTAB only
     const Csr nonsym = laplacian(m, 0.5);
-    test_csr(nonsym, u, RBF_SOLVER_BICGSTAB);
-    test_matrix_free(nonsym, u, RBF_SOLVER_BICGSTAB);
+    test_csr(nonsym, u, SOLVER_BICGSTAB);
+    test_matrix_free(nonsym, u, SOLVER_BICGSTAB);
 
     test_defaults_and_guess();
     test_csr_mv();
