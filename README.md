@@ -83,6 +83,8 @@ Documentation:
 - [docs/rbf_fd.md](docs/rbf_fd.md): the Fortran module `rbf_fd`, RBF-FD
   weights on the host with LAPACK or reclu, the twin of
   `rbf_operators.h`, with the benchmark
+- [docs/operators.md](docs/operators.md): `rbf_ops.h`, the operators of
+  the right-hand sides for the device kernels, three ways to name them
 - [docs/renumbering.md](docs/renumbering.md): permutations,
   space-filling-curve orderings and graph renumbering
 - [docs/file_formats.md](docs/file_formats.md): the file formats the

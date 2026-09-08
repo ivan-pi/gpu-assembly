@@ -10,6 +10,11 @@ add_executable(test_spatial test_spatial.cpp)
 target_link_libraries(test_spatial PRIVATE rbf)
 add_test(NAME spatial COMMAND test_spatial)
 
+# rbf_ops.h, the operators of the device kernels prototyped on the host
+add_executable(test_rbf_ops test_rbf_ops.cpp)
+target_link_libraries(test_rbf_ops PRIVATE rbf)
+add_test(NAME rbf_ops COMMAND test_rbf_ops)
+
 # The RBF-FD weights need LAPACK; the target exists only when it was found
 if(TARGET rbf_fd)
     add_executable(test_rbf_fd test_rbf_fd.f90)
