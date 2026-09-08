@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the lid-driven cavity refined towards its walls, as a node file.
+"""Generate the lid-driven cavity, refined towards its walls.
 
 The cloud is RefinedCavity in pointclouds.generators.
 """

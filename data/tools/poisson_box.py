@@ -26,7 +26,7 @@ same numbering, or a node file with the markers if named so
 
 
 def hole_radius(solid_fraction, size):
-    """Return the radius of the disk covering the fraction of the box."""
+    """Returns the radius of the disk covering that fraction of the box."""
     lx, ly = size
     area = solid_fraction * lx * ly
     return np.sqrt(area / np.pi)
@@ -72,7 +72,7 @@ def main():
     )
     hole.add_argument(
         "--solid-fraction",
-        type=cli.number(float, above=0.0),
+        type=cli.number(float, above=0.0, below=1.0),
         metavar="PHI",
         help="the same hole, sized to cover the fraction PHI of the box",
     )
@@ -95,8 +95,6 @@ def main():
 
     hole = args.hole
     if args.solid_fraction is not None:
-        if args.solid_fraction >= 1.0:
-            ap.error("--solid-fraction must be less than 1")
         hole = hole_radius(args.solid_fraction, args.size)
     stem, ext = cli.output_stem(args.output, default=".points")
 

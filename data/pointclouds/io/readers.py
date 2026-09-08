@@ -1,4 +1,4 @@
-"""Readers for the files of docs/file_formats.md, which check what they read.
+"""Readers for the files of docs/file_formats.md, checking what they read.
 
 A reader takes a file name and returns the contents as numpy arrays,
 or raises `FormatError` when the file does not follow its format, with
@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 class FormatError(ValueError):
-    """A file that does not follow its format.
+    """Raised for a file that does not follow its format.
 
     Parameters
     ----------
@@ -37,17 +37,7 @@ class FormatError(ValueError):
 
 
 def plural(k, word):
-    """A count and a word, with an s unless the count is 1.
-
-    Parameters
-    ----------
-    k : int
-    word : str
-
-    Returns
-    -------
-    str
-    """
+    """Joins a count and a word, with an s unless the count is 1."""
     return f"{k} {word}{'' if k == 1 else 's'}"
 
 
@@ -55,8 +45,10 @@ def plural(k, word):
 
 
 def _lines_of(fname, comments):
-    """(line number, tokens) of every non-blank line; `#` starts a comment
-    in the formats that have them.
+    """Returns the (line number, tokens) of every non-blank line.
+
+    `#` starts a comment in the formats that have them, and a line left
+    blank by one is dropped too.
     """
     out = []
     with open(fname) as f:
@@ -70,7 +62,7 @@ def _lines_of(fname, comments):
 
 
 def _nums(toks, conv):
-    """All tokens through int or float, or None if one is not a number."""
+    """Converts the tokens to numbers, or None if one is not a number."""
     try:
         return [conv(t) for t in toks]
     except ValueError:
@@ -78,9 +70,10 @@ def _nums(toks, conv):
 
 
 def _read_header(fname, form, comments):
-    """The non-negative integers of the first line, and the lines after it:
-    (values, rows). `form` names the fields, `n nnz` say, and sets how
-    many there are.
+    """Splits a file into the integers of its header and the lines after.
+
+    Returns (values, rows). `form` names the fields, `n nnz` say, and sets
+    how many there are.
     """
     lines = _lines_of(fname, comments)
     if not lines:
@@ -95,9 +88,10 @@ def _read_header(fname, form, comments):
 
 
 def _parse_rows(fname, rows, form, convert):
-    """Every row through `convert`, which returns the values of a line or
-    None: the list of values, or FormatError naming every bad line.
-    `form` describes a line in the message.
+    """Converts every row, or raises FormatError naming every bad line.
+
+    `convert` returns the values of a line or None; `form` describes a line
+    in the message.
     """
     out, bad = [], []
     for no, toks in rows:
@@ -115,7 +109,7 @@ def _parse_rows(fname, rows, form, convert):
 
 
 def read_nodes(fname):
-    """The nodes of a points or node file, told apart by extension.
+    """Reads a points or node file, told apart by extension.
 
     Parameters
     ----------
@@ -147,7 +141,7 @@ def read_nodes(fname):
 
 
 def read_points(fname):
-    """The nodes of a points file: the count, then a coordinate pair per line.
+    """Reads a points file: the count, then a coordinate pair per line.
 
     Parameters
     ----------
@@ -185,7 +179,7 @@ def read_points(fname):
 
 
 def read_node(fname):
-    """The nodes of a node file, in Triangle's format.
+    """Reads a node file in Triangle's format.
 
     Parameters
     ----------
@@ -218,13 +212,13 @@ def read_node(fname):
         log.info("%s: no marker column: every node is interior", fname)
     form = f"i x y{' a' * nattr}{' marker' if nmark else ''}"
     vals = _parse_rows(fname, rows, form, lambda toks: _node_line(toks, nattr, nmark))
-    table = np.array(vals, dtype=float).reshape(n, 4)
-    _check_consecutive(fname, table[:, 0].astype(int), rows)
-    return table[:, 1:3], table[:, 3].astype(int)
+    table = np.array(vals, dtype=[("i", int), ("x", float), ("y", float), ("m", int)])
+    _check_consecutive(fname, table["i"], rows)
+    return np.column_stack((table["x"], table["y"])), table["m"]
 
 
 def _node_line(toks, nattr, nmark):
-    """(index, x, y, marker) of a node line, or None if malformed."""
+    """Parses a node line into (index, x, y, marker), None if malformed."""
     if len(toks) != 3 + nattr + nmark:
         return None
     try:
@@ -239,7 +233,7 @@ def _node_line(toks, nattr, nmark):
 
 
 def _check_consecutive(fname, index, rows):
-    """The index column has to count from 0 or from 1."""
+    """Checks that the index column counts from 0 or from 1."""
     expected = np.arange(index.size)
     if np.array_equal(index, expected + 1):
         log.info(
@@ -257,28 +251,8 @@ def _check_consecutive(fname, index, rows):
 # ------------------------------------------------------------------ graph
 
 
-def stencils_to_csr(stencils):
-    """Stencils as lists, in CSR form.
-
-    Parameters
-    ----------
-    stencils : list of list of int
-
-    Returns
-    -------
-    ia, ja : ndarray of int
-        The row pointer and the column indices: stencil i is
-        ``ja[ia[i]:ia[i + 1]]``.
-    """
-    ia = np.cumsum([0, *map(len, stencils)])
-    ja = np.fromiter(
-        itertools.chain.from_iterable(stencils), dtype=int, count=int(ia[-1])
-    )
-    return ia, ja
-
-
 def read_graph(fname):
-    """The stencils of a graph file, in CSR form.
+    """Reads the stencils of a graph file into CSR form.
 
     Parameters
     ----------
@@ -303,7 +277,8 @@ def read_graph(fname):
     stencils = _parse_rows(
         fname, rows, "integer stencil entries", lambda toks: _nums(toks, int)
     )
-    ia, ja = stencils_to_csr(stencils)
+    ia = np.cumsum([0, *map(len, stencils)])
+    ja = np.fromiter(itertools.chain.from_iterable(stencils), int, count=int(ia[-1]))
     problems = []
     if ia[-1] != nnz:
         problems.append(f"header says nnz = {nnz}, the stencils hold {ia[-1]} entries")
@@ -315,10 +290,10 @@ def read_graph(fname):
     elif lo < 0 or hi >= n:
         problems.append(f"stencil entries outside [0, {n}): from {lo} to {hi}")
     else:
-        dup = _rows_with_duplicates(ia, ja)
-        if dup.size:
+        dup = [i for i, s in enumerate(stencils) if len(set(s)) < len(s)]
+        if dup:
             problems.append(
-                f"a node listed twice in {plural(dup.size, 'stencil')}, "
+                f"a node listed twice in {plural(len(dup), 'stencil')}, "
                 f"the first on line {rows[dup[0]][0]}"
             )
     if problems:
@@ -326,19 +301,11 @@ def read_graph(fname):
     return ia, ja
 
 
-def _rows_with_duplicates(ia, ja):
-    """The rows in which some node is listed twice."""
-    n = len(ia) - 1
-    # i * n + j of every entry
-    keys = np.sort(np.repeat(np.arange(n), np.diff(ia)) * n + ja)
-    return np.unique(keys[1:][keys[1:] == keys[:-1]] // n)
-
-
 # --------------------------------------------------------------- ordering
 
 
 def read_ordering(fname):
-    """The permutation of an ordering file.
+    """Reads the permutation of an ordering file.
 
     Parameters
     ----------

@@ -16,7 +16,11 @@ from pointclouds.io import FormatError, read_graph, write_ordering
 
 
 def adjacency_of(ia, ja):
-    """Return the stencils as an undirected graph without self-loops, the pattern of ``A + A^T`` less the diagonal, as a CSR array with sorted indices."""
+    """Returns the stencils as an undirected graph without self-loops.
+
+    The pattern of ``A + A^T`` less the diagonal, as a CSR array with
+    sorted indices.
+    """
     n = len(ia) - 1
     a = csr_array((np.ones(len(ja)), ja, ia), shape=(n, n))
     upper = triu(a + a.T, k=1)  # every edge once, without the self-loops
@@ -26,7 +30,7 @@ def adjacency_of(ia, ja):
 
 
 def rcm(adjacency, **kwargs):
-    """Return the new index of every node by reverse Cuthill-McKee."""
+    """Returns the new index of every node by reverse Cuthill-McKee."""
     from scipy.sparse.csgraph import reverse_cuthill_mckee
 
     perm = reverse_cuthill_mckee(adjacency, symmetric_mode=True)  # perm[new] = old
@@ -34,7 +38,10 @@ def rcm(adjacency, **kwargs):
 
 
 def nd(adjacency, seed=None, **kwargs):
-    """Return the new index of every node by METIS nested dissection; the seed drives the random matching of the coarsening."""
+    """Returns the new index of every node by METIS nested dissection.
+
+    The seed drives the random matching of the coarsening.
+    """
     try:
         import pymetis
     except ImportError:
@@ -48,7 +55,7 @@ def nd(adjacency, seed=None, **kwargs):
 
 
 def amd(adjacency, **kwargs):
-    """Return the new index of every node by approximate minimum degree."""
+    """Returns the new index of every node by SuiteSparse's AMD."""
     try:
         from sksparse.amd import amd as suitesparse_amd
     except ImportError:
@@ -63,13 +70,16 @@ METHODS = {"rcm": rcm, "nd": nd, "amd": amd}  # all take the options they ignore
 
 
 def bandwidth(ia, ja, iperm):
-    """Return the largest |i - j| over the stencil entries, in the new numbering."""
+    """Returns the largest |i - j| over the edges, in the new numbering."""
     rows = np.repeat(np.arange(len(ia) - 1), np.diff(ia))
     return int(np.abs(iperm[rows] - iperm[ja]).max())
 
 
 def factor_nonzeros(adjacency, iperm):
-    """Return the nonzeros of the Cholesky factor in the new numbering by cholmod's symbolic factorisation, or None without scikit-sparse."""
+    """Returns the nonzeros of the Cholesky factor in the new numbering.
+
+    By cholmod's symbolic factorisation; None without scikit-sparse.
+    """
     try:
         from sksparse.cholmod import symbfact
     except ImportError:
@@ -119,8 +129,7 @@ def parse_args():
     )
     ap.add_argument("--seed", type=int, help="the random seed of METIS, for nd")
     args = ap.parse_args()
-    if args.output is None:
-        args.output = os.path.splitext(args.graph)[0] + ".iperm"
+    args.stem = os.path.splitext(args.output or args.graph)[0]
     return args
 
 
@@ -147,10 +156,9 @@ def main():
         report += f", factor nonzeros {before} -> {factor_nonzeros(adjacency, iperm)}"
     print(report, file=sys.stderr)
 
-    stem = args.output.removesuffix(".iperm")
-    write_ordering(stem, iperm)
-    if stem != "-":
-        print(f"ordering written to {stem}.iperm", file=sys.stderr)
+    write_ordering(args.stem, iperm)
+    if args.stem != "-":
+        print(f"ordering written to {args.stem}.iperm", file=sys.stderr)
 
 
 if __name__ == "__main__":

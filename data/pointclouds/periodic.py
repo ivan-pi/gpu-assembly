@@ -10,7 +10,7 @@ import numpy as np
 
 
 def wrap(z, box):
-    """Coordinates brought into the box through its periodic sides.
+    """Wraps the point `z` into the periodic extents of `box`.
 
     Parameters
     ----------
@@ -34,7 +34,7 @@ def wrap(z, box):
 
 
 def minimum_image(d, box):
-    """Displacements shortened through the nearer of the two sides.
+    """Shortens displacement `d` to fall within the minimum image of `box`.
 
     Parameters
     ----------

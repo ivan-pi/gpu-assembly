@@ -17,8 +17,8 @@ import argparse
 from .stencils import KNN
 
 
-def number(kind, *, least=None, above=None):
-    """An argparse type with a bound.
+def number(kind, *, least=None, above=None, below=None):
+    """Builds an argparse type that rejects values beyond a bound.
 
     Parameters
     ----------
@@ -28,6 +28,8 @@ def number(kind, *, least=None, above=None):
         The value must be at least this.
     above : number, optional
         The value must be greater than this.
+    below : number, optional
+        The value must be less than this.
 
     Returns
     -------
@@ -42,6 +44,8 @@ def number(kind, *, least=None, above=None):
             raise argparse.ArgumentTypeError(f"must be at least {least:g}")
         if above is not None and value <= above:
             raise argparse.ArgumentTypeError(f"must be greater than {above:g}")
+        if below is not None and value >= below:
+            raise argparse.ArgumentTypeError(f"must be less than {below:g}")
         return value
 
     parse.__name__ = kind.__name__  # the name argparse reports
@@ -49,7 +53,7 @@ def number(kind, *, least=None, above=None):
 
 
 def output_stem(name, default):
-    """The stem of an output name and the extension that picks its format.
+    """Splits an output name into its stem and the extension of its format.
 
     Parameters
     ----------
@@ -72,8 +76,9 @@ def output_stem(name, default):
 
 
 class Pair(argparse.Action):
-    """An option stored with the method it stands for: -K 18 gives
-    args.graph = ("knn", 18).
+    """Stores an option's value paired with the method it stands for.
+
+    ``-K 18`` gives ``args.graph = ("knn", 18)``.
     """
 
     def __call__(self, ap, namespace, value, option):
@@ -81,7 +86,7 @@ class Pair(argparse.Action):
 
 
 def add_graph_options(ap):
-    """Add the options that select the stencil graph to a parser.
+    """Adds the options that select the stencil graph to a parser.
 
     One of ``--knn-graph K`` (``-K``), ``--radius-graph R`` (``-R``),
     ``--range-graph S`` and ``--no-graph``, mutually exclusive, parsed to
@@ -132,7 +137,7 @@ def add_graph_options(ap):
 
 
 def show(cloud, graph=None):
-    """Show the figure of ``--plot``.
+    """Shows the figure of ``--plot``.
 
     Parameters
     ----------

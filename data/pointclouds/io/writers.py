@@ -13,19 +13,20 @@ import sys
 
 
 def open_out(stem, ext):
-    """The file this stem and extension name, or standard output for `-`,
-    which stays open.
+    """Opens the file that `stem` and `ext` name, for writing.
+
+    Standard output for `-`, which stays open.
     """
     return contextlib.nullcontext(sys.stdout) if stem == "-" else open(stem + ext, "w")
 
 
 def write_points(stem, pts):
-    """Write a points file: the count, then a coordinate pair per line.
+    """Writes a points file: the count, then a coordinate pair per line.
 
     Parameters
     ----------
     stem : str
-    pts : (n, 2) array_like
+    pts : (n, 2) ndarray
     """
     with open_out(stem, ".points") as f:
         f.write(f"{len(pts)}\n")
@@ -34,13 +35,13 @@ def write_points(stem, pts):
 
 
 def write_node(stem, pts, m, title):
-    """Write a node file: a comment, the header, then a node per line.
+    """Writes a node file: a comment, the header, then a node per line.
 
     Parameters
     ----------
     stem : str
-    pts : (n, 2) array_like
-    m : (n,) array_like of int
+    pts : (n, 2) ndarray
+    m : (n,) ndarray of int
         The marker of every node.
     title : str
         The comment on the first line.
@@ -53,12 +54,12 @@ def write_node(stem, pts, m, title):
 
 
 def write_graph(stem, ia, ja):
-    """Write a graph file: the node and edge counts, then a stencil per line.
+    """Writes a graph file: the counts, then a stencil per line.
 
     Parameters
     ----------
     stem : str
-    ia, ja : array_like of int
+    ia, ja : ndarray of int
         The stencils in CSR form, that of node i at
         ``ja[ia[i]:ia[i + 1]]``.
     """
@@ -70,12 +71,12 @@ def write_graph(stem, ia, ja):
 
 
 def write_ordering(stem, iperm):
-    """Write an ordering file: the new index of every node, one per line.
+    """Writes an ordering file: the new index of every node, one per line.
 
     Parameters
     ----------
     stem : str
-    iperm : (n,) array_like of int
+    iperm : (n,) ndarray of int
     """
     with open_out(stem, ".iperm") as f:
         for i in iperm.tolist():

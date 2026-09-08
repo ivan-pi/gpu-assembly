@@ -61,7 +61,7 @@ class PerturbedGrid(NodeSet):
         pts = np.column_stack((xv.ravel(), yv.ravel()))
         m = np.full(len(pts), MARKERS.interior)
         if not periodic:
-            m[:n], m[len(pts) - n :] = MARKERS.south, MARKERS.north
+            m[:n], m[-n:] = MARKERS.south, MARKERS.north
         d = np.random.default_rng(seed).uniform(-sigma, sigma, pts.shape)
         d[m != MARKERS.interior, 1] = 0.0  # a wall node stays on its wall
         pts += d  # NodeSet wraps the periodic sides
@@ -92,7 +92,7 @@ class PoissonBox(NodeSet):
     distance : float, default 1.0
         The least distance between two nodes.
     candidates : int, default 100
-        The throws a node makes before it is retired.
+        The number of throws a node makes before it is retired.
     hole : float, optional
         The radius of the disk cut out of the middle of the box.
     seed : int, optional
@@ -140,13 +140,9 @@ class PoissonBox(NodeSet):
             phi = 2 * np.pi * np.arange(n) / n
             seeds = centre + hole * np.column_stack((np.cos(phi), np.sin(phi)))
         sampler = PoissonDisk(
-            distance,
-            extent,
-            periodic=True,
-            ncandidates=candidates,
-            seed=seed,
-            seeds=seeds,
+            distance, extent, periodic=True, ncandidates=candidates, seed=seed
         )
+        sampler.add_points(seeds)
         sampler.fill_space()
         pts = sampler.points
         title = (
@@ -264,16 +260,15 @@ class RefinedCavity(NodeSet):
 
     @staticmethod
     def _side(a, b, h):
-        """From a to b in a whole number of steps as close to h as
-        possible; the end b is left out.
-        """
+        """Divides [a, b) into whole steps as close to h as possible."""
         return np.linspace(a, b, max(round((b - a) / h), 1), endpoint=False)
 
     @classmethod
     def _ring(cls, r, Lx, Ly, h):
-        """Points about h apart on the boundary of the cavity inset by r,
-        counter-clockwise from (r, r); a segment or a point when a side
-        has shrunk to nothing.
+        """Places points about h apart around the cavity inset by r.
+
+        Counter-clockwise from (r, r); a segment or a point when a side has
+        shrunk to nothing.
         """
         x0, x1, y0, y1 = r, Lx - r, r, Ly - r
         sx, sy = cls._side(x0, x1, h), cls._side(y0, y1, h)

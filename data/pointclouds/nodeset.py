@@ -45,7 +45,7 @@ MARKERS = Markers()
 
 
 def boundary_first(markers):
-    """The permutation that puts the boundary nodes ahead of the interior.
+    """Returns the permutation that puts the boundary nodes first.
 
     Parameters
     ----------
@@ -73,10 +73,15 @@ class NodeSet:
     extent : (2,) tuple of float, optional
         The box ``[0, Lx) x [0, Ly)``, or None for the open plane.
     periodic : (2,) tuple of bool, default (False, False)
-        Which sides of the box are one. The points are brought into the
-        box through those sides, and the stencil search wraps around them.
+        Which axes are periodic: the points are wrapped into the box
+        along them, and the stencil search wraps around them.
     title : str, optional
         What the cloud is, in words: the comment of its node file.
+
+    Raises
+    ------
+    ValueError
+        For a periodic cloud given without its box.
 
     Attributes
     ----------
@@ -110,7 +115,7 @@ class NodeSet:
         return len(self.points)
 
     def stencils(self, method="knn", value=KNN):
-        """The stencil of every node, as a graph in CSR form.
+        """Selects the stencil of every node, as a graph in CSR form.
 
         Parameters
         ----------
@@ -134,7 +139,7 @@ class NodeSet:
         return select_stencils(self.points, self.boxsize, method, value)
 
     def nearest(self):
-        """The nearest other node of every node.
+        """Finds the nearest other node of every node.
 
         Returns
         -------
@@ -149,7 +154,7 @@ class NodeSet:
         return j[:, 1], d[:, 1]
 
     def write(self, stem, ext=".points", graph=None):
-        """Write the cloud, and its stencil graph if given.
+        """Writes the cloud, and its stencil graph if given.
 
         Parameters
         ----------
@@ -168,7 +173,7 @@ class NodeSet:
             write_graph(stem, *graph)
 
     def summary(self, graph=None):
-        """One line on the cloud.
+        """Describes the cloud in one line.
 
         Parameters
         ----------
@@ -203,8 +208,8 @@ class NodeSet:
         "tab:olive",
     ]
 
-    def plot(self, ax, labels=False, stencils=()):
-        """Draw the nodes on an axes, coloured by marker.
+    def plot(self, ax, *, labels=False, stencils=()):
+        """Draws the nodes on an axes, coloured by marker.
 
         Parameters
         ----------
@@ -312,7 +317,7 @@ class TiledNodeSet(NodeSet):
         self.tiles = (mx, my)
 
     def plot(self, ax, **kwargs):
-        """The cloud, with the outline of the tiles."""
+        """Draws the cloud with the outline of the tiles."""
         super().plot(ax, **kwargs)
         (lx, ly), (mx, my) = np.array(self.extent) / self.tiles, self.tiles
         ax.vlines(lx * np.arange(mx + 1), 0, my * ly, color="0.7", lw=0.8)

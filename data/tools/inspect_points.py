@@ -2,7 +2,7 @@
 """Check and describe the files of a case, and draw them.
 
 The point, node, graph and ordering files of docs/file_formats.md; the
-tool never writes a file.
+tool changes none of them, and writes only the figure of --save.
 """
 
 import argparse
@@ -27,7 +27,10 @@ KINDS = {
 
 
 def describe_nodes(fname, xy, cloud):
-    """Print the statistics of the cloud read from `fname`, whose coordinates as read are `xy`; return the problems seen."""
+    """Prints the statistics of a cloud and returns the problems seen.
+
+    `fname` is the file it was read from, `xy` the coordinates as read.
+    """
     print(f"{fname}: {cloud.summary()}")
     values, counts = np.unique(cloud.markers, return_counts=True)
     print("  markers: " + "  ".join(f"{v}: {c}" for v, c in zip(values, counts)))
@@ -61,7 +64,7 @@ def describe_nodes(fname, xy, cloud):
 
 
 class Graph:
-    """The stencils of a graph file, as the CSR arrays and as a sparse pattern."""
+    """The stencils of a graph file, as CSR arrays and a sparse pattern."""
 
     def __init__(self, ia, ja):
         self.ia, self.ja = ia, ja
@@ -74,13 +77,16 @@ class Graph:
         return self.n
 
     def renumbered(self, iperm):
-        """Return the graph in the numbering `iperm`, rows moved and entries relabelled."""
+        """Returns the graph in the numbering `iperm`.
+
+        Moves the rows and relabels the entries.
+        """
         order = np.argsort(iperm)
         moved = self.pattern[order][:, order]
         return Graph(moved.indptr, moved.indices)
 
     def describe(self, fname):
-        """Print the size, row lengths, symmetry and bandwidth of the graph of `fname`."""
+        """Prints the size, row lengths, symmetry and bandwidth."""
         n, ia, ja = self.n, self.ia, self.ja
         print(f"{fname}: {n} nodes, {self.nnz} entries")
         lengths = np.diff(ia)
@@ -106,7 +112,7 @@ class Graph:
         print(f"  bandwidth: {np.abs(self.pattern.tocoo().row - ja).max()}")
 
     def spy(self, ax, title):
-        """Draw the sparsity pattern, one square per stored entry."""
+        """Draws the sparsity pattern, one square per stored entry."""
         n = self.n
         width = ax.figure.get_size_inches()[0] * ax.get_position().width * 72  # points
         ax.scatter(
@@ -147,7 +153,7 @@ class Case:
 
 
 def parse_args():
-    """Return the command line, with `files` mapping each field of a Case to its file."""
+    """Returns the command line; `files` maps a Case field to its file."""
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n")[0],
         epilog=EPILOG,
@@ -220,7 +226,11 @@ def parse_args():
 
 
 def draw(args, case):
-    """Show or save one figure: the nodes, the spy plot, or both, renumbered by the ordering if one was given, with the spy plot in file order beside it."""
+    """Shows or saves one figure: the nodes, the spy plot, or both.
+
+    Renumbered by the ordering if one was given, with the spy plot in file
+    order beside it.
+    """
     cloud, graph, file_graph = case.cloud, case.graph, None
     if case.iperm is not None:
         order = np.argsort(case.iperm)
@@ -255,7 +265,7 @@ def draw(args, case):
     axes = iter(axes[0])
     if args.plot:
         ax = next(axes)
-        cloud.plot(ax, args.labels, stencils)
+        cloud.plot(ax, labels=args.labels, stencils=stencils)
         ax.set_title(os.path.basename(args.files["cloud"]), fontsize=9)
     if args.spy:
         base = os.path.basename(args.files["graph"])

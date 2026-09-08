@@ -14,7 +14,7 @@ KNN = 18  # the default stencil: the 6 terms of a second-order polynomial plus 1
 
 
 def select_stencils(pts, boxsize, method="knn", value=KNN):
-    """The stencil of every node of a cloud, as a graph in CSR form.
+    """Selects the stencil of every node, as a graph in CSR form.
 
     Every stencil starts with the node itself, which is what the graph
     file expects, then holds its neighbours nearest first.
