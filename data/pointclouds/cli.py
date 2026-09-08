@@ -205,7 +205,7 @@ def show(cloud, graph=None):
     stencils = []
     if graph is not None:
         i = len(cloud) // 2
-        stencils = [(i, graph[i])]
+        stencils = [(i, graph.stencil(i))]
     fig, ax = plt.subplots(figsize=(6.5, 6))
     cloud.plot(ax, stencils=stencils)
     ax.set_title(cloud.title, fontsize=9)

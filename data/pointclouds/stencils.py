@@ -27,12 +27,12 @@ class Graph:
     Attributes
     ----------
     ia, ja : ndarray of int
-        As given. ``graph[i]`` is the stencil of node i, ``len(graph)``
-        the number of nodes.
+        As given; ``len(graph)`` is the number of nodes.
     nnz : int
         The number of entries, the edges of the graph.
     pattern : scipy.sparse.csr_array
-        The sparsity pattern, a 1 for every entry.
+        The sparsity pattern, a 1 for every entry, over the same `ia` and
+        `ja` arrays rather than copies of them.
     """
 
     def __init__(self, ia, ja):
@@ -44,7 +44,8 @@ class Graph:
     def __len__(self):
         return len(self.ia) - 1
 
-    def __getitem__(self, i):
+    def stencil(self, i):
+        """Returns the stencil of node `i`, a view of `ja`."""
         return self.ja[self.ia[i] : self.ia[i + 1]]
 
     def bandwidth(self):

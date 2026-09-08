@@ -230,7 +230,7 @@ def draw(args, case):
                 print("-K ignored: the stencils are taken from the graph file")
         else:
             graph = cloud.stencils("knn", args.knn)
-        stencils = [(i, graph[i]) for i in args.stencil]
+        stencils = [(i, graph.stencil(i)) for i in args.stencil]
 
     import matplotlib.pyplot as plt
 

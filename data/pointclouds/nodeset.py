@@ -120,7 +120,7 @@ class NodeSet:
         Returns
         -------
         Graph
-            The stencil of node i is ``graph[i]``, the node itself first.
+            The stencil of node i is ``graph.stencil(i)``, itself first.
 
         See Also
         --------
