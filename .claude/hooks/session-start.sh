@@ -45,9 +45,12 @@ REQUIRED_TOOLS=(
 
 # Packages with no executable of their own to probe; asked of dpkg instead.
 # libomp-20-dev is what gives clang++-20 and flang-20 their OpenMP runtime,
-# which CMakeLists.txt looks for via find_package(OpenMP).
+# which CMakeLists.txt looks for via find_package(OpenMP); liblapack-dev
+# is the LAPACK the host RBF-FD module (src/rbf_fd.f90) solves with,
+# found via find_package(LAPACK) and skipped, test included, without it.
 REQUIRED_PACKAGES=(
     libomp-20-dev
+    liblapack-dev
 )
 
 missing=()

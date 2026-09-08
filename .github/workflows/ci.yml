@@ -22,18 +22,19 @@ jobs:
         include:
           - name: gcc / gfortran
             os: ubuntu-latest
-            packages: g++ gfortran
+            packages: g++ gfortran liblapack-dev
             cxx: g++
             fc: gfortran
 
           # LLVM toolchain from the Ubuntu archive: clang++ for the C++
           # parts, LLVM flang (flang-new) for the Fortran modules.
-          # libomp-N-dev gives both compilers their OpenMP runtime.
+          # libomp-N-dev gives both compilers their OpenMP runtime;
+          # liblapack-dev is what the host RBF-FD module solves with.
           # flang-22 only ships in Ubuntu 26.04 (resolute); the
           # ubuntu-26.04 runner image is still in preview.
           - name: clang-22 / flang-22
             os: ubuntu-26.04
-            packages: clang-22 flang-22 libomp-22-dev
+            packages: clang-22 flang-22 libomp-22-dev liblapack-dev
             cxx: clang++-22
             fc: flang-22
 
@@ -70,7 +71,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-20 flang-20 libomp-20-dev
+          sudo apt-get install -y --no-install-recommends clang-20 flang-20 libomp-20-dev liblapack-dev
           clang++-20 --version
           flang-20 --version
 

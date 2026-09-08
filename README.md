@@ -14,6 +14,9 @@ The host library and its tests:
 - A Fortran 2008 compiler (gfortran, ifx, nvfortran)
 - (optional) OpenMP, for host parallelism and, in a future version,
   target offload
+- (optional) LAPACK, for the host RBF-FD weights (the Fortran module
+  `rbf_fd`); `liblapack-dev` on Ubuntu. Without it that module and its
+  test are skipped
 - [nanoflann](https://github.com/jlblancoc/nanoflann), a header-only k-d
   tree, vendored under `third_party/`
 - [ckdtree](https://github.com/scipy/scipy/tree/main/scipy/spatial/ckdtree),
@@ -70,6 +73,8 @@ Documentation:
   renumbering and the stencil search
 - [docs/spatial.md](docs/spatial.md): `rbf::spatial`, the periodic box
   and the k-d tree the stencil search runs on
+- [docs/rbf_fd.md](docs/rbf_fd.md): the Fortran module `rbf_fd`, RBF-FD
+  weights on the host with LAPACK, the twin of `rbf_operators.h`
 - [docs/renumbering.md](docs/renumbering.md): permutations,
   space-filling-curve orderings and graph renumbering
 - [docs/file_formats.md](docs/file_formats.md): the file formats the
