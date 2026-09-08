@@ -54,6 +54,7 @@ add_library(rbf
     src/rbf_ordering.F90
     src/rbf_precision.f90
     src/rbf_periodic_box.f90
+    src/rbf_sell.f90
     src/rbf_spatial.cpp)
 # Fortran consumers (examples/) find the .mod files through the include path
 set_target_properties(rbf PROPERTIES

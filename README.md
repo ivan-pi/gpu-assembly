@@ -52,9 +52,9 @@ The sparse solvers (`rbf_solver.h`, the Fortran module `rbf_solver`;
 cmake -B build -DGPU_ASSEMBLY_ENABLE_SOLVER=ON
 ```
 
-The matrix-vector products for fixed-row-length CSR and ELLPACK
-storage, the modules `rbf_csr` and `rbf_ellpack`, need no Eigen and
-are always part of the host library.
+The matrix-vector products for fixed-row-length CSR, ELLPACK and
+sliced ELLPACK storage, the modules `rbf_csr`, `rbf_ellpack` and
+`rbf_sell`, need no Eigen and are always part of the host library.
 
 CI exercises GCC (`g++`/`gfortran`) and the LLVM toolchain
 (`clang++`/`flang`, versions 20 and 22). To build with LLVM flang:

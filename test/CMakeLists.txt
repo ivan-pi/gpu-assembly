@@ -18,6 +18,10 @@ add_executable(test_ellpack test_ellpack.f90)
 target_link_libraries(test_ellpack PRIVATE rbf)
 add_test(NAME ellpack COMMAND test_ellpack)
 
+add_executable(test_sell test_sell.f90)
+target_link_libraries(test_sell PRIVATE rbf)
+add_test(NAME sell COMMAND test_sell)
+
 # The solver wrapper, from both sides of its interface: the C header
 # and the Fortran module.
 if(GPU_ASSEMBLY_ENABLE_SOLVER)

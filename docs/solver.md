@@ -1,8 +1,8 @@
 # Sparse products and iterative solvers
 
 The pieces between an assembled operator and a solved system: the
-products of a matrix in fixed-row-length CSR or in ELLPACK storage
-with a vector, in Fortran and part of the host library, and a C
+products of a matrix in fixed-row-length CSR, ELLPACK or sliced
+ELLPACK storage with a vector, in Fortran and part of the host library, and a C
 interface over Eigen's iterative solvers with its Fortran module, the
 optional component `rbf_solver`.
 Together they are a small solver library, usable from Fortran without
@@ -12,6 +12,7 @@ a line of C++.
 |---|---|---|
 | fixed-row-length CSR product | `src/rbf_csr.F90`, module `rbf_csr` | the host library |
 | ELLPACK product | `src/rbf_ellpack.F90`, module `rbf_ellpack` | the host library |
+| sliced ELLPACK product | `src/rbf_sell.f90`, module `rbf_sell` | the host library |
 | general CSR product | `rbf_csr_mv_dp`, Fortran `csr_mv` | `rbf_solver` |
 | CSR solvers, matrix-free solvers | `rbf_solve_csr_dp`, `rbf_solve_mf_dp`, Fortran `solve_sparse` | `rbf_solver` |
 
@@ -135,9 +136,38 @@ bytes of stack per row. 1024 was within 10% of `csr_mv` on both
 machines and is the default (`nblock` in the source); compiling with
 `-DRBF_ELLPACK_NBLOCK=` overrides it for measuring again.
 
+## The sliced ELLPACK product
+
+Sliced ELLPACK (SELL-C, Kreutzer et al. 2014, without the sorting,
+since every row has the same number of entries) cuts the rows into
+chunks of `c` and stores each chunk in ELLPACK:
+`a(c, nnzrow, nchunks)` and `ja(c, nnzrow, nchunks)`, with
+`a(i, j, k)` the j-th entry of the i-th row of chunk `k`. Consecutive
+rows are consecutive in memory, so the SIMD lanes take the rows of a
+chunk as in ELLPACK, and a whole chunk is one contiguous run of
+`c*nnzrow` values and as many indices, so the product streams two
+sequential arrays as CSR does, instead of ELLPACK's `2*nnzrow`
+strided streams. The rows past `n` in the last chunk are padding,
+zero values with in-bounds indices.
+
+```fortran
+use rbf_sell
+nchunks = sell_nchunks(n, c)
+allocate(asell(c, nnzrow, nchunks), jsell(c, nnzrow, nchunks))
+call sell_pack(n, nnzrow, a, ja, lda, c, asell, jsell)     ! from the fixed-row-length CSR
+call sell_mv(n, nnzrow, c, alpha, asell, jsell, x, beta, y) ! y = beta y + alpha A x
+```
+
+`c` is a run-time dimension so it can be measured without rebuilding;
+a multiple of the vector length, 8 for AVX-512 doubles, keeps the
+inner loops free of remainders. The product has the BLAS shape and
+conventions of the other two. Threads take chunks and the lanes the
+rows of a chunk, with the chunk's partial sums in a stack array of
+length `c`.
+
 ## CSR against ELLPACK on a kNN matrix
 
-`examples/bench_spmv.f90` times the two products on one matrix from
+`examples/bench_spmv.f90` times the three products on one matrix from
 `data/tools/knn_stream.py`, the 21 nearest neighbours of a million
 random points in the unit square with the node itself first, as
 `NodeSet::stencils` orders a row, either in the random order the
@@ -181,6 +211,34 @@ the numbers say:
   bandwidth, before the traffic of `x` and `y`. Random order lands at
   2 GB/s and 7 to 8 GB/s. A matrix of a hundred thousand points, 25
   MB, fits the L3 and runs at 40 to 50 GB/s on four threads.
+
+### Sliced ELLPACK against both
+
+The same matrices and machine, GB/s of `a` and `ja`, both compilers,
+chunk lengths of 8, 32 and 1024 rows for the sliced format and the
+default 1024-row blocks for ELLPACK:
+
+| matrix | threads | `csr_mv` | `ellpack_mv` | `sell_mv`, c = 8 | c = 32 | c = 1024 |
+|---|---|---|---|---|---|---|
+| grid stencil | 1 | 7.3 - 9.3 | 6.4 - 8.7 | 8.9 - 9.6 | 8.2 - 10.4 | 9.4 - 9.6 |
+| grid stencil | 4 | 26 - 35 | 24 - 32 | 30 - 34 | 29 - 33 | 31 - 32 |
+| kNN, Morton order | 1 | 7.1 - 9.0 | 6.3 - 8.2 | 8.7 - 9.2 | 8.2 - 9.4 | 8.6 - 8.9 |
+| kNN, Morton order | 4 | 25 - 35 | 23 - 31 | 31 - 32 | 34 | 33 - 34 |
+| kNN, random order | 1 | 1.4 - 2.2 | 1.5 - 2.3 | 2.1 - 2.2 | 1.7 - 2.4 | 1.7 - 1.8 |
+| kNN, random order | 4 | 6 - 9 | 6 - 9 | 7 - 8 | 7 - 8 | 7 |
+
+On one thread the sliced format is the fastest of the three, 5 to
+15% ahead of CSR: there the core is the limit, and lanes across rows
+with two sequential streams beat a gather-and-reduce per row. On four
+threads the two tie, at 80 to 90% of the copy bandwidth, which is the
+limit that counts for a run that uses the machine; ELLPACK stays 5 to
+10% behind both. The chunk length hardly matters between 8 and 1024,
+which is the point of the format: the streams are sequential at any
+chunk length, unlike ELLPACK's blocks. Random order flattens
+everything to the latency of the `x` gather. So the sliced format is
+not faster than CSR where it matters, and CSR is the storage the
+assembly already produces; `rbf_sell` earns its place where the
+product runs on one core, or on a GPU, which is the format's home.
 
 ### Why the ELLPACK kernel keeps a stack array
 
