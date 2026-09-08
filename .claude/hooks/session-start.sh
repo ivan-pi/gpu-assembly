@@ -45,9 +45,11 @@ REQUIRED_TOOLS=(
 
 # Packages with no executable of their own to probe; asked of dpkg instead.
 # libomp-20-dev is what gives clang++-20 and flang-20 their OpenMP runtime,
-# which CMakeLists.txt looks for via find_package(OpenMP).
+# which CMakeLists.txt looks for via find_package(OpenMP); libeigen3-dev
+# is Eigen, for the optional solver component (GPU_ASSEMBLY_ENABLE_SOLVER).
 REQUIRED_PACKAGES=(
     libomp-20-dev
+    libeigen3-dev
 )
 
 missing=()
@@ -129,6 +131,6 @@ else
     echo "session-start: pip install failed; the data/ scripts and the format hook will complain"
 fi
 
-echo "session-start: build with 'cmake -B build && cmake --build build && ctest --test-dir build'"
+echo "session-start: build with 'cmake -B build -DGPU_ASSEMBLY_ENABLE_SOLVER=ON && cmake --build build && ctest --test-dir build'"
 echo "session-start: for the LLVM toolchain, 'CXX=clang++-20 FC=flang-20 cmake -B build-llvm'"
 echo "session-start: 'pre-commit run --all-files' checks the style; see docs/developers.md"

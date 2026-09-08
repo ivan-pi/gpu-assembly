@@ -48,12 +48,13 @@ jobs:
       - name: Install
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++ gfortran
+          sudo apt-get install -y --no-install-recommends g++ gfortran libeigen3-dev
           pip install pre-commit
 
-      # The compile database, not a build
+      # The compile database, not a build; with the solver component
+      # on, so that rbf_solver.cpp is in it
       - name: Configure
-        run: cmake -B build
+        run: cmake -B build -DGPU_ASSEMBLY_ENABLE_SOLVER=ON
 
       - name: Check
         run: pre-commit run --hook-stage manual clang-tidy --all-files

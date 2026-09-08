@@ -19,6 +19,11 @@ The host library and its tests:
 - [ckdtree](https://github.com/scipy/scipy/tree/main/scipy/spatial/ckdtree),
   SciPy's k-d tree, vendored under `third_party/` and built from source
 
+The iterative solver component (`rbf_solver`, opt-in) additionally:
+
+- [Eigen](https://eigen.tuxfamily.org) 3.4 or newer; `libeigen3-dev`
+  on Debian and Ubuntu
+
 The GPU parts additionally:
 
 - The NVHPC toolchain, `nvc++` and `nvfortran`
@@ -39,6 +44,16 @@ The flow benchmark examples (`examples/`, the Fortran module
 `rbf_benchmarks` and the header `rbf_flow_benchmarks.h`) build by
 default as the `rbf_benchmarks` target; pass
 `-DGPU_ASSEMBLY_BUILD_EXAMPLES=OFF` to leave them out.
+
+The sparse solvers (`rbf_solver.h`, the Fortran module `rbf_solver`;
+[docs/solver.md](docs/solver.md)) wrap Eigen and are opt-in:
+
+```
+cmake -B build -DGPU_ASSEMBLY_ENABLE_SOLVER=ON
+```
+
+The ELLPACK matrix-vector products in the module `rbf_ellpack` need
+no Eigen and are always part of the host library.
 
 CI exercises GCC (`g++`/`gfortran`) and the LLVM toolchain
 (`clang++`/`flang`, versions 20 and 22). To build with LLVM flang:
@@ -74,6 +89,8 @@ Documentation:
   space-filling-curve orderings and graph renumbering
 - [docs/file_formats.md](docs/file_formats.md): the file formats the
   library reads and writes
+- [docs/solver.md](docs/solver.md): ELLPACK and CSR matrix-vector
+  products, and the iterative solvers over Eigen
 - [docs/periodic_benchmarks.md](docs/periodic_benchmarks.md): the
   analytic periodic flow fields in `examples/`, for verifying a lattice
   Boltzmann implementation

@@ -20,6 +20,12 @@ option(GPU_ASSEMBLY_ENABLE_CUDA
 option(GPU_ASSEMBLY_BUILD_EXAMPLES
     "Build the flow benchmark examples (examples/)" ON)
 
+# The iterative solvers (rbf_solver.h, rbf_solver.f90; docs/solver.md)
+# wrap Eigen, a dependency nothing else in the library has, so they are
+# a component of their own: the target rbf_solver, off by default.
+option(GPU_ASSEMBLY_ENABLE_SOLVER
+    "Build the iterative solver wrapper, rbf_solver (requires Eigen 3.4)" OFF)
+
 include(CTest)
 
 find_package(OpenMP COMPONENTS CXX Fortran)
@@ -43,6 +49,7 @@ target_include_directories(ckdtree PUBLIC
 
 # Host library
 add_library(rbf
+    src/rbf_ellpack.F90
     src/rbf_ordering.F90
     src/rbf_precision.f90
     src/rbf_periodic_box.f90
@@ -62,6 +69,30 @@ if(OpenMP_CXX_FOUND)
     # rbf_nodeset.h carries omp pragmas; consumers inherit the flags,
     # and rbf_spatial.cpp needs them for its own
     target_link_libraries(rbf PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+if(GPU_ASSEMBLY_ENABLE_SOLVER)
+    # Eigen3Config.cmake, as the distribution packages (libeigen3-dev)
+    # and Eigen's own install ship it; Eigen3_ROOT or CMAKE_PREFIX_PATH
+    # point at a copy elsewhere.
+    find_package(Eigen3 3.4 REQUIRED CONFIG)
+
+    # Eigen is private to rbf_solver.cpp: the header is C, and the
+    # Fortran module only declares the interfaces, so consumers of the
+    # target need Eigen neither at compile nor at link time.
+    add_library(rbf_solver STATIC
+        src/rbf_solver.cpp
+        src/rbf_solver.f90)
+    set_target_properties(rbf_solver PROPERTIES
+        Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod)
+    target_include_directories(rbf_solver PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR}/mod)
+    target_link_libraries(rbf_solver PRIVATE Eigen3::Eigen)
+    if(OpenMP_CXX_FOUND)
+        # Eigen threads the row-major sparse matrix-vector product
+        target_link_libraries(rbf_solver PRIVATE OpenMP::OpenMP_CXX)
+    endif()
 endif()
 
 if(GPU_ASSEMBLY_ENABLE_CUDA)

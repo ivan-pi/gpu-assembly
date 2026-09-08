@@ -52,12 +52,14 @@ repos:
   # Only translation units in the database are listed; the headers are
   # checked through them (HeaderFilterRegex in .clang-tidy). The CUDA
   # sources and the files CMake does not build yet are left out.
+  # rbf_solver.cpp is in the database only when the build tree was
+  # configured with -DGPU_ASSEMBLY_ENABLE_SOLVER=ON.
   - repo: https://github.com/cpp-linter/cpp-linter-hooks
     rev: v1.6.0
     hooks:
       - id: clang-tidy
         args: [--checks=.clang-tidy, --version=20, --compile-commands=build]
-        files: ^(src/rbf_spatial\.cpp|test/.*\.cpp)$
+        files: ^(src/rbf_spatial\.cpp|src/rbf_solver\.cpp|test/.*\.cpp)$
         stages: [manual]
 
   # Python under data/: Ruff's lint and import order first, then Black's

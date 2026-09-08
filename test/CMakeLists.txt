@@ -9,3 +9,19 @@ add_test(NAME io COMMAND test_io)
 add_executable(test_spatial test_spatial.cpp)
 target_link_libraries(test_spatial PRIVATE rbf)
 add_test(NAME spatial COMMAND test_spatial)
+
+add_executable(test_ellpack test_ellpack.f90)
+target_link_libraries(test_ellpack PRIVATE rbf)
+add_test(NAME ellpack COMMAND test_ellpack)
+
+# The solver wrapper, from both sides of its interface: the C header
+# and the Fortran module.
+if(GPU_ASSEMBLY_ENABLE_SOLVER)
+    add_executable(test_solver test_solver.cpp)
+    target_link_libraries(test_solver PRIVATE rbf_solver)
+    add_test(NAME solver COMMAND test_solver)
+
+    add_executable(test_solver_fortran test_solver.f90)
+    target_link_libraries(test_solver_fortran PRIVATE rbf_solver rbf)
+    add_test(NAME solver_fortran COMMAND test_solver_fortran)
+endif()

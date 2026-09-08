@@ -8,6 +8,10 @@ on:
 
 # A new push to the same branch or pull request supersedes the run in
 # progress; nobody waits on results for a commit that is already gone.
+#
+# Every job builds with the optional solver component on
+# (GPU_ASSEMBLY_ENABLE_SOLVER, Eigen from libeigen3-dev), so that its
+# tests run too; the default configuration is a subset of it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,7 +26,7 @@ jobs:
         include:
           - name: gcc / gfortran
             os: ubuntu-latest
-            packages: g++ gfortran
+            packages: g++ gfortran libeigen3-dev
             cxx: g++
             fc: gfortran
 
@@ -33,7 +37,7 @@ jobs:
           # ubuntu-26.04 runner image is still in preview.
           - name: clang-22 / flang-22
             os: ubuntu-26.04
-            packages: clang-22 flang-22 libomp-22-dev
+            packages: clang-22 flang-22 libomp-22-dev libeigen3-dev
             cxx: clang++-22
             fc: flang-22
 
@@ -51,7 +55,7 @@ jobs:
         env:
           CXX: ${{ matrix.cxx }}
           FC: ${{ matrix.fc }}
-        run: cmake -B build
+        run: cmake -B build -DGPU_ASSEMBLY_ENABLE_SOLVER=ON
 
       - name: Build
         run: cmake --build build
@@ -70,7 +74,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-20 flang-20 libomp-20-dev
+          sudo apt-get install -y --no-install-recommends clang-20 flang-20 libomp-20-dev libeigen3-dev
           clang++-20 --version
           flang-20 --version
 
@@ -78,7 +82,7 @@ jobs:
         env:
           CXX: clang++-20
           FC: flang-20
-        run: cmake -B build
+        run: cmake -B build -DGPU_ASSEMBLY_ENABLE_SOLVER=ON
 
       - name: Build
         run: cmake --build build
