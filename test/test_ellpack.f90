@@ -1,8 +1,9 @@
 ! Tests for the module rbf_ellpack: the products of both layouts against
 ! a plain triple loop, on a banded matrix with a pseudo-random pattern
-! of nnzrow entries per row, with and without alpha and beta, and the
-! streaming step against direction-by-direction products. Padding rows
-! of the col layout are filled with garbage to show they are not read.
+! of nnzrow entries per row, for the three cases of beta: zero, where y
+! must not be read, one, and a general value. Both layouts are laid out
+! with a leading dimension larger than they need, and the padding is
+! filled with garbage to show it is never read.
 !
 ! Built and run through CMake:
 !
@@ -15,14 +16,14 @@ use rbf_ellpack
 implicit none
 
 integer, parameter :: wp = c_double
-integer, parameter :: n = 1001, nnzrow = 7, lda = 1024, qdirs = 4, ldpdf = 1040
+integer, parameter :: n = 1001, nnzrow = 7
+integer, parameter :: lda_row = 8     ! >= nnzrow, one padding entry per row
+integer, parameter :: lda_col = 1024  ! >= n, padding rows
 
-real(wp) :: a_row(nnzrow, n), a_col(lda, nnzrow)
-integer(c_int) :: ja_row(nnzrow, n), ja_col(lda, nnzrow)
+real(wp) :: a_row(lda_row, n), a_col(lda_col, nnzrow)
+integer(c_int) :: ja_row(lda_row, n), ja_col(lda_col, nnzrow)
 real(wp) :: x(n), y(n), y0(n), yref(n)
-real(wp) :: a_row_q(nnzrow, n, qdirs), a_col_q(lda, nnzrow, qdirs)
-real(wp) :: fold(ldpdf, qdirs), fnew(ldpdf, qdirs), fref(ldpdf, qdirs)
-integer :: i, j, q, failures
+integer :: i, j, failures
 integer(c_int) :: seed
 
 failures = 0
@@ -30,7 +31,10 @@ seed = 12345
 
 ! The pattern: entry j of row i points at a node within the band
 ! [i - 3, i + 3], wrapped, in scrambled order and with duplicates
-! (a stencil is not allowed those, the product does not care)
+! (a stencil is not allowed those, the product does not care); the
+! padding of both layouts is poisoned
+a_row = huge(1.0_wp)
+ja_row = -1
 do i = 1, n
     do j = 1, nnzrow
         ja_row(j, i) = int(modulo(i - 1 + next(seed, 7) - 3, n), c_int)  ! 0-based
@@ -42,7 +46,6 @@ do i = 1, n
     y0(i) = real(next(seed, 1000), wp)/1000
 end do
 
-! The same matrix in the col layout, with poisoned padding
 a_col = huge(1.0_wp)
 ja_col = -1
 do j = 1, nnzrow
@@ -58,59 +61,36 @@ do i = 1, n
     end do
 end do
 
-y = huge(1.0_wp)  ! not read when beta is absent
-call ellpack_mv_row(n, nnzrow, a_row, ja_row, x, y)
+! beta = 0: y not read
+y = huge(1.0_wp)
+call ellpack_mv_row(n, nnzrow, 1.0_wp, a_row, ja_row, lda_row, x, 0.0_wp, y)
 call check(close(y, yref), "row: y = A x")
 y = huge(1.0_wp)
-call ellpack_mv_col(n, nnzrow, lda, a_col, ja_col, x, y)
+call ellpack_mv_col(n, nnzrow, 1.0_wp, a_col, ja_col, lda_col, x, 0.0_wp, y)
 call check(close(y, yref), "col: y = A x")
 
-! y = beta y + alpha A x
+y = huge(1.0_wp)
+call ellpack_mv_row(n, nnzrow, 3.0_wp, a_row, ja_row, lda_row, x, 0.0_wp, y)
+call check(close(y, 3*yref), "row: y = alpha A x")
+y = huge(1.0_wp)
+call ellpack_mv_col(n, nnzrow, 3.0_wp, a_col, ja_col, lda_col, x, 0.0_wp, y)
+call check(close(y, 3*yref), "col: y = alpha A x")
+
+! beta = 1: the accumulating form of the matrix-free solver's callback
 y = y0
-call ellpack_mv_row(n, nnzrow, a_row, ja_row, x, y, alpha=2.0_wp, beta=-0.5_wp)
+call ellpack_mv_row(n, nnzrow, 2.0_wp, a_row, ja_row, lda_row, x, 1.0_wp, y)
+call check(close(y, y0 + 2*yref), "row: y = y + alpha A x")
+y = y0
+call ellpack_mv_col(n, nnzrow, 2.0_wp, a_col, ja_col, lda_col, x, 1.0_wp, y)
+call check(close(y, y0 + 2*yref), "col: y = y + alpha A x")
+
+! general beta
+y = y0
+call ellpack_mv_row(n, nnzrow, 2.0_wp, a_row, ja_row, lda_row, x, -0.5_wp, y)
 call check(close(y, -0.5_wp*y0 + 2*yref), "row: y = beta y + alpha A x")
 y = y0
-call ellpack_mv_col(n, nnzrow, lda, a_col, ja_col, x, y, alpha=2.0_wp, beta=-0.5_wp)
+call ellpack_mv_col(n, nnzrow, 2.0_wp, a_col, ja_col, lda_col, x, -0.5_wp, y)
 call check(close(y, -0.5_wp*y0 + 2*yref), "col: y = beta y + alpha A x")
-
-! beta given as zero: y still not read
-y = huge(1.0_wp)
-call ellpack_mv_row(n, nnzrow, a_row, ja_row, x, y, alpha=3.0_wp, beta=0.0_wp)
-call check(close(y, 3*yref), "row: beta = 0")
-y = huge(1.0_wp)
-call ellpack_mv_col(n, nnzrow, lda, a_col, ja_col, x, y, alpha=3.0_wp, beta=0.0_wp)
-call check(close(y, 3*yref), "col: beta = 0")
-
-! Streaming: one matrix per direction, the rest direction copied
-a_col_q = huge(1.0_wp)
-do q = 1, qdirs
-    a_row_q(:, :, q) = a_row*q
-    do j = 1, nnzrow
-        a_col_q(1:n, j, q) = a_row_q(j, :, q)
-    end do
-end do
-fold = 0
-do q = 1, qdirs
-    do i = 1, n
-        fold(i, q) = real(next(seed, 1000), wp)/1000
-    end do
-end do
-fref = 0
-fref(1:n, 1) = fold(1:n, 1)
-do q = 2, qdirs
-    do i = 1, n
-        do j = 1, nnzrow
-            fref(i, q) = fref(i, q) + a_row_q(j, i, q)*fold(ja_row(j, i) + 1, q)
-        end do
-    end do
-end do
-
-fnew = 0
-call ellpack_stream_row(n, qdirs, fnew, fold, ldpdf, ja_row, a_row_q, nnzrow)
-call check(all(abs(fnew - fref) <= 1.0e-13_wp), "stream row")
-fnew = 0
-call ellpack_stream_col(n, qdirs, fnew, fold, ldpdf, ja_col, a_col_q, lda, nnzrow)
-call check(all(abs(fnew - fref) <= 1.0e-13_wp), "stream col")
 
 if (failures > 0) then
     print '(a,i0,a)', "test_ellpack: ", failures, " failure(s)"

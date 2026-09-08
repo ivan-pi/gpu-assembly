@@ -135,7 +135,7 @@ contains
         type(ell), pointer :: E
         call c_f_pointer(data, E)
         call check(nr == E%n .and. nc == E%n, "ellpack_matvec: dimensions")
-        call ellpack_mv_row(E%n, E%nnzrow, E%a, E%ja, x, y, alpha=alpha, beta=1.0_c_double)
+        call ellpack_mv_row(E%n, E%nnzrow, alpha, E%a, E%ja, E%nnzrow, x, 1.0_c_double, y)
     end subroutine
 
     ! The identity, needing no context

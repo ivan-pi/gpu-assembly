@@ -9,7 +9,7 @@ a line of C++.
 
 | Piece | Where | Needs |
 |---|---|---|
-| ELLPACK products, streaming step | `src/rbf_ellpack.F90`, module `rbf_ellpack` | the host library |
+| ELLPACK products | `src/rbf_ellpack.F90`, module `rbf_ellpack` | the host library |
 | CSR product | `rbf_csr_mv_dp`, Fortran `csr_mv` | `rbf_solver` |
 | CSR solvers, matrix-free solvers | `rbf_solve_sparse_csr_dp`, `rbf_solve_sparse_mf_dp`, Fortran `solve_sparse` | `rbf_solver` |
 
@@ -39,28 +39,40 @@ on.
 
 A fixed-width stencil graph is ELLPACK storage already: every row has
 `nnzrow` entries, so the column indices and the values are rectangular
-arrays and there is no row pointer. The stencils `ja(k, n)` of
-`NodeSet::stencils` are the index array of the row layout, and the
-weights the assembly kernels write beside them are its values.
+arrays and there is no row pointer. Two layouts, differing in which
+index runs fastest:
+
+| Layout | Arrays | Contiguous | Padding |
+|---|---|---|---|
+| row | `a(lda, n)`, `ja(lda, n)`, `lda >= nnzrow` | the entries of a row | entries past `nnzrow` |
+| col | `a(lda, nnzrow)`, `ja(lda, nnzrow)`, `lda >= n` | the j-th entries of all rows | rows past `n` |
+
+The row layout is compressed sparse row with a fixed row length and
+the row pointer implicit, `ia(i) = i*lda`. It is the layout the library
+produces: the stencils `ja(k, n)` of `NodeSet::stencils` are its index
+array and the weights the assembly kernels write beside them its
+values, so a driver can multiply with what the assembly left without
+converting. The col layout is ELLPACK proper, the transposed storage
+that lets the SIMD lanes take consecutive rows, and is the one to
+convert to where the product dominates the run time.
+
+Both products are the BLAS-shaped update `y := beta*y + alpha*A*x`,
+with the BLAS argument order (the dimensions, `alpha`, the matrix with
+its leading dimension, `x`, `beta`, `y`) and the BLAS convention that
+`y` is not read when `beta` is zero:
 
 ```fortran
 use rbf_ellpack
-call ellpack_mv_row(n, nnzrow, a, ja, x, y)                       ! y = A x
-call ellpack_mv_row(n, nnzrow, a, ja, x, y, alpha=dt, beta=1.0_wp)  ! y = y + dt A x
-call ellpack_mv_col(n, nnzrow, lda, a, ja, x, y)
+call ellpack_mv_row(n, nnzrow, alpha, a, ja, lda, x, beta, y)
+call ellpack_mv_col(n, nnzrow, alpha, a, ja, lda, x, beta, y)
 ```
 
-Two layouts, differing in which index runs fastest:
+The two have the same argument list, only the meaning of `lda`
+differs. Indices are 0-based, as the stencils come; padding is never
+read. `beta = 1` is the accumulating form the matrix-free solver's
+callback needs.
 
-| Layout | Arrays | Contiguous |
-|---|---|---|
-| row | `a(nnzrow, n)`, `ja(nnzrow, n)` | the entries of a row |
-| col | `a(lda, nnzrow)`, `ja(lda, nnzrow)`, `lda >= n` | the j-th entries of all rows |
-
-Indices are 0-based, as the stencils come. The product is
-`y := beta*y + alpha*A*x` with the BLAS convention that `y` is not read
-when `beta` is zero; `alpha` and `beta` default to 1 and 0. In the col
-layout the rows beyond `n` are padding and never read.
+### Threads, SIMD, and the block size
 
 Threads take blocks of rows, an OpenMP `parallel do` with a static
 schedule, and the SIMD lanes take what is contiguous in the layout: in
@@ -72,17 +84,34 @@ loop each, since a combined `parallel do simd` would need
 not every compiler takes that. The row reduction needs
 `simd reduction(+:t)` to let the compiler reassociate the sum, which
 flang cannot lower yet, so under flang that one loop runs scalar; the
-guard is in the source and goes once flang can. The col layout is the
-one to use where the product dominates: with gfortran and flang alike
-it vectorizes fully.
+guard is in the source and goes once flang can.
 
-`ellpack_stream_row` and `ellpack_stream_col` are the streaming step of
-a lattice Boltzmann scheme: `fnew(:, q) = A_q fold(:, q)` for the
-directions `q = 1 .. qdirs-1`, one matrix per direction over the one
-index array, and `fnew(:, 0) = fold(:, 0)` for the rest direction. The
-populations are stored one direction after the other with a leading
-dimension `ldpdf >= n`, as the D2Q9 kernels store them. Both are
-`bind(c)`.
+The col layout kernel sweeps the `nnzrow` entries of a block of rows
+with the block's partial sums in a small stack array, and the block
+size matters. Measured on a 21-point stencil over a million nodes of
+a square grid, numbered along the grid, at `-O2 -march=x86-64-v3`, on
+a 4-core Xeon with AVX-512; time per product in milliseconds, best of
+20:
+
+| rows per block | gfortran, 1 thread | gfortran, 4 threads | flang, 1 thread | flang, 4 threads |
+|---|---|---|---|---|
+| 8 | 25.1 | 4.8 | 24.0 | 5.3 |
+| 16 | 22.0 - 26.6 | 3.6 - 4.5 | 25.7 | 3.5 |
+| 32 | 16.2 - 20.3 | 3.2 - 3.3 | 22.5 | 3.3 |
+| 64 | 18.7 - 19.4 | 3.5 - 3.6 | 21.7 | 3.6 |
+| 128 | 23.8 - 27.9 | 3.7 - 4.3 | 28.9 | 4.3 |
+| 256 | 30.3 - 31.8 | 4.4 - 4.6 | 29.6 | 4.2 |
+| 1024 | 31.3 | 4.4 | 30.5 | 4.6 |
+| row layout, for comparison | 24.5 - 31.9 | 4.4 - 5.6 | 28.5 - 31.0 | 4.4 - 4.9 |
+
+Ranges are two runs. The optimum is 32 to 64 rows, about 1.5x faster
+than the ends, and 32 is the default (`nblock` in the source). The
+product is memory-bound, so on another machine the shape of the curve
+matters more than the numbers: compiling with `-DRBF_ELLPACK_NBLOCK=`
+overrides the default for measuring it again. At 4 threads the col
+layout reaches about 80 GB/s counting `a`, `ja`, `x` and `y` once
+each, and the row layout, with its scalar reduction per row, about
+60 GB/s in either compiler.
 
 ## CSR product
 
