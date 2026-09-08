@@ -9,3 +9,12 @@ add_test(NAME io COMMAND test_io)
 add_executable(test_spatial test_spatial.cpp)
 target_link_libraries(test_spatial PRIVATE rbf)
 add_test(NAME spatial COMMAND test_spatial)
+
+# The RBF-FD weights need LAPACK; the target exists only when it was found
+if(TARGET rbf_fd)
+    add_executable(test_rbf_fd test_rbf_fd.f90)
+    target_link_libraries(test_rbf_fd PRIVATE rbf_fd)
+    # a k-nearest-neighbour case on the periodic box [0, 32)^2 (data/README.md)
+    add_test(NAME rbf_fd
+        COMMAND test_rbf_fd ${CMAKE_SOURCE_DIR}/data/poisson_32_21 32 32)
+endif()
