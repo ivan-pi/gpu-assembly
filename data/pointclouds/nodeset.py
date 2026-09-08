@@ -25,10 +25,16 @@ class Marker(IntEnum):
     and a hole in the interior. A generator uses the ones its geometry
     has. A member is an int, so it compares with a marker read from a
     file and fills a numpy array.
+
+    `circle` is another name for the marker 1, the outer boundary of a
+    disk or an annulus, which is what the node sets read off the papers
+    (data/README.md) carry on it: a round domain has no south wall, and
+    the two never meet in one cloud.
     """
 
     interior = 0
     south = 1
+    circle = 1
     east = 2
     north = 3
     west = 4

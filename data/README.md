@@ -124,6 +124,9 @@ rest:
   by a small random amount, periodic or a channel with walls.
 - `tools/poisson_box.py`: a Poisson disk sample of a periodic box, alone
   or around a circular hole (an array of cylinders), tiled if asked.
+- `tools/disk.py`: the disk about the origin, or the annulus between two
+  concentric circles, in rings or in a quasi-uniform spiral, with the
+  circles marked 1 and 6.
 
 ## Inspecting
 

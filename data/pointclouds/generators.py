@@ -7,6 +7,7 @@ to whoever needs it.
 
 .. autosummary::
 
+   Disk
    PerturbedGrid
    PoissonBox
    RefinedCavity
@@ -15,6 +16,138 @@ to whoever needs it.
 import numpy as np
 
 from .nodeset import Marker, NodeSet, boundary_first
+
+
+class Disk(NodeSet):
+    """The disk, or the annulus between two circles, at a fixed spacing.
+
+    The round test cases: the disk ``|z| <= R`` about the origin, on
+    which the Poisson equation with a manufactured solution is the usual
+    check of an RBF-FD operator, and, with `hole`, the annulus
+    ``r0 <= |z| <= R``, the section of the concentric cylinders of
+    Taylor-Couette flow. The nodes of the two circles come first, marked
+    circle (1) and hole (6), the rest are interior. Dividing the points
+    by `radius` gives the unit disk.
+
+    Parameters
+    ----------
+    radius : float
+        The outer radius R.
+    spacing : float, default 1.0
+        The distance h between neighbouring nodes.
+    hole : float, optional
+        The radius r0 of the disk cut out of the middle, which makes the
+        cloud an annulus; a whole disk without it.
+    distribution : {"rings", "spiral"}
+        Concentric rings a spacing apart, each turned against the last,
+        or a Vogel spiral [1]_ of the same density between the circles.
+
+    Raises
+    ------
+    ValueError
+        For a radius or a spacing that is not positive, and for a hole
+        that leaves less than a spacing of either the annulus or its own
+        circle.
+
+    Notes
+    -----
+    The rings hold a whole number of nodes about h apart along the
+    circle, so the spacing along a ring differs from h by up to a few
+    percent, the more the smaller the ring; the innermost ring of a disk
+    is the single node at the centre. Consecutive rings are turned by
+    the golden angle against each other, which keeps the nodes off the
+    spokes an unturned stack of rings would show.
+
+    The spiral is the one node arrangement here that is quasi-uniform
+    rather than structured: node i sits at the golden angle from node
+    ``i - 1`` and at the radius that gives every node the same area, as
+    many nodes as put them h apart. It is drawn in the annulus a
+    hexagonal row spacing ``h sqrt(3) / 2`` inside the two circles, so
+    that it does not crowd them; the nodes of a circle are therefore the
+    only structured part of it.
+
+    References
+    ----------
+    .. [1] Vogel, "A better way to construct the sunflower head," Math.
+       Biosci. 44, 179-189, 1979,
+       doi:10.1016/0025-5564(79)90080-4.
+    """
+
+    GOLDEN_ANGLE = np.pi * (3.0 - np.sqrt(5.0))
+    PACKING = 0.96  # the nearest neighbours of a spiral, in sqrt(area per node)
+
+    def __init__(self, radius, spacing=1.0, *, hole=0.0, distribution="rings"):
+        if radius <= 0.0 or spacing <= 0.0:
+            raise ValueError("the radius and the spacing must be positive")
+        if hole:
+            if hole < spacing:
+                raise ValueError(
+                    f"a hole of radius {hole:g} is smaller than the spacing "
+                    f"{spacing:g} between nodes"
+                )
+            if radius - hole < spacing:
+                raise ValueError(
+                    f"a hole of radius {hole:g} leaves less than the spacing "
+                    f"{spacing:g} of the annulus inside a radius of {radius:g}"
+                )
+        circles = [(radius, Marker.circle)] + ([(hole, Marker.hole)] if hole else [])
+        pts = [self._ring(r, spacing) for r, _ in circles]
+        m = [np.full(len(p), marker) for p, (_, marker) in zip(pts, circles)]
+        fill = self._spiral if distribution == "spiral" else self._rings
+        pts.append(fill(hole, radius, spacing))
+        m.append(np.full(len(pts[-1]), Marker.interior))
+        title = f"{'annulus' if hole else 'disk'}, radius={radius:g}"
+        if hole:
+            title += f", hole={hole:g}"
+        super().__init__(
+            np.vstack(pts),
+            np.concatenate(m),
+            title=title + f", spacing={spacing:g}, {distribution}",
+        )
+
+    @classmethod
+    def _ring(cls, r, h, turn=0.0):
+        """Places a whole number of nodes about h apart on the circle r.
+
+        The circle is turned by `turn`; a ring of no radius is the node
+        at the centre.
+        """
+        n = max(round(2 * np.pi * r / h), 1)
+        phi = turn + 2 * np.pi * np.arange(n) / n
+        return r * np.column_stack((np.cos(phi), np.sin(phi)))
+
+    @classmethod
+    def _rings(cls, r0, r1, h):
+        """Fills the annulus between the two circles with turned rings.
+
+        The rings are evenly spaced by about h, leaving that much to
+        either circle; a disk gets its innermost ring at the centre
+        instead, since it has no inner circle to keep away from.
+        """
+        if r0:
+            k = max(round((r1 - r0) / h), 2)
+            radii = r0 + (r1 - r0) * np.arange(1, k) / k
+        else:
+            k = max(round(r1 / h), 1)
+            radii = r1 * np.arange(k) / k
+        return np.vstack(
+            [cls._ring(r, h, j * cls.GOLDEN_ANGLE) for j, r in enumerate(radii)]
+        )
+
+    @classmethod
+    def _spiral(cls, r0, r1, h):
+        """Draws a Vogel spiral of nodes h apart between the two circles.
+
+        The nodes stay a hexagonal row spacing off either circle, and
+        the radii are those of equal areas, so the density is the same
+        throughout.
+        """
+        rin, rout = (r0 + h * np.sqrt(3) / 2 if r0 else 0.0), r1 - h * np.sqrt(3) / 2
+        n = max(round(np.pi * (rout**2 - rin**2) * (cls.PACKING / h) ** 2), 1)
+        i = np.arange(n)
+        r = np.sqrt(rin**2 + (rout**2 - rin**2) * (i + 0.5) / n)
+        phi = i * cls.GOLDEN_ANGLE
+        return r[:, None] * np.column_stack((np.cos(phi), np.sin(phi)))
 
 
 class PerturbedGrid(NodeSet):
