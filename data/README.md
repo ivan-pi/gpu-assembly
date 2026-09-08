@@ -155,6 +155,15 @@ options:
 
 ## Reordering
 
+`tools/knn_stream.py` writes the k-nearest-neighbour graph of a random
+point cloud, in the order drawn or Morton-sorted, as the binary stream
+`examples/bench_spmv` reads, to time the sparse products on the pattern
+the library meets (see [docs/solver.md](../docs/solver.md)):
+
+```
+python tools/knn_stream.py 1000000 21 morton knn.bin
+```
+
 `tools/reorder_graph.py` computes a renumbering of the nodes of a graph
 file and writes it as an [ordering file](../docs/file_formats.md#ordering-file):
 

@@ -41,9 +41,9 @@ ctest --test-dir build
 ```
 
 The flow benchmark examples (`examples/`, the Fortran module
-`rbf_benchmarks` and the header `rbf_flow_benchmarks.h`) build by
-default as the `rbf_benchmarks` target; pass
-`-DGPU_ASSEMBLY_BUILD_EXAMPLES=OFF` to leave them out.
+`rbf_benchmarks` and the header `rbf_flow_benchmarks.h`) and the
+sparse product benchmark `bench_spmv` build by default with the
+examples; pass `-DGPU_ASSEMBLY_BUILD_EXAMPLES=OFF` to leave them out.
 
 The sparse solvers (`rbf_solver.h`, the Fortran module `rbf_solver`;
 [docs/solver.md](docs/solver.md)) wrap Eigen and are opt-in:

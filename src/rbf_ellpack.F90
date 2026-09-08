@@ -12,9 +12,11 @@
 ! A fixed-width stencil graph and the weights assembled beside it are
 ! this storage transposed, ja(nnzrow, n): that is compressed sparse row
 ! with a fixed row length and an implicit row pointer, and its product
-! is csr_mv in rbf_csr, with the same argument list. The transpose
-! into ELLPACK is worth making where the product dominates the run
-! time.
+! is csr_mv in rbf_csr, with the same argument list. Measured on kNN
+! matrices of a point cloud, that product is as fast as this one at
+! its best block size and faster at any other (docs/solver.md), so
+! the transpose is not worth making for the product alone; this
+! module is for data that is in ELLPACK already.
 !
 ! The product is the BLAS-shaped update
 !
@@ -39,16 +41,19 @@ public :: ellpack_mv
 
 integer, parameter :: wp = c_double
 
-! Rows per block: the block's partial sums stay in a small stack array
-! while its nnzrow entries are swept, so the sweep is a set of short
-! contiguous runs through a and ja and one pass over y. The value
-! matters: measured on a 21-point stencil over a million nodes, 32 to
-! 64 rows run about 1.5x faster than 8 or than 256 and above, with
-! either compiler and at one thread or four (docs/solver.md has the
-! table). The preprocessor symbol is for measuring it again on another
-! machine.
+! Rows per block: the block's partial sums stay in a stack array while
+! its nnzrow entries are swept, so the sweep is 2*nnzrow contiguous
+! runs through a and ja, one block long each, and one pass over y. The
+! value matters and the optimum is not stable across machines: on one
+! 4-core Xeon 32 rows ran 1.5x faster than 1024, on another 1024 ran
+! 3x faster than 32 (docs/solver.md has both). Short runs leave the
+! 2*nnzrow streams to the hardware prefetcher, which may or may not
+! keep up with that many; long runs make every stream sequential for
+! kilobytes at a time and cost only 8 bytes of stack per row. 1024 was
+! within 10% of the CSR product of rbf_csr on both machines and is the
+! default; the preprocessor symbol is for measuring again.
 #ifndef RBF_ELLPACK_NBLOCK
-#define RBF_ELLPACK_NBLOCK 32
+#define RBF_ELLPACK_NBLOCK 1024
 #endif
 integer, parameter :: nblock = RBF_ELLPACK_NBLOCK
 

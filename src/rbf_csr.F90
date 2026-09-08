@@ -21,9 +21,11 @@
 ! the BLAS argument order: the dimensions, alpha, the matrix with its
 ! leading dimension, x, beta, y -- the argument list of ellpack_mv in
 ! rbf_ellpack, the transposed storage, only the meaning of lda
-! differs. The general CSR product, with a row pointer, is csr_mv in
-! rbf_solver; the two generics merge when both modules are used, and
-! the arguments tell them apart.
+! differs. On kNN matrices this product is as fast as the ELLPACK one
+! at its best block size and needs no transpose (docs/solver.md). The
+! general CSR product, with a row pointer, is csr_mv in rbf_solver;
+! the two generics merge when both modules are used, and the
+! arguments tell them apart.
 !
 ! Parallelism: threads take rows (an OpenMP parallel do, static
 ! schedule) and the SIMD lanes take the entries of a row, a gather and

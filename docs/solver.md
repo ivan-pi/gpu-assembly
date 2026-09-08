@@ -108,9 +108,9 @@ solves a system that way with `ellpack_mv` as the operator.
 
 A fixed-width stencil graph and the weights assembled beside it,
 `ja(k, n)`, are this storage transposed, the
-[fixed-row-length CSR](#the-fixed-row-length-csr-product) above. The
-transpose into ELLPACK is worth making where the product dominates
-the run time.
+[fixed-row-length CSR](#the-fixed-row-length-csr-product) above.
+Whether the transpose is worth making is measured below: on kNN
+matrices it is not, for the product alone.
 
 ### Threads, SIMD, and the block size
 
@@ -121,33 +121,75 @@ rows. The two directives sit on separate loops, since a combined
 rows along the vector length, and not every compiler takes that. Both
 gfortran and flang vectorize the block loops.
 
-The block's partial sums stay in a small stack array while its
-`nnzrow` entries are swept, so the sweep is a set of short contiguous
-runs through `a` and `ja` and one pass over `y`, and the block size
-matters. Measured on a 21-point stencil over a million nodes of a
-square grid, numbered along the grid, at `-O2 -march=x86-64-v3`, on a
-4-core Xeon with AVX-512; time per product in milliseconds, best of
-20:
+The block's partial sums stay in a stack array while its `nnzrow`
+entries are swept, so the sweep is `2*nnzrow` contiguous runs through
+`a` and `ja`, one block long each, and one pass over `y`. The block
+size matters, and its optimum is not stable across machines. On one
+4-core Xeon (2.1 GHz, AVX-512) 32 rows ran about 1.5x faster than
+1024 on the grid stencil below; on another (2.8 GHz, AVX-512, 4 MiB
+of L2 per core, 33 MiB of L3) 1024 rows ran 3x faster than 32, on
+every matrix. Short runs leave the `2*nnzrow` streams to the hardware
+prefetcher, which may or may not keep up with that many; long runs
+make every stream sequential for kilobytes at a time and cost only 8
+bytes of stack per row. 1024 was within 10% of `csr_mv` on both
+machines and is the default (`nblock` in the source); compiling with
+`-DRBF_ELLPACK_NBLOCK=` overrides it for measuring again.
 
-| rows per block | gfortran, 1 thread | gfortran, 4 threads | flang, 1 thread | flang, 4 threads |
-|---|---|---|---|---|
-| 8 | 25.1 | 4.8 | 24.0 | 5.3 |
-| 16 | 22.0 - 26.6 | 3.6 - 4.5 | 25.7 | 3.5 |
-| 32 | 16.2 - 20.3 | 3.2 - 3.3 | 22.5 | 3.3 |
-| 64 | 18.7 - 19.4 | 3.5 - 3.6 | 21.7 | 3.6 |
-| 128 | 23.8 - 27.9 | 3.7 - 4.3 | 28.9 | 4.3 |
-| 256 | 30.3 - 31.8 | 4.4 - 4.6 | 29.6 | 4.2 |
-| 1024 | 31.3 | 4.4 | 30.5 | 4.6 |
+## CSR against ELLPACK on a kNN matrix
 
-Ranges are two runs. The optimum is 32 to 64 rows, about 1.5x faster
-than the ends, and 32 is the default (`nblock` in the source). The
-product is memory-bound, so on another machine the shape of the curve
-matters more than the numbers: compiling with `-DRBF_ELLPACK_NBLOCK=`
-overrides the default for measuring it again. At 4 threads the
-product reaches about 80 GB/s counting `a`, `ja`, `x` and `y` once
-each. For comparison, `csr_mv` of `rbf_csr` on the transposed
-storage measured 24 to 32 ms at one thread and 4.4 to 5.6 ms at four
-in the same setting, about 60 GB/s.
+`examples/bench_spmv.f90` times the two products on one matrix from
+`data/tools/knn_stream.py`, the 21 nearest neighbours of a million
+random points in the unit square with the node itself first, as
+`NodeSet::stencils` orders a row, either in the random order the
+points were drawn in or Morton-sorted, as `rbf::morton_order` would
+leave them; and, for comparison, the 21-point stencil of a
+1000-by-1000 grid numbered along the grid. Built with
+`-O2 -march=x86-64-v3 -fopenmp`, on the second machine above, best of
+20 products, time in milliseconds; a STREAM-style copy on the same
+machine runs at 10.5 GB/s on one thread and 38.5 GB/s on four:
+
+| matrix | threads | `csr_mv` | `ellpack_mv`, 32 rows | 256 rows | 1024 rows |
+|---|---|---|---|---|---|
+| grid stencil | 1 | 28.7 - 32.5 | 76.5 - 88.6 | 40.8 - 44.8 | 29.9 - 31.3 |
+| grid stencil | 4 | 8.2 - 9.0 | 19.1 - 29.0 | 11.1 - 14.1 | 8.0 - 9.5 |
+| kNN, Morton order | 1 | 31.2 - 32.3 | 81.8 - 90.4 | 48.7 - 51.7 | 32.8 - 38.3 |
+| kNN, Morton order | 4 | 8.5 - 9.4 | 26.7 - 29.5 | 15.6 - 16.2 | 10.1 |
+| kNN, random order | 1 | 119 - 139 | 129 - 144 | 119 - 129 | 129 - 131 |
+| kNN, random order | 4 | 31 - 35 | 35 - 37 | 32 - 33 | 32 - 33 |
+
+Ranges span gfortran 13 and flang 20, which agree within them. What
+the numbers say:
+
+- **The fixed-row-length CSR product is the one to use for a kNN
+  matrix.** It is as fast as ELLPACK at ELLPACK's best block size,
+  faster at every other, needs no transpose of the assembled arrays,
+  and has no parameter to tune. ELLPACK's SIMD across rows does not
+  pay here because the product is bound by memory, not by
+  arithmetic, and the gather of `x` costs the same in both layouts.
+  The module is kept for data that is in ELLPACK already.
+- **Ordering is worth more than either kernel.** Morton order runs
+  the kNN matrix at the speed of a grid stencil; the random order is
+  4x slower on one thread, and the two kernels tie, because every
+  `x` access then misses to memory and the run time is latency. That
+  is what the renumbering of [renumbering.md](renumbering.md) buys.
+- **Effective bandwidth.** Counting `a`, `ja`, `x` and `y` once each,
+  the ordered matrices reach 8 to 9 GB/s on one thread and 29 to 33
+  GB/s on four, that is 80 to 90% of the copy bandwidth; the true
+  traffic is higher, since every `x` is gathered `nnzrow` times, but
+  from cache when the ordering is good. Random order lands at 2 GB/s
+  and 8 GB/s. A matrix of a hundred thousand points, 25 MB, fits the
+  L3 and runs at 45 to 55 GB/s on four threads.
+
+The numbers are the machine's, and a shared one at that: the same
+executable measured 3.2 ms per ELLPACK product with 32-row blocks on
+the first machine and 20 ms on the second. Run the benchmark rather
+than reading the table:
+
+```
+python data/tools/knn_stream.py 1000000 21 morton knn.bin
+cmake -B build -DCMAKE_Fortran_FLAGS="-O2 -march=x86-64-v3" && cmake --build build --target bench_spmv
+OMP_NUM_THREADS=4 OMP_PROC_BIND=true ./build/examples/bench_spmv knn.bin
+```
 
 ## CSR product
 
