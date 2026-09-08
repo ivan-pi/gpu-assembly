@@ -1,16 +1,18 @@
 # Sparse products and iterative solvers
 
 The pieces between an assembled operator and a solved system: the
-product of a matrix in ELLPACK storage with a vector, in Fortran and
-part of the host library, and a C interface over Eigen's iterative
-solvers with its Fortran module, the optional component `rbf_solver`.
+products of a matrix in fixed-row-length CSR or in ELLPACK storage
+with a vector, in Fortran and part of the host library, and a C
+interface over Eigen's iterative solvers with its Fortran module, the
+optional component `rbf_solver`.
 Together they are a small solver library, usable from Fortran without
 a line of C++.
 
 | Piece | Where | Needs |
 |---|---|---|
+| fixed-row-length CSR product | `src/rbf_csr.F90`, module `rbf_csr` | the host library |
 | ELLPACK product | `src/rbf_ellpack.F90`, module `rbf_ellpack` | the host library |
-| CSR product | `rbf_csr_mv_dp`, Fortran `csr_mv` | `rbf_solver` |
+| general CSR product | `rbf_csr_mv_dp`, Fortran `csr_mv` | `rbf_solver` |
 | CSR solvers, matrix-free solvers | `rbf_solve_csr_dp`, `rbf_solve_mf_dp`, Fortran `solve_sparse` | `rbf_solver` |
 
 Names: the C functions carry the library's `rbf_` prefix because they
@@ -42,6 +44,46 @@ The tests `solver` and `solver_fortran` build with the option and
 exercise the interface from C++ and from Fortran; CI builds with it
 on.
 
+## The fixed-row-length CSR product
+
+The pattern of a k-nearest-neighbour graph over a point cloud: every
+row holds the same number of entries, `nnzrow`, so the row pointer is
+implicit and the values and column indices are the rectangular arrays
+`a(lda, n)` and `ja(lda, n)`, `lda >= nnzrow`, with `a(j, i)` the j-th
+entry of row `i`, multiplying `x(ja(j, i))`. The entries of a row are
+contiguous; the entries past `nnzrow` are padding and never read.
+Indices are 0-based. The stencils `ja(k, n)` of `NodeSet::stencils`
+are this index array with `lda = k`, and the weights the assembly
+kernels write beside them are its values, so a driver multiplies with
+what the assembly left:
+
+```fortran
+use rbf_csr
+call csr_mv(n, nnzrow, alpha, a, ja, lda, x, beta, y)   ! y = beta y + alpha A x
+```
+
+The product is the BLAS-shaped update `y := beta*y + alpha*A*x` in the
+BLAS argument order (the dimensions, `alpha`, the matrix with its
+leading dimension, `x`, `beta`, `y`), with the BLAS convention that `y`
+is not read when `beta` is zero. It is the argument list of
+`ellpack_mv` below, on the transposed storage; only the meaning of
+`lda` differs.
+
+Threads take rows, an OpenMP `parallel do` with a static schedule, and
+the SIMD lanes take the entries of a row, a gather and a short
+reduction. The reduction needs `simd reduction(+:t)` to let the
+compiler reassociate the sum, which flang cannot lower yet, so under
+flang that loop runs scalar; the guard is in the source and goes once
+flang can. gfortran vectorizes it.
+
+The general CSR product with a row pointer is `csr_mv` in `rbf_solver`
+(the [CSR product](#csr-product) below, through Eigen). The two share
+the name on purpose: a scope that uses both modules sees one generic
+`csr_mv`, as Fortran merges generics of the same name, and the
+arguments tell them apart, a rectangular `a` here against `nnz` and a
+row pointer there. The test `solver_fortran` calls both through the
+one name.
+
 ## The ELLPACK product
 
 ELLPACK storage: every row holds the same number of entries, `nnzrow`,
@@ -65,12 +107,10 @@ the matrix-free solver's callback needs; the test `solver_fortran`
 solves a system that way with `ellpack_mv` as the operator.
 
 A fixed-width stencil graph and the weights assembled beside it,
-`ja(k, n)`, are this storage transposed: compressed sparse row with a
-fixed row length and an implicit row pointer, `ia(i) = i*k`. Its
-product is the [CSR product](#csr-product), and `rbf::make_row_ptr`
-in [rbf_reorder.h](renumbering.md) makes the row pointer explicit.
-The transpose into ELLPACK is worth making where the product
-dominates the run time.
+`ja(k, n)`, are this storage transposed, the
+[fixed-row-length CSR](#the-fixed-row-length-csr-product) above. The
+transpose into ELLPACK is worth making where the product dominates
+the run time.
 
 ### Threads, SIMD, and the block size
 
@@ -105,9 +145,9 @@ product is memory-bound, so on another machine the shape of the curve
 matters more than the numbers: compiling with `-DRBF_ELLPACK_NBLOCK=`
 overrides the default for measuring it again. At 4 threads the
 product reaches about 80 GB/s counting `a`, `ja`, `x` and `y` once
-each. For comparison, a per-row gather-and-reduce kernel on the
-transposed storage, the CSR-like layout above, measured 24 to 32 ms
-at one thread and 4.4 to 5.6 ms at four in the same setting.
+each. For comparison, `csr_mv` of `rbf_csr` on the transposed
+storage measured 24 to 32 ms at one thread and 4.4 to 5.6 ms at four
+in the same setting, about 60 GB/s.
 
 ## CSR product
 
@@ -115,6 +155,9 @@ at one thread and 4.4 to 5.6 ms at four in the same setting.
 use rbf_solver
 call csr_mv(nr, nc, nnz, val, ia, ja, alpha, x, beta, y)   ! y = beta y + alpha A x
 ```
+
+The general form, with a row pointer; the fixed-row-length form of
+`rbf_csr` above needs no Eigen and shares the generic name.
 
 ```c
 rbf_csr_mv_dp(nr, nc, nnz, val, ia, ja, alpha, x, beta, y);

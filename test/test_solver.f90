@@ -17,11 +17,12 @@
 module test_solver_support
 use, intrinsic :: iso_c_binding, only: c_int, c_double, c_ptr, c_f_pointer
 use rbf_ellpack, only: ellpack_mv
+use rbf_csr, only: csr_mv
 implicit none
 private
 
 public :: csr, laplacian_1d, apply, matvec, identity
-public :: ell, to_ellpack, ellpack_matvec
+public :: ell, to_ellpack, ellpack_matvec, fixed_csr_matvec
 public :: check, failures
 
 ! In CSR, 0-based, handed to the callback through a pointer
@@ -138,6 +139,21 @@ contains
         call ellpack_mv(E%n, E%nnzrow, alpha, E%a, E%ja, E%n, x, 1.0_c_double, y)
     end subroutine
 
+    ! rbf_csr's fixed-row-length product as the operator, on the
+    ! transpose of the ELLPACK arrays
+    subroutine fixed_csr_matvec(nr, nc, alpha, x, y, data) bind(c)
+        integer(c_int), value :: nr, nc
+        real(c_double), value :: alpha
+        real(c_double), intent(in) :: x(nc)
+        real(c_double), intent(inout) :: y(nr)
+        type(c_ptr), value :: data
+        type(ell), pointer :: E
+        call c_f_pointer(data, E)
+        call check(nr == E%n .and. nc == E%n, "fixed_csr_matvec: dimensions")
+        call csr_mv(E%n, E%nnzrow, alpha, transpose(E%a), transpose(E%ja), E%nnzrow, x, &
+            1.0_c_double, y)
+    end subroutine
+
     ! The identity, needing no context
     subroutine identity(nr, nc, alpha, x, y, data) bind(c)
         integer(c_int), value :: nr, nc
@@ -153,6 +169,7 @@ end module
 program test_solver
 use, intrinsic :: iso_c_binding, only: c_int, c_double, c_loc, c_null_ptr
 use rbf_solver
+use rbf_csr  ! its csr_mv merges with rbf_solver's into one generic
 use test_solver_support
 implicit none
 
@@ -210,6 +227,12 @@ status = solve_sparse(n, n, ellpack_matvec, c_loc(E), b, x, res_error=err, &
 call check(status == SOLVER_SUCCESS, "mf ellpack: status")
 call check(maxval(abs(x - u)) < 1.0e-9_c_double, "mf ellpack: solution")
 
+x = 0
+status = solve_sparse(n, n, fixed_csr_matvec, c_loc(E), b, x, res_error=err, &
+    tolerance=1.0e-12_c_double)
+call check(status == SOLVER_SUCCESS, "mf fixed csr: status")
+call check(maxval(abs(x - u)) < 1.0e-9_c_double, "mf fixed csr: solution")
+
 ! Eigen's CSR product against the reference: y = A u, then y = -0.5 y + 2 A u
 y = huge(1.0_c_double)
 call csr_mv(A%n, A%n, size(A%val), A%val, A%ia, A%ja, 1.0_c_double, u, 0.0_c_double, y)
@@ -217,6 +240,13 @@ call check(maxval(abs(y - b)) < 1.0e-14_c_double, "csr_mv: y = A x")
 y = 1
 call csr_mv(A%n, A%n, size(A%val), A%val, A%ia, A%ja, 2.0_c_double, u, -0.5_c_double, y)
 call check(maxval(abs(y - (2*b - 0.5_c_double))) < 1.0e-14_c_double, "csr_mv: beta, alpha")
+
+! The merged generic: the fixed-row-length product of rbf_csr through
+! the same name, told apart by its arguments
+y = huge(1.0_c_double)
+call csr_mv(E%n, E%nnzrow, 1.0_c_double, transpose(E%a), transpose(E%ja), E%nnzrow, u, &
+    0.0_c_double, y)
+call check(maxval(abs(y - b)) < 1.0e-14_c_double, "csr_mv: fixed row length, merged generic")
 
 ! The callback without a context: the identity, so x = b
 x = 0

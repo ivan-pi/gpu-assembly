@@ -49,6 +49,7 @@ target_include_directories(ckdtree PUBLIC
 
 # Host library
 add_library(rbf
+    src/rbf_csr.F90
     src/rbf_ellpack.F90
     src/rbf_ordering.F90
     src/rbf_precision.f90

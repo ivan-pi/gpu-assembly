@@ -10,6 +10,10 @@ add_executable(test_spatial test_spatial.cpp)
 target_link_libraries(test_spatial PRIVATE rbf)
 add_test(NAME spatial COMMAND test_spatial)
 
+add_executable(test_csr test_csr.f90)
+target_link_libraries(test_csr PRIVATE rbf)
+add_test(NAME csr COMMAND test_csr)
+
 add_executable(test_ellpack test_ellpack.f90)
 target_link_libraries(test_ellpack PRIVATE rbf)
 add_test(NAME ellpack COMMAND test_ellpack)

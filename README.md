@@ -52,8 +52,9 @@ The sparse solvers (`rbf_solver.h`, the Fortran module `rbf_solver`;
 cmake -B build -DGPU_ASSEMBLY_ENABLE_SOLVER=ON
 ```
 
-The ELLPACK matrix-vector products in the module `rbf_ellpack` need
-no Eigen and are always part of the host library.
+The matrix-vector products for fixed-row-length CSR and ELLPACK
+storage, the modules `rbf_csr` and `rbf_ellpack`, need no Eigen and
+are always part of the host library.
 
 CI exercises GCC (`g++`/`gfortran`) and the LLVM toolchain
 (`clang++`/`flang`, versions 20 and 22). To build with LLVM flang:
@@ -89,7 +90,7 @@ Documentation:
   space-filling-curve orderings and graph renumbering
 - [docs/file_formats.md](docs/file_formats.md): the file formats the
   library reads and writes
-- [docs/solver.md](docs/solver.md): ELLPACK and CSR matrix-vector
+- [docs/solver.md](docs/solver.md): the CSR and ELLPACK matrix-vector
   products, and the iterative solvers over Eigen
 - [docs/periodic_benchmarks.md](docs/periodic_benchmarks.md): the
   analytic periodic flow fields in `examples/`, for verifying a lattice

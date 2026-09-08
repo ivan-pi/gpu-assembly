@@ -12,8 +12,9 @@
 ! A fixed-width stencil graph and the weights assembled beside it are
 ! this storage transposed, ja(nnzrow, n): that is compressed sparse row
 ! with a fixed row length and an implicit row pointer, and its product
-! is the CSR product (csr_mv in rbf_solver). The transpose into ELLPACK
-! is worth making where the product dominates the run time.
+! is csr_mv in rbf_csr, with the same argument list. The transpose
+! into ELLPACK is worth making where the product dominates the run
+! time.
 !
 ! The product is the BLAS-shaped update
 !
