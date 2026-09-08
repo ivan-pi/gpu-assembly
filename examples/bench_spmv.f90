@@ -5,12 +5,13 @@
 !     python data/tools/knn_stream.py 1000000 21 morton knn.bin
 !     OMP_NUM_THREADS=4 ./bench_spmv knn.bin
 !
-! Prints the label, threads, n, k, then for each product the best of
-! nrep passes in milliseconds and the effective bandwidth counting a,
-! ja, x and y once each (the gather of x is not counted twice, so this
-! is a lower bound on the traffic), and the ratio of the two times.
-! The measurements in docs/solver.md come from this program built
-! with -O2 -march=x86-64-v3 -fopenmp.
+! Prints the label, threads, n, k, then the effective bandwidth of
+! each product in GB/s, best of nrep passes, counting the bytes of a
+! and ja: the reads one product cannot avoid. x is gathered nnzrow
+! times and y written once, from and to cache when the ordering is
+! good, so the true traffic is higher. The measurements in
+! docs/solver.md come from this program built with
+! -O2 -march=x86-64-v3 -fopenmp.
 program bench_spmv
 use, intrinsic :: iso_c_binding, only: c_int, c_double
 use omp_lib, only: omp_get_wtime, omp_get_max_threads
@@ -63,7 +64,7 @@ do rep = 1, nrep
     tell = min(tell, t1 - t0)
 end do
 
-bytes = real(n, wp)*(k*(8 + 4) + 8 + 8)
-print '(a,1x,i0,1x,i0,1x,i0,2(1x,f8.3,1x,f7.2),1x,f5.2)', trim(label), omp_get_max_threads(), &
-    n, k, 1e3*tcsr, bytes/tcsr/1e9, 1e3*tell, bytes/tell/1e9, tcsr/tell
+bytes = real(n, wp)*k*(8 + 4)
+print '(a,1x,i0,1x,i0,1x,i0,a,f6.1,a,f6.1,a)', trim(label), omp_get_max_threads(), n, k, &
+    "  csr_mv ", bytes/tcsr/1e9, " GB/s  ellpack_mv ", bytes/tell/1e9, " GB/s"
 end program

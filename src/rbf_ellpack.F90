@@ -69,7 +69,14 @@ contains
         real(wp), intent(in) :: beta
         real(wp), intent(inout) :: y(0:n - 1)
 
-        real(wp) :: sums(0:nblock - 1)  ! the block's partial sums, a small stack array
+        ! The block's partial sums, a small stack array. Measured against
+        ! the alternatives on kNN matrices (docs/solver.md): a scalar
+        ! accumulator per row with the entries loop inside runs at half
+        ! the bandwidth, since no compiler vectorizes that outer loop and
+        ! each row then touches 2*nnzrow cache lines a stride apart;
+        ! accumulating into y itself, with no temporary, sweeps y nnzrow
+        ! times and lands 10 to 20% below this.
+        real(wp) :: sums(0:nblock - 1)
         integer :: first  ! first row of the block
         integer :: nrows  ! rows in the block, nblock except for the last
         integer :: k      ! row within the block, the SIMD lane

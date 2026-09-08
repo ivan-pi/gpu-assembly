@@ -143,19 +143,23 @@ random points in the unit square with the node itself first, as
 `NodeSet::stencils` orders a row, either in the random order the
 points were drawn in or Morton-sorted, as `rbf::morton_order` would
 leave them; and, for comparison, the 21-point stencil of a
-1000-by-1000 grid numbered along the grid. Built with
-`-O2 -march=x86-64-v3 -fopenmp`, on the second machine above, best of
-20 products, time in milliseconds; a STREAM-style copy on the same
-machine runs at 10.5 GB/s on one thread and 38.5 GB/s on four:
+1000-by-1000 grid numbered along the grid. It reports effective
+bandwidth in GB/s, best of 20 products, counting the bytes of `a` and
+`ja`: the reads one product cannot avoid, 252 MB here. `x` is
+gathered `nnzrow` times and `y` written once, from and to cache when
+the ordering is good, so the true traffic is higher. Built with
+`-O2 -march=x86-64-v3 -fopenmp`, on the second machine above, where a
+STREAM-style copy runs at 10.5 GB/s on one thread and 38.5 GB/s on
+four:
 
 | matrix | threads | `csr_mv` | `ellpack_mv`, 32 rows | 256 rows | 1024 rows |
 |---|---|---|---|---|---|
-| grid stencil | 1 | 28.7 - 32.5 | 76.5 - 88.6 | 40.8 - 44.8 | 29.9 - 31.3 |
-| grid stencil | 4 | 8.2 - 9.0 | 19.1 - 29.0 | 11.1 - 14.1 | 8.0 - 9.5 |
-| kNN, Morton order | 1 | 31.2 - 32.3 | 81.8 - 90.4 | 48.7 - 51.7 | 32.8 - 38.3 |
-| kNN, Morton order | 4 | 8.5 - 9.4 | 26.7 - 29.5 | 15.6 - 16.2 | 10.1 |
-| kNN, random order | 1 | 119 - 139 | 129 - 144 | 119 - 129 | 129 - 131 |
-| kNN, random order | 4 | 31 - 35 | 35 - 37 | 32 - 33 | 32 - 33 |
+| grid stencil | 1 | 7.8 - 8.8 | 2.8 - 3.3 | 5.6 - 6.2 | 8.1 - 8.4 |
+| grid stencil | 4 | 28.0 - 30.7 | 8.7 - 13.2 | 17.9 - 22.7 | 26.5 - 31.5 |
+| kNN, Morton order | 1 | 7.8 - 8.1 | 2.8 - 3.1 | 4.9 - 5.2 | 6.6 - 7.7 |
+| kNN, Morton order | 4 | 26.8 - 29.6 | 8.5 - 9.4 | 15.6 - 16.2 | 25.0 |
+| kNN, random order | 1 | 1.8 - 2.1 | 1.8 - 2.0 | 2.0 - 2.1 | 1.9 - 2.0 |
+| kNN, random order | 4 | 7.2 - 8.1 | 6.8 - 7.2 | 7.6 - 7.9 | 7.6 - 7.9 |
 
 Ranges span gfortran 13 and flang 20, which agree within them. What
 the numbers say:
@@ -172,18 +176,37 @@ the numbers say:
   4x slower on one thread, and the two kernels tie, because every
   `x` access then misses to memory and the run time is latency. That
   is what the renumbering of [renumbering.md](renumbering.md) buys.
-- **Effective bandwidth.** Counting `a`, `ja`, `x` and `y` once each,
-  the ordered matrices reach 8 to 9 GB/s on one thread and 29 to 33
-  GB/s on four, that is 80 to 90% of the copy bandwidth; the true
-  traffic is higher, since every `x` is gathered `nnzrow` times, but
-  from cache when the ordering is good. Random order lands at 2 GB/s
-  and 8 GB/s. A matrix of a hundred thousand points, 25 MB, fits the
-  L3 and runs at 45 to 55 GB/s on four threads.
+- **Effective bandwidth.** The ordered matrices reach 8 to 9 GB/s on
+  one thread and 27 to 31 GB/s on four, that is 75 to 85% of the copy
+  bandwidth, before the traffic of `x` and `y`. Random order lands at
+  2 GB/s and 7 to 8 GB/s. A matrix of a hundred thousand points, 25
+  MB, fits the L3 and runs at 40 to 50 GB/s on four threads.
+
+### Why the ELLPACK kernel keeps a stack array
+
+The blocked kernel above was measured against three other shapes of
+the same product on the same matrices, in GB/s of `a` and `ja` at 1
+and 4 threads, gfortran and flang:
+
+| shape | grid, 1 | grid, 4 | kNN Morton, 1 | kNN Morton, 4 |
+|---|---|---|---|---|
+| blocked, partial sums in a stack array (the kernel) | 7 - 8 | 25 - 28 | 8 | 28 - 30 |
+| a scalar accumulator per row, entries loop inside | 3 - 4 | 11 - 12 | 3 - 4 | 11 - 16 |
+| the same with `simd` on the row loop | 3 | 11 - 12 | 3 - 4 | 11 - 16 |
+| accumulating into `y`, no temporary | 5 - 6 | 22 - 25 | 5 - 6 | 24 |
+
+The scalar accumulator halves the bandwidth: the entries loop is the
+inner one, so no compiler vectorizes across rows, `simd` on the row
+loop or not, and each row touches `2*nnzrow` cache lines a stride of
+`lda` apart. Accumulating straight into `y` sweeps `y` `nnzrow` times
+and lands 10 to 20% below the stack array, which keeps the partial
+sums of a block in L1 instead. In random order all shapes tie at the
+latency of the `x` gather.
 
 The numbers are the machine's, and a shared one at that: the same
-executable measured 3.2 ms per ELLPACK product with 32-row blocks on
-the first machine and 20 ms on the second. Run the benchmark rather
-than reading the table:
+executable measured 79 GB/s with 32-row blocks on the first machine
+and 13 on the second. Run the benchmark rather than reading the
+table:
 
 ```
 python data/tools/knn_stream.py 1000000 21 morton knn.bin
