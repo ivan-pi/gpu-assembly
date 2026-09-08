@@ -20,11 +20,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # -march=native so that reclu's AVX2 kernels, not their plain
+          # fallbacks, are what its tests and the rbf_fd test exercise
           - name: gcc / gfortran
             os: ubuntu-latest
             packages: g++ gfortran liblapack-dev
             cxx: g++
             fc: gfortran
+            cmake_args: -DGPU_ASSEMBLY_MARCH_NATIVE=ON
 
           # LLVM toolchain from the Ubuntu archive: clang++ for the C++
           # parts, LLVM flang (flang-new) for the Fortran modules.
@@ -37,6 +40,7 @@ jobs:
             packages: clang-22 flang-22 libomp-22-dev liblapack-dev
             cxx: clang++-22
             fc: flang-22
+            cmake_args: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +56,7 @@ jobs:
         env:
           CXX: ${{ matrix.cxx }}
           FC: ${{ matrix.fc }}
-        run: cmake -B build
+        run: cmake -B build ${{ matrix.cmake_args }}
 
       - name: Build
         run: cmake --build build

@@ -15,8 +15,11 @@ The host library and its tests:
 - (optional) OpenMP, for host parallelism and, in a future version,
   target offload
 - (optional) LAPACK, for the host RBF-FD weights (the Fortran module
-  `rbf_fd`); `liblapack-dev` on Ubuntu. Without it that module and its
-  test are skipped
+  `rbf_fd`); `liblapack-dev` on Ubuntu, or MKL with
+  `-DBLA_VENDOR=Intel10_64lp_seq`. Without it that module, its test and
+  its benchmark are skipped
+- [reclu](third_party/reclu/README.md), LU and LDL^T kernels for the
+  small dense systems of RBF-FD stencils, vendored under `third_party/`
 - [nanoflann](https://github.com/jlblancoc/nanoflann), a header-only k-d
   tree, vendored under `third_party/`
 - [ckdtree](https://github.com/scipy/scipy/tree/main/scipy/spatial/ckdtree),
@@ -37,6 +40,10 @@ cmake -B build
 cmake --build build
 ctest --test-dir build
 ```
+
+The build is optimized (`Release`) unless told otherwise;
+`-DGPU_ASSEMBLY_MARCH_NATIVE=ON` compiles for the CPU at hand, which
+turns on the AVX2 kernels of reclu.
 
 The flow benchmark examples (`examples/`, the Fortran module
 `rbf_benchmarks` and the header `rbf_flow_benchmarks.h`) build by
@@ -74,7 +81,8 @@ Documentation:
 - [docs/spatial.md](docs/spatial.md): `rbf::spatial`, the periodic box
   and the k-d tree the stencil search runs on
 - [docs/rbf_fd.md](docs/rbf_fd.md): the Fortran module `rbf_fd`, RBF-FD
-  weights on the host with LAPACK, the twin of `rbf_operators.h`
+  weights on the host with LAPACK or reclu, the twin of
+  `rbf_operators.h`, with the benchmark
 - [docs/renumbering.md](docs/renumbering.md): permutations,
   space-filling-curve orderings and graph renumbering
 - [docs/file_formats.md](docs/file_formats.md): the file formats the
