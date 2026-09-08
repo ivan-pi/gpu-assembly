@@ -18,3 +18,14 @@ if(TARGET rbf_fd)
     add_test(NAME rbf_fd
         COMMAND test_rbf_fd ${CMAKE_SOURCE_DIR}/data/poisson_32_21 32 32)
 endif()
+
+# reclu's own tests (third_party/reclu/README.md): the optimized
+# kernels against their plain-loop references, and those against the
+# netlib LAPACK found by dlopen, which the test skips if there is none
+foreach(t test_lu test_solve test_solve_adversarial test_sy test_sy_naive_vs_lapack)
+    add_executable(reclu_${t} ${CMAKE_SOURCE_DIR}/third_party/reclu/tests/${t}.cpp)
+    target_link_libraries(reclu_${t} PRIVATE reclu ${CMAKE_DL_LIBS})
+    target_compile_options(reclu_${t} PRIVATE -fopenmp-simd -fno-math-errno)
+    add_test(NAME reclu_${t} COMMAND reclu_${t})
+endforeach()
+set_tests_properties(reclu_test_sy_naive_vs_lapack PROPERTIES SKIP_RETURN_CODE 77)

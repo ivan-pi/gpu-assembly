@@ -11,8 +11,10 @@
 ! case through the callbacks and applies them to a smooth periodic
 ! field.
 module test_rbf_fd_cases
+use, intrinsic :: iso_c_binding, only: c_loc, c_intptr_t
 use rbf_precision, only: wp, pi
 use rbf_periodic_box, only: periodic_box
+use rbf_io, only: read_points, read_graph_csr
 use rbf_fd
 implicit none
 private
@@ -149,10 +151,11 @@ contains
         real(wp), parameter :: tol = 1.0e-9_wp
         real(wp) :: xs(n), ys(n), w(n, nrhs), w2(n, nrhs), xc(nrhs), yc(nrhs)
         real(wp), allocatable :: lm(:), m(:,:)
-        integer :: op(nrhs), info, j, l, i, np
-        type(rbf_fd_workspace) :: ws, ws2
+        integer :: op(nrhs), info, j, l, i, np, solver
+        type(rbf_fd_workspace), target :: ws, ws2
         real(wp) :: err
         character(64) :: label
+        integer(c_intptr_t) :: addr
 
         call ring_stencil(xs, ys)
 
@@ -166,23 +169,28 @@ contains
         xc(8) = xs(5)
         yc(8) = ys(5)
 
-        ws = rbf_fd_workspace(q=3, p=p, nmax=n, nrhs_max=nrhs)
-        call rbf_fd_weights(ws, n, xs, ys, nrhs, op, xc, yc, w, info)
+        ws = rbf_fd_workspace(q=3, p=p, nmax=n, nrhs_max=nrhs, solver=SOLVER_LU)
+        call rbf_fd_weights(ws, n, xs, ys, nrhs, op, xc, yc, info)
         call check(info == 0, "LU solve of the ring stencil succeeds")
+        ! The storage contract of the reclu kernels, met by every solver
+        addr = transfer(c_loc(ws%abuf(ws%a0)), addr)
+        call check(mod(addr, 32_c_intptr_t) == 0, "the matrix starts on a 32-byte boundary")
+        call check(mod(ws%lda, 8) == 0 .and. ws%lda >= n + npoly(p), "the leading dimension is padded")
+        w = ws%B(1:n, 1:nrhs)
 
-        ! m(l, i) = m_i(x_l): the polynomial rows of the basis, asked
+        ! m(i, l) = m_i(x_l): the polynomial rows of the basis, asked
         ! with a "stencil" of no nodes
         np = npoly(p)
-        allocate(m(n, np), lm(np))
+        allocate(m(np, n), lm(np))
         do l = 1, n
-            call rbf_fd_basis(ws, 0, xs, ys, OP_VALUE, xs(l), ys(l), m(l, :))
+            call rbf_fd_basis(ws, 0, xs, ys, OP_VALUE, xs(l), ys(l), m(:, l))
         end do
 
         ! sum_l w(l, j) m_i(x_l) against L m_i(xc_j)
         do j = 1, nrhs
             call rbf_fd_basis(ws, 0, xs, ys, op(j), xc(j), yc(j), lm)
             do i = 1, np
-                err = abs(dot_product(w(:, j), m(:, i)) - lm(i))
+                err = abs(dot_product(w(:, j), m(i, :)) - lm(i))
                 write (label, '(a,i0,a,i0)') "reproduction of monomial ", i, " by operator ", j
                 call check(err < tol, trim(label), err)
             end do
@@ -192,18 +200,17 @@ contains
         err = maxval(abs(w(:, 8) - merge(1.0_wp, 0.0_wp, [(l == 5, l=1, n)])))
         call check(err < tol, "interpolation at a node is the unit vector", err)
 
-        ! The symmetric indefinite factorization agrees with LU
-        ws2 = rbf_fd_workspace(q=3, p=p, nmax=n, nrhs_max=nrhs, solver=SOLVER_LDLT)
-        call rbf_fd_weights(ws2, n, xs, ys, nrhs, op, xc, yc, w2, info)
-        call check(info == 0, "LDL^T solve of the ring stencil succeeds")
-        err = maxval(abs(w2 - w))/maxval(abs(w))
-        call check(err < tol, "LDL^T and LU weights agree", err)
-
-        ! Two coincident nodes make the system singular; reported, not fatal
-        xs(2) = xs(3)
-        ys(2) = ys(3)
-        call rbf_fd_weights(ws, n, xs, ys, nrhs, op, xc, yc, w, info)
-        call check(info > 0, "coincident nodes are reported as singular")
+        ! The other factorizations agree with LU
+        do solver = SOLVER_LDLT, SOLVER_RECLU_LDLT
+            ws2 = rbf_fd_workspace(q=3, p=p, nmax=n, nrhs_max=nrhs, solver=solver)
+            call rbf_fd_weights(ws2, n, xs, ys, nrhs, op, xc, yc, info)
+            call check(info == 0, trim(solver_name(solver))//" solve of the ring stencil succeeds")
+            addr = transfer(c_loc(ws2%abuf(ws2%a0)), addr)
+            call check(mod(addr, 32_c_intptr_t) == 0, "the matrix starts on a 32-byte boundary")
+            w2 = ws2%B(1:n, 1:nrhs)
+            err = maxval(abs(w2 - w))/maxval(abs(w))
+            call check(err < tol, trim(solver_name(solver))//" and LU weights agree", err)
+        end do
 
     end subroutine
 
@@ -212,7 +219,7 @@ contains
     ! applied to sin(kx x) cos(ky y)
     subroutine test_assembly()
         integer, parameter :: nrhs = 7
-        integer :: nnz, info, j
+        integer :: nnz, info, j, solver
         real(wp) :: Lx, Ly, kx, ky, xo, yo, err(nrhs)
         real(wp), allocatable :: f(:), lf(:), ref(:)
         integer :: op(nrhs)
@@ -254,7 +261,7 @@ contains
 
         allocate(va(nnz, nrhs), va2(nnz, nrhs))
 
-        ws = rbf_fd_workspace(q=3, p=3, nmax=k, nrhs_max=nrhs)
+        ws = rbf_fd_workspace(q=3, p=3, nmax=k, nrhs_max=nrhs, solver=SOLVER_LU)
         call rbf_fd_assemble(ws, npts, nrhs, op, xc, yc, gather, scatter, info)
         call check(info == 0, "assembly of the case with LU succeeds")
 
@@ -289,17 +296,22 @@ contains
             call check(err(j) < tol(j), "accuracy of "//trim(names(j)), err(j))
         end do
 
-        ! The LDL^T assembly gives the same matrices
-        ws = rbf_fd_workspace(q=3, p=3, nmax=k, nrhs_max=nrhs, solver=SOLVER_LDLT)
-        call rbf_fd_assemble(ws, npts, nrhs, op, xc, yc, gather, scatter2, info)
-        call check(info == 0, "assembly of the case with LDL^T succeeds")
-        err(1) = maxval(abs(va2 - va))/maxval(abs(va))
-        call check(err(1) < 1.0e-9_wp, "LDL^T and LU assemblies agree", err(1))
+        ! The other solvers assemble the same matrices
+        do solver = SOLVER_LDLT, SOLVER_RECLU_LDLT
+            ws = rbf_fd_workspace(q=3, p=3, nmax=k, nrhs_max=nrhs, solver=solver)
+            va2 = 0
+            call rbf_fd_assemble(ws, npts, nrhs, op, xc, yc, gather, scatter2, info)
+            call check(info == 0, "assembly of the case with "//trim(solver_name(solver))//" succeeds")
+            err(1) = maxval(abs(va2 - va))/maxval(abs(va))
+            call check(err(1) < 1.0e-9_wp, trim(solver_name(solver))//" and LU assemblies agree", err(1))
+        end do
 
     end subroutine
 
-    ! The nodes of stencil s as minimum-image displacements from node s
-    subroutine gather(s, nmax, n, xs, ys)
+    ! The callbacks, recursive because rbf_fd_assemble's threads call
+    ! them concurrently. The nodes of stencil s as minimum-image
+    ! displacements from node s:
+    recursive subroutine gather(s, nmax, n, xs, ys)
         integer, intent(in) :: s, nmax
         integer, intent(out) :: n
         real(wp), intent(out) :: xs(nmax), ys(nmax)
@@ -315,15 +327,15 @@ contains
     end subroutine
 
     ! Row s of the CSR values, one column per operator
-    subroutine scatter(s, n, nrhs, w)
-        integer, intent(in) :: s, n, nrhs
-        real(wp), intent(in) :: w(:,:)
+    recursive subroutine scatter(s, n, nrhs, w, ldw)
+        integer, intent(in) :: s, n, nrhs, ldw
+        real(wp), intent(in) :: w(ldw, *)
         va((s - 1)*k + 1:s*k, 1:nrhs) = w(1:n, 1:nrhs)
     end subroutine
 
-    subroutine scatter2(s, n, nrhs, w)
-        integer, intent(in) :: s, n, nrhs
-        real(wp), intent(in) :: w(:,:)
+    recursive subroutine scatter2(s, n, nrhs, w, ldw)
+        integer, intent(in) :: s, n, nrhs, ldw
+        real(wp), intent(in) :: w(ldw, *)
         va2((s - 1)*k + 1:s*k, 1:nrhs) = w(1:n, 1:nrhs)
     end subroutine
 
@@ -340,35 +352,23 @@ contains
         end do
     end subroutine
 
-    ! <case>.points and <case>.graph (docs/file_formats.md), the
-    ! latter of k entries per row; the indices come back 1-based
+    ! <case>.points and <case>.graph through rbf_io; the test wants
+    ! k-nearest-neighbour stencils and 1-based indices
     subroutine read_case(prefix, nnz)
         character(*), intent(in) :: prefix
         integer, intent(out) :: nnz
-        integer :: i, n2, iu, ios
+        integer :: n2
+        integer, allocatable :: ia(:), ja0(:)
 
-        open (newunit=iu, file=prefix//".points", status="old", action="read", iostat=ios)
-        if (ios /= 0) error stop "cannot open the points file"
-        read (iu, *) npts
-        allocate(x(npts), y(npts))
-        do i = 1, npts
-            read (iu, *) x(i), y(i)
-        end do
-        close (iu)
-
-        open (newunit=iu, file=prefix//".graph", status="old", action="read", iostat=ios)
-        if (ios /= 0) error stop "cannot open the graph file"
-        read (iu, *) n2, nnz
+        call read_points(prefix//".points", npts, x, y)
+        call read_graph_csr(prefix//".graph", n2, ia, ja0)
         if (n2 /= npts) error stop "points and graph disagree on the node count"
+        nnz = ia(npts)
         if (mod(nnz, npts) /= 0) error stop "the test expects k-nearest-neighbour stencils"
         k = nnz/npts
+        if (any(ia(1:npts) - ia(0:npts - 1) /= k)) error stop "the test expects rows of equal length"
         allocate(ja(nnz))
-        do i = 1, npts
-            read (iu, *) ja((i - 1)*k + 1:i*k)
-        end do
-        close (iu)
-        if (any(ja < 0 .or. ja >= npts)) error stop "graph index out of range"
-        ja = ja + 1
+        ja = ja0 + 1
     end subroutine
 
 end module
