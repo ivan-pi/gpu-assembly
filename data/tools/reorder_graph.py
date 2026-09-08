@@ -5,31 +5,31 @@ Both files are of docs/file_formats.md; the orderings are reverse
 Cuthill-McKee, nested dissection and approximate minimum degree.
 """
 
-import argparse
 import os
 import sys
 
 import numpy as np
-from scipy.sparse import csr_array, triu
+from scipy.sparse import triu
 
+from pointclouds import cli
 from pointclouds.io import FormatError, read_graph, write_ordering
+from pointclouds.stencils import Graph
 
 
-def adjacency_of(ia, ja):
+def adjacency_of(graph):
     """Returns the stencils as an undirected graph without self-loops.
 
     The pattern of ``A + A^T`` less the diagonal, as a CSR array with
     sorted indices.
     """
-    n = len(ia) - 1
-    a = csr_array((np.ones(len(ja)), ja, ia), shape=(n, n))
+    a = graph.pattern
     upper = triu(a + a.T, k=1)  # every edge once, without the self-loops
     adjacency = (upper + upper.T).tocsr()
     adjacency.sort_indices()
     return adjacency
 
 
-def rcm(adjacency, **kwargs):
+def rcm(adjacency, seed=None):
     """Returns the new index of every node by reverse Cuthill-McKee."""
     from scipy.sparse.csgraph import reverse_cuthill_mckee
 
@@ -37,7 +37,7 @@ def rcm(adjacency, **kwargs):
     return np.argsort(perm)
 
 
-def nd(adjacency, seed=None, **kwargs):
+def nd(adjacency, seed=None):
     """Returns the new index of every node by METIS nested dissection.
 
     The seed drives the random matching of the coarsening.
@@ -54,7 +54,7 @@ def nd(adjacency, seed=None, **kwargs):
     return np.asarray(iperm, dtype=int)  # perm is the other direction, argsort(iperm)
 
 
-def amd(adjacency, **kwargs):
+def amd(adjacency, seed=None):
     """Returns the new index of every node by SuiteSparse's AMD."""
     try:
         from sksparse.amd import amd as suitesparse_amd
@@ -66,13 +66,7 @@ def amd(adjacency, **kwargs):
     return np.argsort(perm)
 
 
-METHODS = {"rcm": rcm, "nd": nd, "amd": amd}  # all take the options they ignore
-
-
-def bandwidth(ia, ja, iperm):
-    """Returns the largest |i - j| over the edges, in the new numbering."""
-    rows = np.repeat(np.arange(len(ia) - 1), np.diff(ia))
-    return int(np.abs(iperm[rows] - iperm[ja]).max())
+METHODS = {"rcm": rcm, "nd": nd, "amd": amd}  # all take a seed, nd uses it
 
 
 def factor_nonzeros(adjacency, iperm):
@@ -106,11 +100,7 @@ case.iperm --spy` shows the effect."""
 
 
 def parse_args():
-    ap = argparse.ArgumentParser(
-        description=__doc__.split("\n")[0],
-        epilog=EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    ap = cli.parser(__doc__, EPILOG)
     ap.add_argument("graph", metavar="GRAPH", help="the .graph file to order")
     ap.add_argument(
         "-m",
@@ -136,13 +126,13 @@ def parse_args():
 def main():
     args = parse_args()
     try:
-        ia, ja = read_graph(args.graph)
+        graph = Graph(*read_graph(args.graph))
     except FormatError as e:
         sys.exit(str(e))
-    adjacency = adjacency_of(ia, ja)
-    n = adjacency.shape[0]
+    adjacency = adjacency_of(graph)
+    n = len(graph)
     print(
-        f"{args.graph}: {n} nodes, {len(ja)} entries, {adjacency.nnz // 2} undirected edges",
+        f"{args.graph}: {n} nodes, {graph.nnz} entries, {adjacency.nnz // 2} undirected edges",
         file=sys.stderr,
     )
 
@@ -150,7 +140,7 @@ def main():
     assert np.array_equal(np.sort(iperm), np.arange(n))
 
     identity = np.arange(n)
-    report = f"{args.method}: bandwidth {bandwidth(ia, ja, identity)} -> {bandwidth(ia, ja, iperm)}"
+    report = f"{args.method}: bandwidth {graph.bandwidth()} -> {graph.renumbered(iperm).bandwidth()}"
     before = factor_nonzeros(adjacency, identity)
     if before is not None:
         report += f", factor nonzeros {before} -> {factor_nonzeros(adjacency, iperm)}"

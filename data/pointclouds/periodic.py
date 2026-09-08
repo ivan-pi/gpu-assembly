@@ -2,8 +2,9 @@
 
 The box is ``[0, side)`` along each axis, with opposite sides
 identified, as ``rbf::spatial::PeriodicBox`` has it (docs/spatial.md).
-Both functions take arrays and a `box` of one side per column, 0 for
-an axis that is not periodic, as scipy's k-d tree takes it.
+Both functions take arrays of points in any dimension and a `box` of
+one side per axis, 0 for an axis that is not periodic, as scipy's k-d
+tree takes it.
 """
 
 import numpy as np
@@ -14,15 +15,15 @@ def wrap(z, box):
 
     Parameters
     ----------
-    z : (..., 2) array_like
+    z : (..., d) array_like
         Coordinates.
-    box : (2,) array_like
+    box : (d,) array_like
         The side of the box along each axis, 0 for one that is not
         periodic.
 
     Returns
     -------
-    (..., 2) ndarray
+    (..., d) ndarray
         The coordinates, each periodic one in ``[0, side)``.
     """
     z, box = np.array(z, float), np.asarray(box, float)
@@ -38,15 +39,15 @@ def minimum_image(d, box):
 
     Parameters
     ----------
-    d : (..., 2) array_like
+    d : (..., d) array_like
         Displacements.
-    box : (2,) array_like
+    box : (d,) array_like
         The side of the box along each axis, 0 for one that is not
         periodic.
 
     Returns
     -------
-    (..., 2) ndarray
+    (..., d) ndarray
         The displacements, each periodic one within half a side of 0.
     """
     d, box = np.array(d, float), np.asarray(box, float)

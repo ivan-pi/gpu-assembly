@@ -202,22 +202,25 @@ class PoissonDisk:
 
     Notes
     -----
-    Bridson's algorithm [1]_: a grid of cells of side at most
-    ``radius / sqrt(2)``, so that a cell holds one point at most, and a
-    queue of the points that still have candidates to throw. A queued
-    point throws `ncandidates` candidates into the annulus between the
-    radius and twice it; a candidate that finds no point within the radius
-    in the 5 by 5 cells around its own is kept and queued.
+    Bridson's algorithm [1]_ keeps the points on a grid of square cells
+    with sides of at most ``radius / sqrt(2)``, so that no cell can hold
+    two points, and a queue of the points that still have candidates to
+    throw. Each round takes a point from the queue at random and throws
+    `ncandidates` candidates into the annulus between one and two radii
+    from it. A candidate is accepted when none of the 5 by 5 cells around
+    its own holds a point within the radius; it is then stored, put in
+    its cell and queued in its turn. A point whose candidates are all
+    refused leaves the queue. The sample is complete when the queue is
+    empty.
 
-    Along a periodic axis the search wraps: the cell index is taken modulo
-    the cell count, and a difference of coordinates through the nearer of
-    the two sides. The cells tile the extent exactly along such an axis,
-    which makes them a little smaller than ``radius / sqrt(2)``. With a
-    partial last cell instead, the two cells beyond the seam would span
-    less than the radius, the search would stop short of it, and points
-    closer than the radius could face each other across the seam: the
-    defect a sample that is wrapped afterwards shows, and the reason the
-    sampler is periodic itself.
+    Along a periodic axis the search wraps around: a cell index is taken
+    modulo the number of cells, and a coordinate difference is measured
+    through the nearer of the two sides. The cells then have to tile the
+    extent exactly, so that the 5 by 5 cells around a point still reach
+    a radius across the seam, which makes them a little smaller than
+    ``radius / sqrt(2)``. Wrapping an ordinary sample afterwards would
+    not do: the points on either side of the seam have never seen each
+    other, and pairs closer than the radius appear across it.
 
     The interface follows ``scipy.stats.qmc.PoissonDisk``. The loop, after
     Johnson [2]_, is compiled by Numba on the first call of a process and

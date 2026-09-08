@@ -103,11 +103,12 @@ library:
 
 - `pointclouds.nodeset`: `NodeSet`, a cloud with a marker per node and
   the box it lives in, which writes, selects its stencils and draws
-  itself; `TiledNodeSet`, copies of it side by side; `MARKERS`.
+  itself; `TiledNodeSet`, copies of it side by side; `Marker`.
 - `pointclouds.generators`: the clouds the generators make, as children
   of `NodeSet`, so that a script is its command line and a constructor.
 - `pointclouds.stencils`: the stencil selection, by nearest neighbours,
-  radius or range, wrapping around the periodic sides of the box.
+  radius or range, wrapping around the periodic sides of the box, and
+  `Graph`, the stencils in CSR form.
 - `pointclouds.poisson`: a Poisson disk sampler of a rectangle, periodic
   or not, after `scipy.stats.qmc.PoissonDisk` and compiled by numba;
   `tools/poisson_demo.py` shows a sample of it.

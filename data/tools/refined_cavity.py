@@ -4,8 +4,6 @@
 The cloud is RefinedCavity in pointclouds.generators.
 """
 
-import argparse
-
 from pointclouds import cli
 from pointclouds.generators import RefinedCavity
 
@@ -23,12 +21,7 @@ gives a points file, without the markers (docs/file_formats.md)."""
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description=__doc__.split("\n")[0],
-        epilog=EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    ap.add_argument("output", help="the node file, or a points file if named so")
+    ap = cli.parser(__doc__, EPILOG)
     ap.add_argument(
         "--distribution",
         choices=("rings", "grid"),
@@ -51,15 +44,11 @@ def main():
         metavar="N",
         help="spacings across each band (default: 10)",
     )
-    ap.add_argument("--plot", action="store_true", help="show the cloud")
+    cli.add_output_options(ap, ".node")
     args = ap.parse_args()
 
-    stem, ext = cli.output_stem(args.output, default=".node")
     cloud = RefinedCavity(args.steps, size=args.size, distribution=args.distribution)
-    cloud.write(stem, ext)
-    print(f"{stem}{ext}: {cloud.summary()}")
-    if args.plot:
-        cli.show(cloud)
+    cli.finish(cloud, args)
 
 
 if __name__ == "__main__":

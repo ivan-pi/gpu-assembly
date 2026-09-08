@@ -5,16 +5,30 @@ ArgumentTypeError raised in one comes back as argparse's own message,
 naming the option and exiting 2 like any other usage error; `number` is
 that callable with a bound attached.
 
-The output argument of a generator is a stem to which the writers append
-their extensions, so that one name covers the several files of a case. An
+A generator takes its output as a stem to which the writers append their
+extensions, so that one name covers the several files of a case. An
 extension the generator knows picks the format and is not doubled. The
-options that select the stencil graph, and the figure --plot shows, are
-the same in every generator, so they are here too.
+output argument, the options that select the stencil graph, and what a
+generator does with the cloud once it has it, are the same in every
+generator, so they are here too.
 """
 
 import argparse
 
 from .stencils import KNN
+
+
+def parser(doc, epilog):
+    """Builds the parser of a script from its docstring and an epilog.
+
+    The description is the first line of `doc`; `epilog` is printed as
+    it is, after the options.
+    """
+    return argparse.ArgumentParser(
+        description=doc.split("\n")[0],
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
 
 def number(kind, *, least=None, above=None, below=None):
@@ -52,27 +66,26 @@ def number(kind, *, least=None, above=None, below=None):
     return parse
 
 
-def output_stem(name, default):
-    """Splits an output name into its stem and the extension of its format.
+def add_output_options(ap, default):
+    """Adds the output argument and ``--plot`` of a generator to a parser.
 
     Parameters
     ----------
-    name : str
-        The output argument of a generator.
+    ap : argparse.ArgumentParser
     default : {".points", ".node"}
-        The extension when `name` ends in neither.
-
-    Returns
-    -------
-    stem : str
-        `name` without the extension.
-    ext : str
-        The extension `name` ends in, or `default`.
+        The format of the output, unless its name ends in the other
+        extension.
     """
-    for ext in (".node", ".points"):
-        if name.endswith(ext):
-            return name.removesuffix(ext), ext
-    return name, default
+    other = ".node" if default == ".points" else ".points"
+    ap.add_argument(
+        "output", help=f"the {default[1:]} file, or a {other[1:]} file if named so"
+    )
+    ap.add_argument(
+        "--plot",
+        action="store_true",
+        help="show the cloud, and a stencil if there is a graph",
+    )
+    ap.set_defaults(default_ext=default)
 
 
 class Pair(argparse.Action):
@@ -136,22 +149,63 @@ def add_graph_options(ap):
     ap.set_defaults(graph=("knn", KNN))
 
 
+def output_stem(name, default):
+    """Splits an output name into its stem and the extension of its format.
+
+    Parameters
+    ----------
+    name : str
+        The output argument of a generator.
+    default : {".points", ".node"}
+        The extension when `name` ends in neither.
+
+    Returns
+    -------
+    stem : str
+        `name` without the extension.
+    ext : str
+        The extension `name` ends in, or `default`.
+    """
+    for ext in (".node", ".points"):
+        if name.endswith(ext):
+            return name.removesuffix(ext), ext
+    return name, default
+
+
+def finish(cloud, args):
+    """Writes the cloud and its graph, reports one line and shows the plot.
+
+    Parameters
+    ----------
+    cloud : NodeSet
+    args : argparse.Namespace
+        Parsed by a parser with `add_output_options` and, for the graph,
+        `add_graph_options`.
+    """
+    stem, ext = output_stem(args.output, args.default_ext)
+    selection = getattr(args, "graph", None)  # None without add_graph_options
+    graph = cloud.stencils(*selection) if selection else None
+    cloud.write(stem, ext, graph)
+    print(f"{stem}{ext}: {cloud.summary(graph)}")
+    if args.plot:
+        show(cloud, graph)
+
+
 def show(cloud, graph=None):
     """Shows the figure of ``--plot``.
 
     Parameters
     ----------
     cloud : NodeSet
-    graph : tuple of ndarray, optional
-        ``(ia, ja)``, to draw the stencil of the middle node too.
+    graph : Graph, optional
+        To draw the stencil of the middle node too.
     """
     import matplotlib.pyplot as plt
 
     stencils = []
     if graph is not None:
-        ia, ja = graph
         i = len(cloud) // 2
-        stencils = [(i, ja[ia[i] : ia[i + 1]])]
+        stencils = [(i, graph[i])]
     fig, ax = plt.subplots(figsize=(6.5, 6))
     cloud.plot(ax, stencils=stencils)
     ax.set_title(cloud.title, fontsize=9)

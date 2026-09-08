@@ -5,16 +5,14 @@ The point, node, graph and ordering files of docs/file_formats.md; the
 tool changes none of them, and writes only the figure of --save.
 """
 
-import argparse
 import logging
 import os
 import sys
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.sparse import csr_array
 
-from pointclouds.cli import number
+from pointclouds import cli, stencils
 from pointclouds.io import FormatError, plural, read_graph, read_nodes, read_ordering
 from pointclouds.nodeset import NodeSet
 
@@ -63,31 +61,12 @@ def describe_nodes(fname, xy, cloud):
     return [f"{fname}: coincident nodes: {shown}{more}"]
 
 
-class Graph:
-    """The stencils of a graph file, as CSR arrays and a sparse pattern."""
-
-    def __init__(self, ia, ja):
-        self.ia, self.ja = ia, ja
-        self.n, self.nnz = len(ia) - 1, len(ja)
-        self.pattern = csr_array(
-            (np.ones(self.nnz, np.int8), ja, ia), shape=(self.n, self.n)
-        )
-
-    def __len__(self):
-        return self.n
-
-    def renumbered(self, iperm):
-        """Returns the graph in the numbering `iperm`.
-
-        Moves the rows and relabels the entries.
-        """
-        order = np.argsort(iperm)
-        moved = self.pattern[order][:, order]
-        return Graph(moved.indptr, moved.indices)
+class Graph(stencils.Graph):
+    """The stencils of a graph file, described and drawn."""
 
     def describe(self, fname):
         """Prints the size, row lengths, symmetry and bandwidth."""
-        n, ia, ja = self.n, self.ia, self.ja
+        n, ia, ja = len(self), self.ia, self.ja
         print(f"{fname}: {n} nodes, {self.nnz} entries")
         lengths = np.diff(ia)
         if lengths.min() == lengths.max():
@@ -109,11 +88,11 @@ class Graph:
             f"  entries with their transpose stored: {sym} of {self.nnz} "
             f"({100 * sym / self.nnz:.1f}%)"
         )
-        print(f"  bandwidth: {np.abs(self.pattern.tocoo().row - ja).max()}")
+        print(f"  bandwidth: {self.bandwidth()}")
 
     def spy(self, ax, title):
         """Draws the sparsity pattern, one square per stored entry."""
-        n = self.n
+        n = len(self)
         width = ax.figure.get_size_inches()[0] * ax.get_position().width * 72  # points
         ax.scatter(
             self.ja,
@@ -154,11 +133,7 @@ class Case:
 
 def parse_args():
     """Returns the command line; `files` maps a Case field to its file."""
-    ap = argparse.ArgumentParser(
-        description=__doc__.split("\n")[0],
-        epilog=EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    ap = cli.parser(__doc__, EPILOG)
     ap.add_argument(
         "files",
         nargs="+",
@@ -183,14 +158,14 @@ def parse_args():
     ap.add_argument(
         "-K",
         "--knn",
-        type=number(int, least=2),
+        type=cli.number(int, least=2),
         metavar="K",
         help="the stencil of a node is its K nearest nodes, without a graph file",
     )
     ap.add_argument(
         "--periodic",
         nargs=2,
-        type=number(float, above=0.0),
+        type=cli.number(float, above=0.0),
         metavar=("LX", "LY"),
         help="the periodic box [0, LX) x [0, LY): minimum-image distances",
     )
@@ -253,10 +228,9 @@ def draw(args, case):
         if graph is not None:
             if args.knn:
                 print("-K ignored: the stencils are taken from the graph file")
-            ia, ja = graph.ia, graph.ja
         else:
-            ia, ja = cloud.stencils("knn", args.knn)
-        stencils = [(i, ja[ia[i] : ia[i + 1]]) for i in args.stencil]
+            graph = cloud.stencils("knn", args.knn)
+        stencils = [(i, graph[i]) for i in args.stencil]
 
     import matplotlib.pyplot as plt
 

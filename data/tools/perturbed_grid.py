@@ -5,8 +5,6 @@ The cloud is PerturbedGrid in pointclouds.generators, the node layout of
 Strzelczyk and Matyka (2022).
 """
 
-import argparse
-
 from pointclouds import cli
 from pointclouds.generators import PerturbedGrid
 
@@ -26,12 +24,7 @@ file in the same numbering, or a node file with the markers if named so
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description=__doc__.split("\n")[0],
-        epilog=EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    ap.add_argument("output", help="the points file, or a node file if named so")
+    ap = cli.parser(__doc__, EPILOG)
     ap.add_argument(
         "-n",
         "--nodes",
@@ -59,29 +52,17 @@ def main():
     )
     cli.add_graph_options(ap)
     ap.add_argument(
-        "--seed",
-        type=int,
-        help="seed of the displacements (default: random)",
+        "--seed", type=int, help="seed of the displacements (default: random)"
     )
-    ap.add_argument(
-        "--plot",
-        action="store_true",
-        help="show the cloud, and one stencil of the graph",
-    )
+    cli.add_output_options(ap, ".points")
     args = ap.parse_args()
 
     if args.sigma >= 0.5:
         print(f"warning: --sigma {args.sigma:g} may put nodes on top of each other")
-    stem, ext = cli.output_stem(args.output, default=".points")
-
     cloud = PerturbedGrid(
         args.nodes, args.sigma, geometry=args.geometry, seed=args.seed
     )
-    graph = cloud.stencils(*args.graph) if args.graph else None
-    cloud.write(stem, ext, graph)
-    print(f"{stem}{ext}: {cloud.summary(graph)}")
-    if args.plot:
-        cli.show(cloud, graph)
+    cli.finish(cloud, args)
 
 
 if __name__ == "__main__":

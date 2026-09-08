@@ -14,7 +14,7 @@ to whoever needs it.
 
 import numpy as np
 
-from .nodeset import MARKERS, NodeSet, boundary_first
+from .nodeset import Marker, NodeSet, boundary_first
 
 
 class PerturbedGrid(NodeSet):
@@ -59,11 +59,11 @@ class PerturbedGrid(NodeSet):
         y = np.arange(float(n if periodic else n + 1))
         xv, yv = np.meshgrid(x, y)  # row by row, x fastest
         pts = np.column_stack((xv.ravel(), yv.ravel()))
-        m = np.full(len(pts), MARKERS.interior)
+        m = np.full(len(pts), Marker.interior)
         if not periodic:
-            m[:n], m[-n:] = MARKERS.south, MARKERS.north
+            m[:n], m[-n:] = Marker.south, Marker.north
         d = np.random.default_rng(seed).uniform(-sigma, sigma, pts.shape)
-        d[m != MARKERS.interior, 1] = 0.0  # a wall node stays on its wall
+        d[m != Marker.interior, 1] = 0.0  # a wall node stays on its wall
         pts += d  # NodeSet wraps the periodic sides
         box = float(n)
         if not periodic:
@@ -153,8 +153,8 @@ class PoissonBox(NodeSet):
             inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
             pts = pts[~inside]
             title += f", hole={hole:g}"
-        m = np.full(len(pts), MARKERS.interior)
-        m[: len(seeds)] = MARKERS.hole
+        m = np.full(len(pts), Marker.interior)
+        m[: len(seeds)] = Marker.hole
         super().__init__(pts, m, extent=extent, periodic=(True, True), title=title)
 
 
@@ -247,8 +247,8 @@ class RefinedCavity(NodeSet):
         s, e, n, w = y == 0, x == Lx, y == Ly, x == 0
         m = np.select(
             [(s | n) & (e | w), s, e, n, w],
-            [MARKERS.corner, MARKERS.south, MARKERS.east, MARKERS.north, MARKERS.west],
-            MARKERS.interior,
+            [Marker.corner, Marker.south, Marker.east, Marker.north, Marker.west],
+            Marker.interior,
         )
         first = boundary_first(m)
         super().__init__(

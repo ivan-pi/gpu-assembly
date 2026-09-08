@@ -3,11 +3,11 @@
 `NodeSet` holds the points, the markers and the box, and knows how to
 select its stencils, write its files and draw itself; the generators
 in `pointclouds.generators` are its children. `TiledNodeSet` lays
-copies of a periodic cloud side by side. `MARKERS` fixes the marker
+copies of a periodic cloud side by side. `Marker` fixes the marker
 convention of the node files.
 """
 
-from dataclasses import dataclass
+from enum import IntEnum
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -17,31 +17,23 @@ from .periodic import minimum_image, wrap
 from .stencils import KNN, select_stencils
 
 
-@dataclass(frozen=True)
-class Markers:
+class Marker(IntEnum):
     """The boundary markers of the node files.
 
     An interior node has the marker 0, the walls are numbered
     counter-clockwise from the bottom, then come the corners of a cavity
     and a hole in the interior. A generator uses the ones its geometry
-    has. `MARKERS` is the one instance, and frozen.
-
-    Attributes
-    ----------
-    interior, south, east, north, west, corner, hole : int
-        The marker values, 0 to 6.
+    has. A member is an int, so it compares with a marker read from a
+    file and fills a numpy array.
     """
 
-    interior: int = 0
-    south: int = 1
-    east: int = 2
-    north: int = 3
-    west: int = 4
-    corner: int = 5
-    hole: int = 6
-
-
-MARKERS = Markers()
+    interior = 0
+    south = 1
+    east = 2
+    north = 3
+    west = 4
+    corner = 5
+    hole = 6
 
 
 def boundary_first(markers):
@@ -57,7 +49,7 @@ def boundary_first(markers):
     (n,) ndarray of int
         Node indices, the boundary first, each group in its order.
     """
-    return np.argsort(markers == MARKERS.interior, kind="stable")
+    return np.argsort(markers == Marker.interior, kind="stable")
 
 
 class NodeSet:
@@ -115,7 +107,7 @@ class NodeSet:
         return len(self.points)
 
     def stencils(self, method="knn", value=KNN):
-        """Selects the stencil of every node, as a graph in CSR form.
+        """Selects the stencil of every node.
 
         Parameters
         ----------
@@ -127,9 +119,8 @@ class NodeSet:
 
         Returns
         -------
-        ia, ja : ndarray of int
-            The row pointer and the column indices: the stencil of node i
-            is ``ja[ia[i]:ia[i + 1]]``, the node itself first.
+        Graph
+            The stencil of node i is ``graph[i]``, the node itself first.
 
         See Also
         --------
@@ -162,23 +153,23 @@ class NodeSet:
             The files are ``stem + ext`` and ``stem + ".graph"``.
         ext : {".points", ".node"}
             A points file, or a node file with the markers and the title.
-        graph : tuple of ndarray, optional
-            ``(ia, ja)`` from `stencils`.
+        graph : Graph, optional
+            From `stencils`.
         """
         if ext == ".node":
             write_node(stem, self.points, self.markers, self.title)
         else:
             write_points(stem, self.points)
         if graph is not None:
-            write_graph(stem, *graph)
+            write_graph(stem, graph.ia, graph.ja)
 
     def summary(self, graph=None):
         """Describes the cloud in one line.
 
         Parameters
         ----------
-        graph : tuple of ndarray, optional
-            ``(ia, ja)`` from `stencils`, to describe it too.
+        graph : Graph, optional
+            From `stencils`, to describe it too.
 
         Returns
         -------
@@ -191,10 +182,9 @@ class NodeSet:
         if self.extent is not None:
             text += f", {n / np.prod(self.extent):.3g} per unit area of the box"
         if graph is not None:
-            ia, _ = graph
-            sizes = np.diff(ia)
+            sizes = np.diff(graph.ia)
             text += (
-                f", {ia[-1]} edges in the stencil graph, "
+                f", {graph.nnz} edges in the stencil graph, "
                 f"stencils of {sizes.min()} to {sizes.max()} nodes"
             )
         return text
@@ -222,7 +212,7 @@ class NodeSet:
             node filled; a wrapped member sits at its nearest image.
         """
         xy, marker = self.points, self.markers
-        interior = marker == MARKERS.interior
+        interior = marker == Marker.interior
         if interior.any():
             ax.plot(
                 *xy[interior].T,

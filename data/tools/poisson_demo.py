@@ -5,25 +5,24 @@ Three panels: the points with their Delaunay triangulation, the contours
 of a function interpolated over it, and the surface of that function.
 """
 
-import argparse
-
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.tri import Triangulation
 
-from pointclouds.cli import number
+from pointclouds import cli
 from pointclouds.poisson import PoissonDisk
+
+EPILOG = """\
+examples:
+  poisson_demo.py
+  poisson_demo.py --radius 0.05 --save sample.png"""
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description=__doc__.split("\n")[0],
-        epilog="examples:\n  poisson_demo.py\n  poisson_demo.py --radius 0.05 --save sample.png",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    ap = cli.parser(__doc__, EPILOG)
     ap.add_argument(
         "--radius",
-        type=number(float, above=0.0),
+        type=cli.number(float, above=0.0),
         default=0.02,
         help="minimum distance between points (default: 0.02)",
     )

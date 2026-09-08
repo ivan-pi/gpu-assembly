@@ -5,8 +5,6 @@ The cloud is PoissonBox in pointclouds.generators, tiled by TiledNodeSet
 in pointclouds.nodeset when asked.
 """
 
-import argparse
-
 import numpy as np
 
 from pointclouds import cli
@@ -33,12 +31,7 @@ def hole_radius(solid_fraction, size):
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description=__doc__.split("\n")[0],
-        epilog=EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    ap.add_argument("output", help="the points file, or a node file if named so")
+    ap = cli.parser(__doc__, EPILOG)
     ap.add_argument(
         "--size",
         nargs=2,
@@ -86,28 +79,18 @@ def main():
     )
     cli.add_graph_options(ap)
     ap.add_argument("--seed", type=int, help="seed of the sample (default: random)")
-    ap.add_argument(
-        "--plot",
-        action="store_true",
-        help="show the cloud, and one stencil of the graph",
-    )
+    cli.add_output_options(ap, ".points")
     args = ap.parse_args()
 
     hole = args.hole
     if args.solid_fraction is not None:
         hole = hole_radius(args.solid_fraction, args.size)
-    stem, ext = cli.output_stem(args.output, default=".points")
-
     cloud = PoissonBox(
         args.size, args.distance, candidates=args.candidates, hole=hole, seed=args.seed
     )
     if tuple(args.tile) != (1, 1):
         cloud = TiledNodeSet(cloud, args.tile)
-    graph = cloud.stencils(*args.graph) if args.graph else None
-    cloud.write(stem, ext, graph)
-    print(f"{stem}{ext}: {cloud.summary(graph)}")
-    if args.plot:
-        cli.show(cloud, graph)
+    cli.finish(cloud, args)
 
 
 if __name__ == "__main__":
