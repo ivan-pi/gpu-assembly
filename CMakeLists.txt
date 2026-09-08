@@ -64,6 +64,24 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(rbf PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+# RBF-FD weights on the host (src/rbf_fd.f90): one dense saddle-point
+# system per stencil, solved with LAPACK (dgesv, or dsytrf/dsytrs).
+# Kept out of the rbf library so that builds without LAPACK still get
+# everything else; without it the module and its test are skipped.
+find_package(LAPACK)
+if(LAPACK_FOUND)
+    add_library(rbf_fd STATIC src/rbf_fd.f90)
+    set_target_properties(rbf_fd PROPERTIES
+        Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod)
+    target_link_libraries(rbf_fd PUBLIC rbf LAPACK::LAPACK)
+    if(OpenMP_Fortran_FOUND)
+        # the assembly loop is parallel over stencils
+        target_link_libraries(rbf_fd PRIVATE OpenMP::OpenMP_Fortran)
+    endif()
+else()
+    message(STATUS "LAPACK not found: the host RBF-FD module (src/rbf_fd.f90) and its test are skipped")
+endif()
+
 if(GPU_ASSEMBLY_ENABLE_CUDA)
     enable_language(CUDA)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
