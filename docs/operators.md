@@ -14,12 +14,28 @@ q = 3, 5, 7.
 
 ## The formulas, in one place
 
-`PHS<Q>::apply<op>(dx, dy)` and `Poly<P>::term<op>(i, j, X, Y)` are
-templates on the operator code, `Op`, an enum whose values are those of
-`OP_*` in the Fortran module. Each has a run-time twin, `apply(op, ...)`,
-that is one `switch` calling the template. So the formulas exist once,
-and whether the operator is resolved at compile time or at run time is
-the caller's choice per call site, not a property of the kernel.
+An operator is the partial derivative `D<A, B>` = d^A/dx^A d^B/dy^B of
+order A + B <= 2, or a linear combination of those: `Scaled` and `Sum`,
+built by `*` and `+`. The value is `D<0, 0>`, the Laplacian is
+`D<2, 0> + D<0, 2>`, derived rather than special-cased; `Dx`, `Dxy`
+and the rest are names for the instances. Every operator answers two
+questions: on the PHS phi = r^q at a displacement (dx, dy), and on a
+monomial x^i y^j from the power tables of the evaluation point,
+
+```
+phi          = p r^2                                p = r^(q-2), s = r^(q-4)
+D_a phi      = q p d_a
+D_a D_b phi  = q s ((q-2) d_a d_b + delta_ab r^2)
+
+D<A,B> x^i y^j = i (i-1) ... (i-A+1)  j (j-1) ... (j-B+1)  x^(i-A) y^(j-B)
+```
+
+three lines by order for the PHS and one for the monomials, where a
+case per operator would be seven of each. The `Op` enum, with the
+values of `OP_*` in the Fortran module, maps to the tags through
+`tag_of<op>`, so a code and a tag are the same operator by two names.
+A column of a right-hand side is `fill_column`: the operator on the
+PHS of every node, then on the monomials.
 
 ## 1. Codes at run time
 
@@ -57,24 +73,21 @@ evaluation points stay run-time data, as now.
 
 ```cpp
 auto ops = pack(2.0 * Dxx{} + 0.5 * Dyy{},   // anisotropic Laplacian
-                Dx{} * 0.6 + Dy{} * 0.8,      // directional derivative
+                0.6 * Dx{} + 0.8 * Dy{},      // directional derivative
                 Value{});
 fill_rhs_objects<N, P, Q>(ops, B, xs, ys, xc, yc, tid, nthreads);
 ```
 
-A tag type per code (`Dx`, `Laplace`, `Value`, ...) answering
-`phs<Q>(dx, dy)` and `poly<P>(i, j, X, Y)`, and `Scaled` and `Sum`
-combining them, built by `*` and `+`. The result of `2.0 * Dxx{} +
-0.5 * Dyy{}` is an object of type `Sum<Scaled<Basic<dxx>>, Basic<dyy>>`
-holding the two coefficients: trivially copyable, so a kernel argument,
-with the structure of the operator resolved at compile time and its
+The tags and their combinations. `2.0 * Dxx{} + 0.5 * Dyy{}` is an
+object of type `Sum<Scaled<D<2,0>>, D<0,2>>` holding the two
+coefficients: trivially copyable, so a kernel argument, with the
+structure of the operator resolved at compile time and its
 coefficients at run time. `Pack` is the tuple device code can hold, a
 head-and-tail struct; `std::tuple` would do on the host and
 `cuda::std::tuple` on the device. This is the one mechanism that names
-operators the codes do not: the combinations a discretization actually
-wants (an advection-diffusion operator, a boundary normal derivative)
-without adding a code for each, and it composes with mechanism 2, since
-a `Basic<op>` is just a code.
+operators the codes do not, without adding a code for each, and it is
+what the other two reduce to: mechanism 2 packs the tags of its codes,
+mechanism 1 is one switch per column onto the tag.
 
 ## What to adopt
 
