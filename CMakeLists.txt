@@ -5,6 +5,28 @@ project(gpu-assembly LANGUAGES CXX Fortran)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Optimized by default: a configure without a build type would otherwise
+# compile without optimization, which the benchmarks must not.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Release Debug RelWithDebInfo)
+endif()
+
+# The instruction set of the machine at hand (-march=native), for the
+# host assembly loops; off by default since the binary then runs only
+# on that machine and its kin.
+option(GPU_ASSEMBLY_MARCH_NATIVE
+    "Compile the host code for the CPU of this machine (-march=native)" OFF)
+if(GPU_ASSEMBLY_MARCH_NATIVE)
+    foreach(lang CXX Fortran)
+        if(CMAKE_${lang}_COMPILER_ID MATCHES "GNU|Clang|LLVMFlang")
+            add_compile_options($<$<COMPILE_LANGUAGE:${lang}>:-march=native>)
+        elseif(CMAKE_${lang}_COMPILER_ID MATCHES "Intel|NVHPC")
+            add_compile_options($<$<COMPILE_LANGUAGE:${lang}>:-xHost>)
+        endif()
+    endforeach()
+endif()
+
 # compile_commands.json, which clang-tidy reads (.clang-tidy and the
 # manual-stage hook in .pre-commit-config.yaml)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -41,8 +63,25 @@ add_library(ckdtree
 target_include_directories(ckdtree PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ckdtree/src)
 
+# reclu (vendored): LU and LDL^T kernels tuned for the small dense
+# systems of RBF-FD stencils, C ABI. The AVX2 paths need the target to
+# have AVX2 and FMA, which -march=native (GPU_ASSEMBLY_MARCH_NATIVE) or
+# an explicit -mavx2 -mfma provides; otherwise it compiles to its plain
+# loops. Its own tests run through ctest.
+add_library(reclu STATIC
+    third_party/reclu/reclu_lu_naive.cpp
+    third_party/reclu/reclu_lu_opt.cpp
+    third_party/reclu/reclu_solve_naive.cpp
+    third_party/reclu/reclu_solve_opt.cpp
+    third_party/reclu/reclu_sy_naive.cpp
+    third_party/reclu/reclu_sy_opt.cpp)
+target_include_directories(reclu PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/reclu)
+target_compile_options(reclu PRIVATE -fopenmp-simd -fno-math-errno)
+
 # Host library
 add_library(rbf
+    src/rbf_io.f90
     src/rbf_ordering.F90
     src/rbf_precision.f90
     src/rbf_periodic_box.f90
@@ -65,15 +104,18 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 # RBF-FD weights on the host (src/rbf_fd.f90): one dense saddle-point
-# system per stencil, solved with LAPACK (dgesv, or dsytrf/dsytrs).
-# Kept out of the rbf library so that builds without LAPACK still get
-# everything else; without it the module and its test are skipped.
+# system per stencil, solved with LAPACK (dsytrf/dsytrs, or
+# dgetf2/dgetrs). Kept out of the rbf library so that builds without
+# LAPACK still get everything else; without it the module and its test
+# are skipped. The assembly loop threads over stencils, so the LAPACK
+# should be a sequential one: with MKL, -DBLA_VENDOR=Intel10_64lp_seq;
+# -DBLA_VENDOR=Generic picks the reference library when both are there.
 find_package(LAPACK)
 if(LAPACK_FOUND)
     add_library(rbf_fd STATIC src/rbf_fd.f90)
     set_target_properties(rbf_fd PROPERTIES
         Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mod)
-    target_link_libraries(rbf_fd PUBLIC rbf LAPACK::LAPACK)
+    target_link_libraries(rbf_fd PUBLIC rbf LAPACK::LAPACK reclu)
     if(OpenMP_Fortran_FOUND)
         # the assembly loop is parallel over stencils
         target_link_libraries(rbf_fd PRIVATE OpenMP::OpenMP_Fortran)

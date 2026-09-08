@@ -1,5 +1,6 @@
 ! [0, Lx) x [0, Ly) with periodic images: the box of the periodic
-! benchmarks and of the minimum-image displacement in stencil assembly.
+! benchmarks and of the minimum-image displacement in stencil assembly,
+! whose functions are recursive so that OpenMP threads may share them.
 ! The mode (nx, ny) has the wave number (2 pi nx/Lx, 2 pi ny/Ly); in
 ! lattice units Lx = nx cells.
 module rbf_periodic_box
@@ -39,7 +40,7 @@ contains
     end function
 
     ! The point mapped into the box
-    pure function box_wrap(box,xy) result(w)
+    pure recursive function box_wrap(box,xy) result(w)
         class(periodic_box), intent(in) :: box
         real(wp), intent(in) :: xy(2)
         real(wp) :: w(2)
@@ -48,7 +49,7 @@ contains
     end function
 
     ! The shortest of the displacement and its periodic images
-    pure function box_minimum_image(box,d) result(m)
+    pure recursive function box_minimum_image(box,d) result(m)
         class(periodic_box), intent(in) :: box
         real(wp), intent(in) :: d(2)
         real(wp) :: m(2)
