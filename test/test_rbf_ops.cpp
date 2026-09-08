@@ -63,10 +63,9 @@ static void test_q() {
         fill_rhs_static<N, P, Q>(list{}, B2.data(), xs, ys, xc, yc, tid, 3);
 
     // 3. objects
-    auto objs = pack(Dx{}, Dy{}, Dxx{}, Dxy{}, Dyy{}, Laplace{}, Value{});
-    static_assert(decltype(objs)::size == NRHS);
     for (int tid = 0; tid < 3; ++tid)
-        fill_rhs_objects<N, P, Q>(objs, B3.data(), xs, ys, xc, yc, tid, 3);
+        fill_rhs<N, P, Q>(B3.data(), xs, ys, xc, yc, tid, 3, Dx{}, Dy{}, Dxx{}, Dxy{}, Dyy{},
+                          Laplace{}, Value{});
 
     // The same formulas, but GCC contracts a*b+c into FMAs differently
     // in the switch and in the template, so agreement is to rounding
@@ -144,12 +143,10 @@ static void test_q() {
 
     // Composed operators: an anisotropic Laplacian and a directional
     // derivative, against the combinations of the plain columns
-    auto composed = pack(2.0 * Dxx{} + 0.5 * Dyy{}, Dx{} * 0.6 + Dy{} * 0.8);
-    static_assert(decltype(composed)::size == 2);
     std::vector<double> C(NT * 2), dxc(NT), dyc(NT);
-    const double zero = 0;
     const double xz[2] = {x0, x0}, yz[2] = {y0, y0};
-    fill_rhs_objects<N, P, Q>(composed, C.data(), xs, ys, xz, yz, 0, 1);
+    fill_rhs<N, P, Q>(C.data(), xs, ys, xz, yz, 0, 1, 2.0 * Dxx{} + 0.5 * Dyy{},
+                      0.6 * Dx{} + 0.8 * Dy{});
     column(Op::dx, dxc.data());
     column(Op::dy, dyc.data());
     for (int i = 0; i < NT; ++i) {
@@ -158,7 +155,6 @@ static void test_q() {
     }
     CHECK(maxdiff(C.data(), fd.data(), NT) / scale < 1e-12);
     CHECK(maxdiff(C.data() + NT, b.data(), NT) / scale < 1e-12);
-    (void)zero;
 }
 
 int main() {

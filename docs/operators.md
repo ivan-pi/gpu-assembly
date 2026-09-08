@@ -72,30 +72,30 @@ evaluation points stay run-time data, as now.
 ## 3. Operator objects
 
 ```cpp
-auto ops = pack(2.0 * Dxx{} + 0.5 * Dyy{},   // anisotropic Laplacian
-                0.6 * Dx{} + 0.8 * Dy{},      // directional derivative
-                Value{});
-fill_rhs_objects<N, P, Q>(ops, B, xs, ys, xc, yc, tid, nthreads);
+fill_rhs<N, P, Q>(B, xs, ys, xc, yc, tid, nthreads,
+                  2.0 * Dxx{} + 0.5 * Dyy{},   // anisotropic Laplacian
+                  0.6 * Dx{} + 0.8 * Dy{},      // directional derivative
+                  Value{});
 ```
 
-The tags and their combinations. `2.0 * Dxx{} + 0.5 * Dyy{}` is an
-object of type `Sum<Scaled<D<2,0>>, D<0,2>>` holding the two
-coefficients: trivially copyable, so a kernel argument, with the
-structure of the operator resolved at compile time and its
-coefficients at run time. `Pack` is the tuple device code can hold, a
-head-and-tail struct; `std::tuple` would do on the host and
-`cuda::std::tuple` on the device. This is the one mechanism that names
-operators the codes do not, without adding a code for each, and it is
-what the other two reduce to: mechanism 2 packs the tags of its codes,
-mechanism 1 is one switch per column onto the tag.
+The tags and their combinations, as a parameter pack: column j is the
+j-th operator. `2.0 * Dxx{} + 0.5 * Dyy{}` is an object of type
+`Sum<Scaled<D<2,0>>, D<0,2>>` holding the two coefficients: trivially
+copyable, so a kernel argument, with the structure of the operator
+resolved at compile time and its coefficients at run time. This is the
+one mechanism that names operators the codes do not, without adding a
+code for each, and it is what the other two reduce to: mechanism 2
+passes the tags of its codes (`tag_of`, two arrays of derivative
+orders), mechanism 1 is one switch per column onto the tag
+(`with_tag`). An `Operator` is anything with `phs<Q>` and `poly`, a
+two-line C++20 concept.
 
 ## What to adopt
 
 Mechanism 2 for the kernels' configuration, since it gives `NRHS` and
-specializes each column for free, with mechanism 3's objects as the
-elements of the list where a combination is needed: an `ops_list` of
-codes is the common case and a `Pack` of objects the general one, and
-the two share the formulas. Mechanism 1 stays the host API in Fortran,
+specializes each column for free, with mechanism 3's objects where a
+combination is needed: an `ops_list` of codes is the common case and
+a pack of objects the general one, and the two share the formulas. Mechanism 1 stays the host API in Fortran,
 where the operator is data because the caller chains operators at run
 time; on the host the switch costs nothing measurable
 (`docs/rbf_fd.md`). One more thing carries over from the Fortran side:
