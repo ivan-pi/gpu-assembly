@@ -89,10 +89,6 @@ type :: rbf_fd_workspace
     ! recurrence that evaluates them: m_1 = 1, m_k = t * m_parent(k)
     ! with t = x for axis(k) = 1 and t = y for axis(k) = 2
     integer, allocatable :: ix(:), iy(:), parent(:), axis(:)
-    ! The operators on the monomials, two terms each (only the
-    ! Laplacian needs both): L m_k = sum_t pc(k,t,op) x^px(k,t,op) y^py(k,t,op)
-    real(wp), allocatable :: pc(:,:,:)
-    integer, allocatable :: px(:,:,:), py(:,:,:)
     ! The system, lda x lda column-major from abuf(a0) on, with a0
     ! chosen at every fill so that the matrix starts on a 32-byte
     ! boundary (the reclu kernels are store-bound and want it); the
@@ -229,7 +225,7 @@ contains
         integer, intent(in), optional :: solver
         type(rbf_fd_workspace) :: ws
 
-        integer :: d, i, j, k, op, nt, info
+        integer :: d, i, j, k, nt, info
         real(wp) :: query(1)
 
         if (q < 3 .or. mod(q, 2) == 0) then
@@ -283,37 +279,6 @@ contains
             end do
         end do
 
-        ! The operators on the monomials, as coefficient and exponents
-        ! of up to two terms; a term whose exponent would go negative
-        ! has coefficient zero and is pointed at x^0 y^0
-        allocate(ws%pc(ws%np, 2, 0:OP_LAST), ws%px(ws%np, 2, 0:OP_LAST), ws%py(ws%np, 2, 0:OP_LAST))
-        ws%pc = 0
-        ws%px = 0
-        ws%py = 0
-        do op = 0, OP_LAST
-            do k = 1, ws%np
-                i = ws%ix(k)
-                j = ws%iy(k)
-                select case (op)
-                case (OP_VALUE)
-                    call term(k, 1, op, 1, i, j)
-                case (OP_DX)
-                    call term(k, 1, op, i, i - 1, j)
-                case (OP_DY)
-                    call term(k, 1, op, j, i, j - 1)
-                case (OP_DXX)
-                    call term(k, 1, op, i*(i - 1), i - 2, j)
-                case (OP_DXY)
-                    call term(k, 1, op, i*j, i - 1, j - 1)
-                case (OP_DYY)
-                    call term(k, 1, op, j*(j - 1), i, j - 2)
-                case (OP_LAPLACE)
-                    call term(k, 1, op, i*(i - 1), i - 2, j)
-                    call term(k, 2, op, j*(j - 1), i, j - 2)
-                end select
-            end do
-        end do
-
         ! The leading dimension: the largest system, padded to a
         ! multiple of 8 doubles so every column starts on a 64-byte
         ! line once the matrix itself is aligned; the buffer has the
@@ -338,15 +303,6 @@ contains
             integer :: k
             k = (i + j)*(i + j + 1)/2 + j + 1
         end function
-
-        ! Term t of operator op on monomial k: c x^i y^j
-        subroutine term(k, t, op, c, i, j)
-            integer, intent(in) :: k, t, op, c, i, j
-            if (i < 0 .or. j < 0) return
-            ws%pc(k, t, op) = c
-            ws%px(k, t, op) = i
-            ws%py(k, t, op) = j
-        end subroutine
 
     end function
 
@@ -425,8 +381,7 @@ contains
     end subroutine
 
     ! The polynomial part of the basis with the operator op applied,
-    ! at (xc, yc): b(k) = L m_k(xc, yc), k = 1, np, from the tables of
-    ! the constructor
+    ! at (xc, yc): b(k) = L m_k(xc, yc), k = 1, np, with m_k = x^i y^j
     recursive subroutine poly_column(ws, op, xc, yc, b)
         type(rbf_fd_workspace), intent(in) :: ws
         integer, intent(in) :: op
@@ -434,7 +389,7 @@ contains
         real(wp), intent(out) :: b(ws%np)
 
         real(wp) :: xp(0:ws%p), yp(0:ws%p)
-        integer :: k
+        integer :: k, i, j
 
         xp(0) = 1
         yp(0) = 1
@@ -444,9 +399,39 @@ contains
         end do
 
         do k = 1, ws%np
-            b(k) = ws%pc(k, 1, op)*xp(ws%px(k, 1, op))*yp(ws%py(k, 1, op)) &
-                 + ws%pc(k, 2, op)*xp(ws%px(k, 2, op))*yp(ws%py(k, 2, op))
+            i = ws%ix(k)
+            j = ws%iy(k)
+            select case (op)
+            case (OP_VALUE)
+                b(k) = xp(i)*yp(j)
+            case (OP_DX)
+                b(k) = i*mono(i - 1, j)
+            case (OP_DY)
+                b(k) = j*mono(i, j - 1)
+            case (OP_DXX)
+                b(k) = i*(i - 1)*mono(i - 2, j)
+            case (OP_DXY)
+                b(k) = i*j*mono(i - 1, j - 1)
+            case (OP_DYY)
+                b(k) = j*(j - 1)*mono(i, j - 2)
+            case (OP_LAPLACE)
+                b(k) = i*(i - 1)*mono(i - 2, j) + j*(j - 1)*mono(i, j - 2)
+            end select
         end do
+
+    contains
+
+        ! x^i y^j at the evaluation point, zero for a negative exponent
+        ! (whose coefficient, i or i-1, is zero anyway)
+        pure function mono(i, j)
+            integer, intent(in) :: i, j
+            real(wp) :: mono
+            if (i < 0 .or. j < 0) then
+                mono = 0
+            else
+                mono = xp(i)*yp(j)
+            end if
+        end function
 
     end subroutine
 

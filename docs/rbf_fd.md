@@ -52,11 +52,10 @@ lap phi = q^2 r^(q-2)
 all of which vanish at r = 0 for q >= 3. The second derivatives divide
 by r^2; at r = 0 the divisor is clamped to the smallest normal number
 and the zero numerator makes the quotient zero, without a branch. On
-the monomials the operators are tables built once by the constructor,
-coefficient and exponents per monomial, so their evaluation is
-branch-free too; the monomials themselves come from the recurrence
-x^i y^j = x * x^(i-1) y^j (or y times the previous power of y), which
-also fills the polynomial blocks of the matrix without transposing.
+the monomials the operators are the textbook formulas on the exponents.
+The polynomial blocks of the matrix come from the recurrence
+x^i y^j = x * x^(i-1) y^j (or y times the previous power of y), one
+vector multiply per column, without transposing.
 
 ## Solvers
 
