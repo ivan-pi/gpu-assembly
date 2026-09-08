@@ -1,45 +1,8 @@
-"""Poisson disk sampling of a rectangle, optionally periodic in either
-axis: no two points closer than a radius r, and no room left for another
-one, drawn by Bridson's algorithm with the inner loop compiled by Numba.
+"""Poisson disk sampling of a rectangle, periodic in either axis.
 
-The rectangle is [0, Lx) x [0, Ly), and `periodic` says of each axis
-whether its two sides are one: neither for a box with walls, both for a
-periodic box, one for a channel. A periodic box, filled:
-
-    pts = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=True).fill_space()
-
-A channel, periodic in x, grown from its wall nodes, which then come
-first in the result:
-
-    engine = PoissonDisk(0.02, extent=(1.0, 2.0), periodic=(True, False))
-    engine.add_points(walls)
-    engine.fill_space()
-    pts = engine.points
-
-Bridson's algorithm (2007): a grid of cells of side at most r / sqrt(2),
-so that a cell holds one point at most, and a queue of the points that
-still have candidates to throw. A queued point throws `ncandidates`
-candidates into the annulus between r and 2r around it; a candidate that
-finds no point within r in the 5x5 cells around its own is kept and
-queued. A filled rectangle holds about 0.62 / r^2 points per unit area
-with 30 candidates, 0.56 with 10.
-
-Along a periodic axis the search wraps: the cell index is taken modulo
-the cell count, and a difference of coordinates through the nearer of
-the two sides. The cells tile the extent exactly along such an axis,
-which makes them a little smaller than r / sqrt(2). With a partial last
-cell instead, the two cells beyond the seam would span less than r, the
-search would stop short of it, and points closer than r could face each
-other across the seam: the defect a sample that is wrapped afterwards
-shows, and the reason the sampler is periodic itself.
-
-The interface follows scipy.stats.qmc.PoissonDisk: `random` draws up to
-n more points, `fill_space` draws until nothing fits, `reset` goes back
-to the start, and a seed makes a sample reproducible. The loop, after
-Connor Johnson (2015), "Poisson Disk Sampling",
-<http://connor-johnson.com/2015/04/08/poisson-disk-sampling/>, is
-compiled by Numba on the first call of a process and cached next to this
-module.
+`PoissonDisk` draws points no two of which are closer than a radius,
+with no room left for another one, by Bridson's algorithm with the
+inner loop compiled by Numba.
 """
 
 from collections import namedtuple
@@ -51,60 +14,55 @@ from numba import njit
 __all__ = ["PoissonDisk"]
 
 
-def wrap(z, box):
-    """Coordinates z brought into [0, box) through the periodic side, for
-    arrays, with box a scalar or one length per column."""
-    z = np.mod(z, box)
-    z[z >= box] = 0.0  # np.mod rounds up to the side
-    return z
-
-
 # ------------------------------------------------------------------- Numba
 # Numba compiles functions of plain arguments and cannot cache a jitclass,
-# so the state lives in three namedtuples, which it passes in and reads
+# so the state lives in two namedtuples, which it passes in and reads
 # without cost, and the loop is split into small functions of those,
 # which LLVM inlines.
 
-Box = namedtuple("Box", "lx ly perx pery")  # the rectangle and its periodic axes
-Cells = namedtuple("Cells", "nx ny sx sy")  # the grid: counts and sides of the cells
-Store = namedtuple("Store", "px py grid queue count")
-# px, py   the points, in the order drawn
-# grid     the index of the point in each cell, -1 for none
-# queue    the points that still have candidates to throw
-# count    the number of points, the length of the queue
+Grid = namedtuple("Grid", "lx ly perx pery nx ny sx sy")
+# lx, ly      the rectangle
+# perx, pery  whether each axis is periodic
+# nx, ny      the cells across it
+# sx, sy      the sides of a cell
+Store = namedtuple("Store", "p grid queue count")
+# p      the points, in the order drawn
+# grid   the index of the point in each cell, -1 for none
+# queue  the points that still have candidates to throw
+# count  the number of points, the length of the queue
+
+TAKEN, OUTSIDE, TOO_CLOSE = 0, 1, 2  # what became of a point offered
 
 
 @njit(cache=True)
 def wrap_coordinate(z, length):
-    """One coordinate brought into [0, length) through the periodic side,
-    from at most one length out; `wrap` does the same for arrays."""
-    if z < 0.0:
-        z += length
-    elif z >= length:
-        z -= length
+    """Wraps one coordinate into [0, length)."""
+    z %= length
     if z >= length:  # rounded up to the side
         z = 0.0
     return z
 
 
 @njit(cache=True)
-def into_box(box, x, y):
-    """Whether (x, y) is in the box, and where: brought in through a
-    periodic side, or out for good through a wall."""
-    if box.perx:
-        x = wrap_coordinate(x, box.lx)
-    elif x < 0.0 or x >= box.lx:
+def into_box(grid, x, y):
+    """Brings (x, y) into the box, telling whether it is inside.
+
+    In through a periodic side, or out for good through a wall.
+    """
+    if grid.perx:
+        x = wrap_coordinate(x, grid.lx)
+    elif x < 0.0 or x >= grid.lx:
         return False, x, y
-    if box.pery:
-        y = wrap_coordinate(y, box.ly)
-    elif y < 0.0 or y >= box.ly:
+    if grid.pery:
+        y = wrap_coordinate(y, grid.ly)
+    elif y < 0.0 or y >= grid.ly:
         return False, x, y
     return True, x, y
 
 
 @njit(cache=True)
 def minimum_image(d, length):
-    """A difference of coordinates through the nearer of the two sides."""
+    """Shortens a coordinate difference through the nearer of the sides."""
     if d > 0.5 * length:
         d -= length
     elif d < -0.5 * length:
@@ -113,84 +71,95 @@ def minimum_image(d, length):
 
 
 @njit(cache=True)
-def squared_distance(box, dx, dy):
-    """The squared distance for a difference of two points, through the
-    periodic sides where that is shorter."""
-    if box.perx:
-        dx = minimum_image(dx, box.lx)
-    if box.pery:
-        dy = minimum_image(dy, box.ly)
+def squared_distance(grid, dx, dy):
+    """Squares the distance of a difference, through the periodic sides."""
+    if grid.perx:
+        dx = minimum_image(dx, grid.lx)
+    if grid.pery:
+        dy = minimum_image(dy, grid.ly)
     return dx * dx + dy * dy
 
 
 @njit(cache=True)
-def cell_of(cells, x, y):
-    """The column and row of the cell (x, y) falls in; the last for a
-    coordinate on the far side."""
-    return (min(int(x / cells.sx), cells.nx - 1), min(int(y / cells.sy), cells.ny - 1))
+def cell_of(grid, x, y):
+    """Finds the column and row of the cell (x, y) falls in.
+
+    The last cell for a coordinate on the far side.
+    """
+    return (min(int(x / grid.sx), grid.nx - 1), min(int(y / grid.sy), grid.ny - 1))
 
 
 @njit(cache=True)
-def cell_taken(store, cells, x, y):
-    """Whether the cell of (x, y) already holds a point."""
-    ci, cj = cell_of(cells, x, y)
-    return store.grid[cj * cells.nx + ci] >= 0
+def too_close(store, grid, x, y, r2):
+    """Tells whether a point within r of (x, y) sits in the cells around.
 
-
-@njit(cache=True)
-def too_close(store, cells, box, x, y, r2):
-    """Whether a point within r of (x, y) sits in the 5x5 cells around
-    its own, through the periodic sides where there are any."""
-    ci, cj = cell_of(cells, x, y)
+    The 5x5 cells around its own, through the periodic sides where there
+    are any.
+    """
+    ci, cj = cell_of(grid, x, y)
     for dj in range(-2, 3):
         jj = cj + dj
-        if box.pery:
-            jj %= cells.ny
-        elif jj < 0 or jj >= cells.ny:
+        if grid.pery:
+            jj %= grid.ny
+        elif jj < 0 or jj >= grid.ny:
             continue
         for di in range(-2, 3):
             ii = ci + di
-            if box.perx:
-                ii %= cells.nx
-            elif ii < 0 or ii >= cells.nx:
+            if grid.perx:
+                ii %= grid.nx
+            elif ii < 0 or ii >= grid.nx:
                 continue
-            t = store.grid[jj * cells.nx + ii]
-            if t >= 0 and squared_distance(box, store.px[t] - x, store.py[t] - y) < r2:
+            t = store.grid[jj * grid.nx + ii]
+            if (
+                t >= 0
+                and squared_distance(grid, store.p[t, 0] - x, store.p[t, 1] - y) < r2
+            ):
                 return True
     return False
 
 
 @njit(cache=True)
-def insert_point(store, cells, x, y):
-    """(x, y) stored, put in its cell and queued."""
+def offer_point(store, grid, x, y, r2):
+    """Stores (x, y) in its cell and the queue, if it fits in the box.
+
+    Returns TAKEN, or OUTSIDE a wall, or TOO_CLOSE to a stored point.
+    """
+    inside, x, y = into_box(grid, x, y)
+    if not inside:
+        return OUTSIDE
+    if too_close(store, grid, x, y, r2):
+        return TOO_CLOSE
     n, qn = store.count[0], store.count[1]
-    ci, cj = cell_of(cells, x, y)
-    store.px[n] = x
-    store.py[n] = y
-    store.grid[cj * cells.nx + ci] = n
+    ci, cj = cell_of(grid, x, y)
+    store.p[n, 0] = x
+    store.p[n, 1] = y
+    store.grid[cj * grid.nx + ci] = n
     store.queue[qn] = n
     store.count[0] = n + 1
     store.count[1] = qn + 1
+    return TAKEN
 
 
 @njit(cache=True)
-def insert_points(store, cells, xs, ys):
-    """Points inserted as they are; False at the first whose cell is
-    taken, which means it is closer than r to another."""
-    for i in range(len(xs)):
-        if cell_taken(store, cells, xs[i], ys[i]):
-            return False
-        insert_point(store, cells, xs[i], ys[i])
-    return True
+def offer_points(store, grid, pts, r2):
+    """Offers the points in turn; stops at the first refused.
+
+    Returns what became of the last one offered.
+    """
+    for i in range(len(pts)):
+        fate = offer_point(store, grid, pts[i, 0], pts[i, 1], r2)
+        if fate != TAKEN:
+            return fate
+    return TAKEN
 
 
 @njit(cache=True)
-def draw_points(store, cells, box, r, k, nmax, rng):
-    """Points drawn from the queue until it is empty or there are nmax of
-    them: a queued point throws its k candidates and comes off, and every
-    candidate that fits is stored and queued in its turn."""
-    if store.count[0] == 0 and nmax > 0:  # no seeds: start anywhere
-        insert_point(store, cells, rng.random() * box.lx, rng.random() * box.ly)
+def draw_points(store, grid, r, k, nmax, rng):
+    """Draws points from the queue until it is empty or there are nmax.
+
+    A queued point throws its k candidates and comes off; every candidate
+    that fits is stored and queued in its turn.
+    """
     r2 = r * r
     while store.count[1] > 0 and store.count[0] < nmax:
         qi = rng.integers(0, store.count[1])
@@ -198,15 +167,8 @@ def draw_points(store, cells, box, r, k, nmax, rng):
         for _ in range(k):
             a = 2.0 * np.pi * rng.random()
             b = r * sqrt(1.0 + 3.0 * rng.random())  # uniform over the annulus
-            inside, x, y = into_box(
-                box, store.px[s] + b * np.cos(a), store.py[s] + b * np.sin(a)
-            )
-            if not inside or cell_taken(store, cells, x, y):
-                continue
-            if too_close(store, cells, box, x, y, r2):
-                continue
-            insert_point(store, cells, x, y)
-            if store.count[0] >= nmax:
+            x, y = store.p[s, 0] + b * np.cos(a), store.p[s, 1] + b * np.sin(a)
+            if offer_point(store, grid, x, y, r2) == TAKEN and store.count[0] >= nmax:
                 break
         else:  # all k thrown: retired
             qn = store.count[1] - 1
@@ -215,110 +177,136 @@ def draw_points(store, cells, box, r, k, nmax, rng):
 
 
 class PoissonDisk:
-    """A Poisson disk sampler of the rectangle [0, Lx) x [0, Ly) with
-    minimum distance `radius`.
+    """A Poisson disk sampler of the rectangle ``[0, Lx) x [0, Ly)``.
 
-    extent       (Lx, Ly), the rectangle [0, Lx) x [0, Ly)
-    periodic     whether each axis wraps around, one flag or a pair
-    ncandidates  candidates a point throws before it is retired
-    seed         anything numpy.random.default_rng accepts; None draws one
-    seeds        points to start from, kept ahead of the drawn ones in
-                 `points`; they are taken as given and must themselves be
-                 at least `radius` apart
+    Parameters
+    ----------
+    radius : float
+        The least distance between two points.
+    extent : (2,) array_like, default (1.0, 1.0)
+        ``(Lx, Ly)``.
+    periodic : bool or (2,) tuple of bool, default False
+        Whether each axis wraps around: neither for a box with walls, both
+        for a periodic box, one for a channel.
+    ncandidates : int, default 30
+        Candidates a point throws before it is retired.
+    seed : optional
+        Anything ``numpy.random.default_rng`` accepts; None draws one.
 
-    `points` holds everything so far, seeds first, in the order drawn.
+    Attributes
+    ----------
+    points : (n, 2) ndarray
+        Everything so far, in the order added and drawn.
+    radius, extent, periodic, ncandidates, seed
+        As given.
+
+    Notes
+    -----
+    Bridson's algorithm [1]_ keeps the points on a grid of square cells
+    with sides of at most ``radius / sqrt(2)``, so that no cell can hold
+    two points, and a queue of the points that still have candidates to
+    throw. Each round takes a point from the queue at random and throws
+    `ncandidates` candidates into the annulus between one and two radii
+    from it. A candidate is accepted when none of the 5 by 5 cells around
+    its own holds a point within the radius; it is then stored, put in
+    its cell and queued in its turn. A point whose candidates are all
+    refused leaves the queue. The sample is complete when the queue is
+    empty.
+
+    Along a periodic axis the search wraps around: a cell index is taken
+    modulo the number of cells, and a coordinate difference is measured
+    through the nearer of the two sides. The cells then have to tile the
+    extent exactly, so that the 5 by 5 cells around a point still reach
+    a radius across the seam, which makes them a little smaller than
+    ``radius / sqrt(2)``. Wrapping an ordinary sample afterwards would
+    not do: the points on either side of the seam have never seen each
+    other, and pairs closer than the radius appear across it.
+
+    The interface follows ``scipy.stats.qmc.PoissonDisk``. The loop, after
+    Johnson [2]_, is compiled by Numba on the first call of a process and
+    cached next to this module.
+
+    References
+    ----------
+    .. [1] R. Bridson, "Fast Poisson disk sampling in arbitrary
+       dimensions," ACM SIGGRAPH 2007 Sketches, 2007.
+    .. [2] C. Johnson, "Poisson Disk Sampling," 2015,
+       http://connor-johnson.com/2015/04/08/poisson-disk-sampling/
     """
 
     def __init__(
-        self,
-        radius,
-        extent=(1.0, 1.0),
-        periodic=False,
-        ncandidates=30,
-        seed=None,
-        seeds=None,
+        self, radius, extent=(1.0, 1.0), *, periodic=False, ncandidates=30, seed=None
     ):
         if radius <= 0:
             raise ValueError("radius must be positive")
         extent = np.asarray(extent, float)
         if extent.shape != (2,) or np.any(extent <= 0):
             raise ValueError("extent must be two positive lengths")
-        periodic = np.broadcast_to(np.asarray(periodic, bool), 2).copy()
-        if ncandidates < 1:
-            raise ValueError("ncandidates must be at least 1")
 
         self.radius = float(radius)
         self.extent = extent
-        self.periodic = periodic
+        self.periodic = tuple(bool(p) for p in np.broadcast_to(periodic, 2))
         self.ncandidates = int(ncandidates)
         self.seed = seed
-        self._seeds = (
-            np.empty((0, 2))
-            if seeds is None
-            else np.array(seeds, float, ndmin=2).reshape(-1, 2)
-        )
         self.reset()
 
     def reset(self):
-        """Back to the start: the seeds alone, the random stream rewound.
-        Returns the engine."""
+        """Empties the sample and rewinds the random stream."""
         lx, ly = self.extent
-        # cells of side at most r / sqrt(2) tiling the rectangle exactly,
-        # so that a cell holds one point at most
-        nx, ny = (ceil(L / (self.radius / sqrt(2))) for L in self.extent)
-        self._box = Box(lx, ly, bool(self.periodic[0]), bool(self.periodic[1]))
-        self._cells = Cells(nx, ny, lx / nx, ly / ny)
+        side = self.radius / sqrt(2)  # so that a cell holds one point at most
+        nx, ny = ceil(lx / side), ceil(ly / side)
+        self._grid = Grid(lx, ly, *self.periodic, nx, ny, lx / nx, ly / ny)
         self._store = Store(
-            np.empty(nx * ny),
-            np.empty(nx * ny),
+            np.empty((nx * ny, 2)),
             np.full(nx * ny, -1, np.int64),
             np.empty(nx * ny, np.int64),
             np.zeros(2, np.int64),
         )
         self._rng = np.random.default_rng(self.seed)
-        self.num_generated = 0
-        self.add_points(self._seeds)
-        return self
 
     def add_points(self, pts):
-        """Feed points to the queue as if drawn: the seeds, or the nodes of
-        an inner layer. They are wrapped through the periodic sides, and
-        two of them in one cell, which are closer than r, are refused."""
-        pts = np.array(pts, float, ndmin=2).reshape(-1, 2)
-        if len(pts) == 0:
-            return
-        if np.any(pts[:, ~self.periodic] < 0) or np.any(
-            pts[:, ~self.periodic] >= self.extent[~self.periodic]
-        ):
+        """Feeds points to the sample as if drawn.
+
+        Seeds to start from, or the nodes of an inner layer; the points
+        drawn later keep the radius from them.
+
+        Parameters
+        ----------
+        pts : (m, 2) array_like
+
+        Raises
+        ------
+        ValueError
+            For a point outside the rectangle along an axis with walls, or
+            closer than the radius to one already in the sample.
+        """
+        pts = np.asarray(pts, float).reshape(-1, 2)
+        fate = offer_points(self._store, self._grid, pts, self.radius**2)
+        if fate == OUTSIDE:
             raise ValueError("a point lies outside the rectangle")
-        pts = pts.copy()
-        pts[:, self.periodic] = wrap(pts[:, self.periodic], self.extent[self.periodic])
-        if not insert_points(self._store, self._cells, pts[:, 0], pts[:, 1]):
-            raise ValueError("two of the points are closer than the radius")
+        if fate == TOO_CLOSE:
+            raise ValueError("a point is closer than the radius to another")
 
     def random(self, n=1):
-        """Draw up to n more points and return them; fewer when the space
-        fills up first."""
+        """Draws up to `n` more points, fewer once the space fills."""
         before = int(self._store.count[0])
+        if before == 0 and n > 0:  # nothing to throw from: start anywhere
+            self.add_points(self._rng.random(2) * self.extent)
         draw_points(
             self._store,
-            self._cells,
-            self._box,
+            self._grid,
             self.radius,
             self.ncandidates,
-            min(before + n, len(self._store.px)),
+            min(before + n, len(self._store.p)),
             self._rng,
         )
-        after = int(self._store.count[0])
-        self.num_generated += after - before
         return self.points[before:]
 
     def fill_space(self):
-        """Draw until nothing fits and return the points drawn by this call."""
-        return self.random(len(self._store.px))
+        """Draws until nothing fits; returns the points of this call."""
+        return self.random(len(self._store.p))
 
     @property
     def points(self):
-        """All points so far, seeds first, then in the order drawn."""
-        n = int(self._store.count[0])
-        return np.column_stack((self._store.px[:n], self._store.py[:n]))
+        """Returns all points so far, in the order added and drawn."""
+        return self._store.p[: self._store.count[0]].copy()

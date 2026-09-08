@@ -14,13 +14,13 @@ numbering. The name is free; what it stands for is recorded in the table
 below. Node sets, which are a single `.node` file and carry no graph, are
 listed under [Extracted](#extracted).
 
-The Python here -- the generators in `gen/`, the tools in `tools/` --
-shares the `pointclouds` package beside them, which has to be installed
-for the scripts to find it. From the repository root:
+The scripts in `tools/` generate, inspect and reorder cases, and share
+the `pointclouds` package beside them, which has to be installed for
+them to find it. From the repository root:
 
 ```
-pip install -e data                # pointclouds and numpy, in place
-pip install scipy matplotlib       # neighbour search, rcm, and the figures
+pip install -e data                # pointclouds, numpy and scipy, in place
+pip install matplotlib             # the figures
 pip install numba                  # the Poisson disk sampler
 pip install pymetis                # nested dissection
 pip install scikit-sparse          # minimum degree, and the fill-in count
@@ -98,29 +98,32 @@ Marker 0 is an interior node in all of them.
 
 ## Generating
 
-Scripts that produced a case go in `gen/`, and what they share with the
-tools in the `pointclouds` package, laid out like the C++ library:
-`pointclouds.io` reads and writes the formats above, `pointclouds.markers`
-fixes the boundary-marker convention, `pointclouds.cli` the command-line
-conventions. `pointclouds.poisson` fills a rectangle with points no two
-of which are closer than a radius, with either axis periodic or neither,
-from seed points if given, in whatever units the extent and the radius
-come in; its interface follows `scipy.stats.qmc.PoissonDisk`, and
-Bridson's loop is compiled by numba, so a million points take a few
-seconds; `tools/poisson_demo.py` shows a sample of it. The generators
-are:
+The scripts share the `pointclouds` package, laid out like the C++
+library:
 
-- `gen/cavity_refined.py`: the lid-driven cavity `[0, Lx] x [0, Ly]`,
-  refined towards the walls in three levels, as a `.node` file with
-  markers for the four walls and the corners.
-- `gen/perturbed_grid.py`: a Cartesian grid with every node displaced by
-  a small random amount, periodic on both sides or a channel with walls
-  at the top and bottom, as a `.points` or a `.node` file together with
-  the `.graph` of its stencils, whose search wraps around the periodic
-  sides.
+- `pointclouds.nodeset`: `NodeSet`, a cloud with a marker per node and
+  the box it lives in, which writes, selects its stencils and draws
+  itself; `TiledNodeSet`, copies of it side by side; `Marker`.
+- `pointclouds.generators`: the clouds the generators make, as children
+  of `NodeSet`, so that a script is its command line and a constructor.
+- `pointclouds.stencils`: the stencil selection, by nearest neighbours,
+  radius or range, wrapping around the periodic sides of the box, and
+  `Graph`, the stencils in CSR form.
+- `pointclouds.poisson`: a Poisson disk sampler of a rectangle, periodic
+  or not, after `scipy.stats.qmc.PoissonDisk` and compiled by numba;
+  `tools/poisson_demo.py` shows a sample of it.
+- `pointclouds.periodic`, `pointclouds.io`, `pointclouds.cli`: the box
+  arithmetic, the file formats above, the command-line conventions.
 
-They work in lattice units, in which the spacing is 1; scaling a case to
-other units is left to whoever needs it. `--help` describes the rest.
+The generators, in lattice units with the spacing 1; `--help` has the
+rest:
+
+- `tools/refined_cavity.py`: the lid-driven cavity, refined towards the
+  walls in three bands, with markers for the walls and the corners.
+- `tools/perturbed_grid.py`: a Cartesian grid with every node displaced
+  by a small random amount, periodic or a channel with walls.
+- `tools/poisson_box.py`: a Poisson disk sample of a periodic box, alone
+  or around a circular hole (an array of cylinders), tiled if asked.
 
 ## Inspecting
 
@@ -128,12 +131,11 @@ other units is left to whoever needs it. `--help` describes the rest.
 reports on them.
 
 ```
-usage: inspect_points.py [-h] [--plot] [--labels] [--stencil I [I ...]]
-                         [--k K] [--periodic LX LY] [--spy] [--save FILE]
+usage: inspect_points.py [-h] [--plot] [--labels] [--stencil I [I ...]] [-K K]
+                         [--periodic LX LY] [--spy] [--save FILE]
                          FILE [FILE ...]
 
-Check and describe the files of a case (docs/file_formats.md): node and marker
-counts, nearest-neighbour statistics, graph statistics. Never writes a file.
+Check and describe the files of a case, and draw them.
 
 positional arguments:
   FILE                 one each of .points or .node, .graph and .iperm; an
@@ -143,14 +145,27 @@ options:
   -h, --help           show this help message and exit
   --plot               draw the nodes, coloured by marker
   --labels             write the index next to every node
-  --stencil I [I ...]  draw the stencils of these nodes, from the graph or the
-                       --k nearest neighbours
-  --k K                stencil size for --stencil without a graph file
+  --stencil I [I ...]  draw the stencils of these nodes, from the graph or as
+                       the K nearest
+  -K K, --knn K        the stencil of a node is its K nearest nodes, without a
+                       graph file
   --periodic LX LY     the periodic box [0, LX) x [0, LY): minimum-image
                        distances
   --spy                draw the sparsity pattern of the graph, before and
                        after an ordering file
   --save FILE          write the figure to FILE instead of showing it
+
+examples:
+  inspect_points.py case.node --plot --labels
+  inspect_points.py case.points case.graph --stencil 0 17
+  inspect_points.py case.points case.graph case.iperm --spy
+  inspect_points.py case.points --periodic 32 32
+
+One file of each kind, told apart by extension. Each is checked against
+its header and the files against each other; the problems found are
+listed at the end and make the exit status 1. An ordering file is
+applied to the nodes and the graph before they are drawn, so --labels
+shows the new indices; only the spy plot also shows the file order.
 ```
 
 ## Reordering
@@ -171,8 +186,7 @@ with scikit-sparse installed, the nonzeros of the Cholesky factor.
 ```
 usage: reorder_graph.py [-h] [-m {rcm,nd,amd}] [-o FILE] [--seed SEED] GRAPH
 
-Renumber the nodes of a graph file to reduce bandwidth (rcm) or fill-in (nd,
-amd) and write the ordering file (docs/file_formats.md).
+Renumber the nodes of a graph file and write the ordering file.
 
 positional arguments:
   GRAPH                 the .graph file to order
@@ -187,4 +201,19 @@ options:
                         the ordering file, default GRAPH with the extension
                         .iperm; - writes to standard output
   --seed SEED           the random seed of METIS, for nd
+
+examples:
+  reorder_graph.py case.graph                # case.iperm, by rcm
+  reorder_graph.py case.graph --method nd    # nested dissection
+  reorder_graph.py case.graph -o -           # to standard output
+
+rcm, from scipy, reduces the bandwidth by numbering neighbouring nodes
+close together. nd, METIS through pymetis, and amd, SuiteSparse through
+scikit-sparse, reduce the fill-in of a sparse direct factorisation, by
+recursive bisection and by greedy elimination. All three order the
+undirected graph of the stencils, the pattern of A + A^T without the
+diagonal. The report, on standard error so that `-o -` leaves the file
+alone, gives the bandwidth before and after and, with scikit-sparse, the
+nonzeros of the Cholesky factor; `inspect_points.py case.graph
+case.iperm --spy` shows the effect.
 ```
