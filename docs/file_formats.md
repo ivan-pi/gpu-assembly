@@ -1,9 +1,9 @@
 # File formats
 
 The formats read and written by `rbf::io`. Two of them are our own
-plain-text formats, three are borrowed from Triangle, METIS and
-Nishikawa's EDU2D solvers, and the rest are standards or conventions of
-which only the parts we use are described here.
+plain-text formats, four are borrowed — from Triangle, Nishikawa's
+grid codes, FUN3D and METIS — and the rest are standards or
+conventions of which only the parts we use are described here.
 
 `write_vtk_polydata` is declared in `rbf_io_vtk.h` and `write_columns`
 in `rbf_io_gnuplot.h`; everything else in `rbf_io.h`. Include the
@@ -15,10 +15,10 @@ headers whose formats you use.
 | [Graph file](#graph-file) | `.graph` | `read_graph_csr` | |
 | [Node file](#node-file) | `.node` | `read_nodes`, `NodeSet(fname)` | `write_nodes`, `NodeSet::write` |
 | [Grid file](#grid-file) | `.grid` | `read_grid` | `write_grid` |
-| [Boundary conditions](#boundary-condition-files) | `.bcmap`, `.mapbc` | `read_bcmap`, `read_mapbc` | |
+| [Boundary-condition files](#boundary-condition-files) | `.bcmap`, `.mapbc` | `read_bcmap`, `read_mapbc` | |
 | [Ordering file](#ordering-file) | `.iperm` | `Permutation::read`, `read_ordering` | `Permutation::write`, `write_ordering` |
 | [Matrix Market](#matrix-market) | `.mtx` | | `write_matrix_market`, `write_matrix_market_pattern` |
-| [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata` |
+| [VTK legacy](#vtk-legacy) | `.vtk` | | `write_vtk_polydata` |
 | [Columns](#columns) | `.dat` | | `write_columns` |
 
 The points file and the graph file go together: one gives the point cloud,
@@ -133,19 +133,11 @@ reordered file can be read back as is, minus any attributes it had.
 ## Grid file
 
 A 2D unstructured grid — nodal coordinates, triangle and quadrilateral
-connectivity, and the boundary as lists of nodes — in the custom `.grid`
-format of Hiroaki Nishikawa's grid-generation and EDU2D solver codes.
-Cite the format as:
-
-> Nishikawa, Hiroaki. (2018). Unstructured grid file format (2D, 3D).
-> <https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D>
-> (accessed Sep 11, 2026)
-
-with the layout below as in Nishikawa, "Making Your Own Mesh: A List of
-Custom Grid Generation Codes", joint NIA & SU2 Foundation user workshop,
-August 2019. The three counts share the header line, the element
-sections follow the coordinates directly, and the boundary section gives
-the node count of every part before the first node list:
+connectivity, and the boundary as lists of nodes — in the custom
+`.grid` format of Hiroaki Nishikawa's grid-generation and EDU2D solver
+codes. The three counts share the header line, the element sections
+follow the coordinates directly, and the boundary section gives the
+node count of every part before the first node list:
 
 ```
 nnodes ntria nquad
@@ -158,26 +150,26 @@ b1             then the node lists, part after part,
 ...            one node index per line
 ```
 
-(The 2018 reference presents an older sectioned variant, each count on
-a line of its own before its section; that layout is not read.)
+This is the layout of Nishikawa, "Making Your Own Mesh: A List of
+Custom Grid Generation Codes", joint NIA & SU2 Foundation user
+workshop, August 2019. Cite the format as:
 
-`read_grid` returns an `rbf::UnstructuredGrid<T, I>` — the class in
-`rbf_grid.h` (included by `rbf_io.h`) that owns the grid: `x()`, `y()`,
-the connectivity `tri()` and `quad()` row-major, and the node list of
-each boundary part in `bound()`. Node indices in the file are always
-1-based, as the format prescribes; the required second argument of
-`read_grid`, an `rbf::IndexBase`, chooses only the base they are kept
-in in memory. `IndexBase::one` keeps them native, `IndexBase::zero`
-shifts them to 0-based, the numbering of the graph file and the rest of
-the library. The grid records the choice (`base()`), which `markers()`
-and `write_grid` consult, so a grid cannot be handed on in the wrong
-base, and the file `write_grid` writes is 1-based either way. The
-class's constructor takes the arrays directly, moved in, and asserts
-the same structural rules the reader enforces on a file: coordinates of
-one length, whole elements with distinct nodes, every index in range
-for the declared base, boundary parts of at least two nodes with no
-node twice in a row — so a grid that constructs also round-trips
-through `write_grid` and back.
+> Nishikawa, Hiroaki. (2018). Unstructured grid file format (2D, 3D).
+> <https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D>
+> (accessed Sep 11, 2026)
+
+The 2018 reference presents an older sectioned variant, each count on
+a line of its own before its section; that layout is not read. The
+reference also describes the boundary-condition file of the
+[next section](#boundary-condition-files).
+
+Node indices in the file are 1-based, as the format prescribes. A
+count that is not met, an index out of range, a repeated node within
+an element, a boundary part of fewer than two nodes, and a boundary
+node repeated twice in a row are all errors. The format itself has no
+blank lines; the reader skips any it meets, so a file spaced apart for
+readability reads the same. A grid may have no triangles, no quads, or
+no boundary parts.
 
 A boundary part lists its nodes in order along the boundary, each pair
 of consecutive nodes a boundary edge. A part marks itself closed by
@@ -190,35 +182,41 @@ The reference sets three orientation conventions: element nodes are
 ordered counterclockwise, the boundary node ordering is induced by the
 element node ordering, and the domain is always on your left while
 walking along a boundary — so the outer boundary runs counterclockwise
-and holes clockwise. Parsing does not check them;
-`UnstructuredGrid::check_orientation()` does, on demand, returning
-`true` when the grid follows the conventions. It verifies that every
-element's signed area is positive and that every part edge is an
+and holes clockwise. Parsing accepts any orientation;
+`UnstructuredGrid::check_orientation()` verifies the conventions on
+demand and returns `true` when the grid follows them. It checks that
+every element's signed area is positive and that every part edge is an
 element edge no element uses in reverse — a mesh-boundary edge, walked
-in the element-induced direction with the domain on its left. The
-violations it finds: elements that are not counterclockwise, part
-edges that are reversed, interior, or absent from the elements,
-directed element edges used twice (impossible under a consistent
-counterclockwise numbering), and mesh-boundary edges no part walks.
-The check is silent by default; given a stream it prints one message
-per violation:
+in the element-induced direction with the domain on its left — and
+flags elements that are not counterclockwise, part edges that are
+reversed, interior, or absent from the elements, directed element
+edges used twice, and mesh-boundary edges no part walks. The check is
+silent by default; given a stream, it prints one message per
+violation:
 
 ```cpp
 if (!g.check_orientation(&std::cerr)) { /* the messages name each fault */ }
 ```
 
-The reader does check that every count is met, that every index is in
-range, that an element's nodes are distinct, and that a part has at
-least two nodes, with no node twice in a row. The format itself has no
-blank lines; the reader skips any it meets, so a file spaced apart for
-readability reads the same. A grid may have no triangles, no quads, or
-no boundary parts. The reference also describes the boundary-condition
-file of the [next section](#boundary-condition-files).
+`read_grid` returns an `rbf::UnstructuredGrid<T, I>`, the class in
+`rbf_grid.h` (included by `rbf_io.h`) that owns the grid: `x()`,
+`y()`, the connectivity `tri()` and `quad()` row-major, and the node
+list of each boundary part in `bound()`. The required second argument
+of `read_grid`, an `rbf::IndexBase`, chooses which base the indices
+are kept in once read: `IndexBase::one` keeps them native,
+`IndexBase::zero` shifts them to 0-based, the numbering of the graph
+file and the rest of the library. The grid records the choice in
+`base()`, which `markers()` and `write_grid` consult, so a grid cannot
+be handed on in the wrong base; the file `write_grid` writes is
+1-based either way. The class's constructor takes the arrays directly,
+moved in, and asserts the same structural rules the reader enforces on
+a file, so a grid that constructs also round-trips through
+`write_grid` and back.
 
 `UnstructuredGrid::markers()` bridges to the [node file](#node-file)
 convention: a node gets the number of the first boundary part that
 lists it (from 1), or 0 if no part does, in either base. `NodeSet` has
-a constructor taking an `UnstructuredGrid` — the nodes with the markers
+a constructor taking an `UnstructuredGrid`: the nodes with the markers
 as the flag, the connectivity dropped. An lvalue grid stays usable and
 only its coordinates are copied; pass it with `std::move` to move the
 coordinate arrays in instead (`NodeSet` owns its geometry, since
@@ -233,16 +231,16 @@ ns.write("case.node");                   // the same nodes as a node file
 
 ## Boundary-condition files
 
-The condition to apply on each boundary part of a [grid
-file](#grid-file), by the part's tag — the number `UnstructuredGrid::markers()`
-assigns. Two dialects, one reader each; both return
-`std::vector<BoundaryCondition>` in file order, treat `!` as starting a
-comment, skip blank lines, and reject a tag listed twice.
+The condition to apply on each boundary part of a
+[grid file](#grid-file), by the part's tag — the number
+`UnstructuredGrid::markers()` assigns. Two dialects, one reader each;
+both return `std::vector<BoundaryCondition>` in file order, treat `!`
+as starting a comment, skip blank lines, and reject a tag listed
+twice.
 
-`read_bcmap` reads the `.bcmap` of Nishikawa's EDU2D/3D solvers (see
-the [grid file](#grid-file) reference): one part per line as its tag
-and the name of its condition, read to end of file. The record's `name`
-holds the name and `bc` stays 0.
+`read_bcmap` reads the `.bcmap` of Nishikawa's EDU2D/3D solvers (the
+[grid file](#grid-file) reference describes it): one part per line,
+its tag and the name of its condition, read to end of file:
 
 ```
 ! Boundary tag  BC name
@@ -251,12 +249,12 @@ holds the name and `bc` stays 0.
 3 viscous_wall
 ```
 
+The record's `name` holds the condition's name; `bc` stays 0.
+
 `read_mapbc` reads FUN3D's `.mapbc` (the FUN3D manual, appendix B,
 <https://fun3d.larc.nasa.gov/>): the number of boundary groups on the
 first line, then one line per part with its tag, the FUN3D
-boundary-condition number, and optionally a family name. The number
-goes to `bc` and the family to `name`, empty when absent; the count
-must be met exactly, with nothing after the last group.
+boundary-condition number, and optionally a family name:
 
 ```
 13
@@ -266,9 +264,12 @@ must be met exactly, with nothing after the last group.
 13 3000 wing_tip
 ```
 
-Names are single tokens, read up to the next whitespace. Neither reader
-checks the tags against a grid, since the two files stand alone; a
-solver would look each `markers()` value up among the tags.
+The number goes to `bc` and the family to `name`, empty when absent. A
+count that is not met, or anything after the last group, is an error.
+
+Names are single tokens, read up to the next whitespace. Neither
+reader checks the tags against a grid, since the two files stand
+alone; a solver would look each `markers()` value up among the tags.
 
 ## Ordering file
 
@@ -321,7 +322,7 @@ variant, with `i j` lines and no values, to compare sparsity structures
 without the weights. The format does not prescribe a precision for the
 values; we write each as the shortest text that reads back exactly.
 
-## VTK
+## VTK legacy
 
 Point clouds with per-node fields for ParaView, in the legacy ASCII format
 (<https://docs.vtk.org/en/latest/vtk_file_formats/vtk_legacy_file_format.html>).
@@ -341,7 +342,6 @@ reads them up to the next whitespace.
 The second line of a legacy file is a free-text header of at most 255
 characters, which the format requires to be present but allows to be empty;
 it defaults to `rbf point cloud` and can be given as the last argument.
-
 
 ## Columns
 
