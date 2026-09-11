@@ -16,13 +16,15 @@ examples:
   poisson_box.py --size 32 32 tg_32
   poisson_box.py --size 64 64 --hole 20 cylinder_64.node
   poisson_box.py --size 32 32 --boundary walls square_32.node
+  poisson_box.py --size 32 32 --boundary channel channel_32.node
   poisson_box.py --size 32 32 --tile 4 4 tg_128
 
 Lengths are in lattice units. With walls, the wall nodes come first,
 marked 1 (south), 2 (east), 3 (north), 4 (west) and 5 (corner); the
-nodes on the circle of a hole follow, marked 6. Tiling needs the
-periodic box. The output is a points file and a graph file in the same
-numbering, or a node file with the markers if named so
+channel, a box walled on two sides and periodic in x, has only 1 and
+3; the nodes on the circle of a hole follow either, marked 6. Tiling
+needs the periodic box. The output is a points file and a graph file
+in the same numbering, or a node file with the markers if named so
 (docs/file_formats.md)."""
 
 
@@ -54,10 +56,11 @@ def main():
     ap.add_argument(
         "-b",
         "--boundary",
-        choices=("periodic", "walls"),
+        choices=("periodic", "channel", "walls"),
         default="periodic",
-        help="periodic on both sides, or walls on all four, their nodes "
-        "laid before the sample (default: periodic)",
+        help="periodic on both sides, a channel with walls at y = 0 and "
+        "y = LY and periodic in x, or walls on all four sides, the wall "
+        "nodes laid before the sample (default: periodic)",
     )
     ap.add_argument(
         "--candidates",

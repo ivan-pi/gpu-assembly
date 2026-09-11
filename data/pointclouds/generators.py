@@ -8,6 +8,7 @@ to whoever needs it.
 .. autosummary::
 
    Disk
+   EccentricAnnulus
    LShape
    PerturbedGrid
    PoissonBox
@@ -153,6 +154,122 @@ class Disk(NodeSet):
         return r[:, None] * np.column_stack((np.cos(phi), np.sin(phi)))
 
 
+class EccentricAnnulus(NodeSet):
+    """The annulus between two eccentric circles, Poisson-disk sampled.
+
+    The domain of Wannier flow, the Stokes flow between two rotating
+    circular cylinders whose axes do not coincide: it has a closed-form
+    solution [1]_ and serves as a benchmark for discretizations of
+    curvilinear geometry with strong boundary layers [2]_. The outer
+    circle of radius R is centred on the origin, the inner one of
+    radius R0 is moved to ``(e, 0)``. Nodes are laid on the two circles
+    first, as many as keep them a spacing apart -- the outer ones
+    first, marked circle (1), then the inner, marked hole (6) -- and
+    the interior is filled by `pointclouds.poisson.PoissonDisk` seeded
+    with them, with what lands outside the annulus discarded. `Disk`
+    makes the concentric annulus deterministically, in rings or in a
+    spiral.
+
+    Parameters
+    ----------
+    radius : float
+        R of the outer circle, about the origin.
+    spacing : float, default 1.0
+        The distance h between neighbouring nodes.
+    hole : float
+        R0 of the inner circle.
+    eccentricity : float, default 0.0
+        The distance e of the inner centre from the origin, along +x;
+        0 is the concentric annulus, scattered.
+    candidates : int, default 100
+        The number of throws a node makes before it is retired.
+    seed : int, optional
+        Of the sample; random when not given.
+
+    Raises
+    ------
+    ValueError
+        For a radius, spacing or hole that is not positive, a negative
+        eccentricity, a hole smaller than the spacing, and a gap
+        ``R - e - R0`` of less than a spacing at its narrowest.
+
+    Notes
+    -----
+    Trask, Maxey and Hu [2]_ compute the Wannier flow between cylinders
+    of radii ``R0 = pi/10`` and ``R = pi/2`` at the eccentricity
+    ``e = pi/5``, rotating at 1 and 1/2; those are the defaults of
+    tools/eccentric_annulus.py. The interior sample keeps the spacing
+    from the circle nodes, so the nearest interior nodes sit about a
+    spacing off the circles; a node generator with repulsive relaxation
+    can take the cloud as its starting point.
+
+    References
+    ----------
+    .. [1] Wannier, "A contribution to the hydrodynamics of
+       lubrication," Q. Appl. Math. 8, 1-19, 1950.
+    .. [2] Trask, Maxey and Hu, "Compact moving least squares: an
+       optimization framework for generating high-order compact
+       meshless discretizations," J. Comput. Phys. 326, 596-611, 2016,
+       doi:10.1016/j.jcp.2016.08.045.
+    """
+
+    def __init__(
+        self,
+        radius,
+        spacing=1.0,
+        *,
+        hole,
+        eccentricity=0.0,
+        candidates=100,
+        seed=None,
+    ):
+        from .poisson import PoissonDisk  # compiled by numba, only when needed
+
+        if radius <= 0.0 or spacing <= 0.0 or hole <= 0.0:
+            raise ValueError("the radius, the spacing and the hole must be positive")
+        if eccentricity < 0.0:
+            raise ValueError("the eccentricity cannot be negative: it points along +x")
+        if hole < spacing:
+            raise ValueError(
+                f"a hole of radius {hole:g} is smaller than the spacing "
+                f"{spacing:g} between nodes"
+            )
+        gap = radius - eccentricity - hole
+        if gap < spacing:
+            raise ValueError(
+                f"the hole of radius {hole:g} at eccentricity {eccentricity:g} "
+                f"leaves a gap of {gap:g} at its narrowest inside a radius of "
+                f"{radius:g}, less than the spacing {spacing:g}"
+            )
+        centre = np.array([eccentricity, 0.0])
+        seeds, m = [], []
+        for r, c, marker in ((radius, 0.0, Marker.circle), (hole, centre, Marker.hole)):
+            n = int(np.pi / np.arcsin(spacing / (2 * r)))  # chords of at least h
+            phi = 2 * np.pi * np.arange(n) / n
+            seeds.append(c + r * np.column_stack((np.cos(phi), np.sin(phi))))
+            m.append(np.full(n, marker))
+        seeds, m = np.vstack(seeds), np.concatenate(m)
+        lo = -radius - 0.5 * spacing
+        sampler = PoissonDisk(
+            spacing,
+            np.full(2, 2 * radius + spacing),
+            periodic=False,
+            ncandidates=candidates,
+            seed=seed,
+        )
+        sampler.add_points(seeds - lo)
+        sampler.fill_space()
+        drawn = sampler.points[len(seeds) :] + lo
+        keep = np.hypot(*drawn.T) < radius
+        keep &= np.hypot(*(drawn - centre).T) > hole
+        super().__init__(
+            np.vstack((seeds, drawn[keep])),
+            np.concatenate((m, np.full(np.count_nonzero(keep), Marker.interior))),
+            title=f"eccentric annulus, radius={radius:g}, hole={hole:g}, "
+            f"eccentricity={eccentricity:g}, spacing={spacing:g}",
+        )
+
+
 class LShape(NodeSet):
     """The L-shaped domain, graded toward its re-entrant corner in rings.
 
@@ -213,7 +330,7 @@ class LShape(NodeSet):
        350-364, 2013, doi:10.1016/j.amc.2013.05.068.
     .. [2] Oanh, Davydov and Phu, "Adaptive RBF-FD method for elliptic
        problems with point singularities in 2D," Appl. Math. Comput.
-       313, 474-497, 2017.
+       313, 474-497, 2017, doi:10.1016/j.amc.2017.06.006.
     """
 
     SECTOR = 1.5 * np.pi  # the 270-degree opening of the re-entrant corner
@@ -405,9 +522,10 @@ class PoissonBox(NodeSet):
         The box ``[0, Lx) x [0, Ly)``, closed on the walls.
     distance : float, default 1.0
         The least distance between two nodes.
-    boundary : {"periodic", "walls"}
-        Periodic on both sides, or walls on all four, as in the
-        scattered tests on the square.
+    boundary : {"periodic", "channel", "walls"}
+        Periodic on both sides; periodic in x with walls at ``y = 0``
+        and ``y = Ly``, a box walled on two sides; or walls on all
+        four, as in the scattered tests on the square.
     candidates : int, default 100
         The number of throws a node makes before it is retired.
     hole : float, optional
@@ -420,7 +538,7 @@ class PoissonBox(NodeSet):
     ValueError
         For a box narrower than twice the distance, and for a hole
         smaller than the distance in radius or closer than that to its
-        image across the periodic sides, or to the walls.
+        image across a periodic side, or to a wall.
 
     Notes
     -----
@@ -433,11 +551,13 @@ class PoissonBox(NodeSet):
     With walls, the four walls are laid first the same way, nodes about
     `distance` apart from the corners inwards, marked south (1), east
     (2), north (3) and west (4) by the outward normal and corner (5) at
-    the corners; the wall nodes come before the hole's, and the sample
-    grows from them all. The sampler works on a box grown by half a
-    distance on every side, so that a wall node keeps its 5 by 5 search
-    cells; nothing fits in the margin, since everything there is within
-    the distance of a wall node.
+    the corners; on the channel only the two walls, south and north,
+    their nodes evenly around the periodic x. The wall nodes come
+    before the hole's, and the sample grows from them all. The sampler
+    works on a box grown by half a distance beyond every wall, so that
+    a wall node keeps its 5 by 5 search cells; nothing fits in the
+    margin, since everything there is within the distance of a wall
+    node.
     """
 
     def __init__(
@@ -457,10 +577,14 @@ class PoissonBox(NodeSet):
             raise ValueError(
                 f"the box is narrower than twice the distance {distance:g}: no room"
             )
-        periodic = boundary == "periodic"
+        periodic = {
+            "periodic": (True, True),
+            "channel": (True, False),
+            "walls": (False, False),
+        }[boundary]
         centre = 0.5 * extent
         seeds, m = [np.empty((0, 2))], [np.empty(0, int)]
-        if not periodic:
+        if boundary == "walls":
             corners = np.array([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]) * extent
             walls = (Marker.south, Marker.east, Marker.north, Marker.west)
             for a, b, wall in zip(corners[:-1], corners[1:], walls):
@@ -469,29 +593,37 @@ class PoissonBox(NodeSet):
                 mk = np.full(k, wall)
                 mk[0] = Marker.corner
                 m.append(mk)
+        elif boundary == "channel":
+            k = max(int(extent[0] / distance), 1)  # steps of >= d around x
+            x = extent[0] * np.arange(k) / k
+            for y, wall in ((0.0, Marker.south), (extent[1], Marker.north)):
+                seeds.append(np.column_stack((x, np.full(k, y))))
+                m.append(np.full(k, wall))
         if hole is not None:
             if hole < distance:
                 raise ValueError(
                     f"a hole of radius {hole:g} is smaller than the distance "
                     f"{distance:g} between nodes"
                 )
-            if periodic and 2 * hole + distance > extent.min():
-                raise ValueError(
-                    f"a hole of radius {hole:g} leaves less than the distance "
-                    f"{distance:g} to its image across the periodic sides of a "
-                    f"box {extent.min():g} across"
-                )
-            if not periodic and 2 * (hole + distance) > extent.min():
-                raise ValueError(
-                    f"a hole of radius {hole:g} leaves less than the distance "
-                    f"{distance:g} to the walls of a box {extent.min():g} across"
-                )
+            for axis, wraps in enumerate(periodic):
+                if wraps and 2 * hole + distance > extent[axis]:
+                    raise ValueError(
+                        f"a hole of radius {hole:g} leaves less than the "
+                        f"distance {distance:g} to its image across the "
+                        f"periodic sides of a box {extent[axis]:g} across"
+                    )
+                if not wraps and 2 * (hole + distance) > extent[axis]:
+                    raise ValueError(
+                        f"a hole of radius {hole:g} leaves less than the "
+                        f"distance {distance:g} to the walls of a box "
+                        f"{extent[axis]:g} across"
+                    )
             n = int(np.pi / np.arcsin(distance / (2 * hole)))  # chords of at least d
             phi = 2 * np.pi * np.arange(n) / n
             seeds.append(centre + hole * np.column_stack((np.cos(phi), np.sin(phi))))
             m.append(np.full(n, Marker.hole))
         seeds, m = np.vstack(seeds), np.concatenate(m)
-        pad = 0.0 if periodic else 0.5 * distance
+        pad = np.where(periodic, 0.0, 0.5 * distance)
         sampler = PoissonDisk(
             distance,
             extent + 2 * pad,
@@ -504,7 +636,7 @@ class PoissonBox(NodeSet):
         pts = sampler.points - pad
         pts[: len(seeds)] = seeds  # exactly, without the padding round trip
         title = (
-            f"{'periodic' if periodic else 'walled'} poisson, "
+            f"{'walled' if boundary == 'walls' else boundary} poisson, "
             f"size={extent[0]:g}x{extent[1]:g}, distance={distance:g}"
         )
         if hole is not None:
@@ -514,9 +646,7 @@ class PoissonBox(NodeSet):
             title += f", hole={hole:g}"
         markers = np.full(len(pts), Marker.interior)
         markers[: len(seeds)] = m
-        super().__init__(
-            pts, markers, extent=extent, periodic=(periodic, periodic), title=title
-        )
+        super().__init__(pts, markers, extent=extent, periodic=periodic, title=title)
 
 
 class PolarRegion(NodeSet):
