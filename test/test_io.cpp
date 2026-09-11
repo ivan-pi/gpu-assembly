@@ -137,6 +137,68 @@ static void test_node_file() {
         std::remove(fn);
 }
 
+static void test_grid_file() {
+    // the 9-node example of the format reference: a square domain with a
+    // square hole, 4 triangles, 2 quads, the hole (B1) and the outer
+    // boundary (B2) as closed loops
+    write_text("s.grid",
+               "9\n0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
+               "1.3 2.0\n"
+               "4\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n"
+               "2\n1 5 4 7\n4 8 6 2\n"
+               "2\n5\n4\n7\n9\n2\n4\n6\n1\n5\n8\n6\n3\n1\n");
+    auto g = rbf::io::read_grid("s.grid");
+    CHECK(g.num_nodes() == 9 && g.num_triangles() == 4 && g.num_quads() == 2 &&
+          g.num_boundaries() == 2);
+    CHECK(g.x[6] == 1.3 && g.y[6] == 1.0);  // node 7 of the file
+    // indices come back 0-based
+    CHECK(g.tri == (std::vector<std::int32_t>{8, 1, 2, 4, 7, 3, 1, 5, 2, 0, 6, 8}));
+    CHECK(g.quad == (std::vector<std::int32_t>{0, 4, 3, 6, 3, 7, 5, 1}));
+    CHECK(g.bound.size() == 2);
+    CHECK(g.bound[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));  // first node repeated: closed
+    CHECK(g.bound[1] == (std::vector<std::int32_t>{0, 4, 7, 5, 2, 0}));
+
+    // markers: the first part listing a node names it; every node here is
+    // on the boundary
+    CHECK(g.markers() == (std::vector<int>{2, 1, 2, 1, 2, 2, 1, 2, 1}));
+
+    // the markers hand the grid's nodes to NodeSet through a node file
+    const auto m = g.markers();
+    rbf::io::write_nodes("s.node", g.num_nodes(), g.x.data(), g.y.data(), m.data());
+    rbf::NodeSet<double> ns("s.node");
+    CHECK(ns.num_points() == 9 && ns.num_boundary() == 9);
+    CHECK(ns.indices_with(1) == (std::vector<std::int32_t>{1, 3, 6, 8}));
+
+    // round trip at full precision, awkward coordinates included
+    for (std::size_t i = 0; i < awkward.size(); ++i) {
+        g.x[i] = awkward[i];
+        g.y[i] = -awkward[i];
+    }
+    rbf::io::write_grid("t.grid", g);
+    auto r = rbf::io::read_grid("t.grid");
+    CHECK(r.x == g.x && r.y == g.y && r.tri == g.tri && r.quad == g.quad && r.bound == g.bound);
+
+    // float coordinates and 64-bit indices read the same file
+    auto gf = rbf::io::read_grid<float, std::int64_t>("s.grid");
+    CHECK(gf.x[6] == 1.3f && gf.tri.size() == 12 && gf.tri[0] == 8);
+
+    // triangles only, no quads and no boundary; every node interior
+    write_text("u.grid", "3\n0 0\n1 0\n0 1\n1\n1 2 3\n0\n0\n");
+    auto u = rbf::io::read_grid("u.grid");
+    CHECK(u.num_triangles() == 1 && u.num_quads() == 0 && u.num_boundaries() == 0);
+    CHECK(u.markers() == std::vector<int>(3, 0));
+
+    // open parts sharing an endpoint: the first part keeps the shared node
+    write_text("v.grid", "3\n0 0\n1 0\n0 1\n1\n1 2 3\n0\n2\n2\n1\n2\n2\n2\n3\n");
+    auto v = rbf::io::read_grid("v.grid");
+    CHECK(v.bound[0] == (std::vector<std::int32_t>{0, 1}));
+    CHECK(v.bound[1] == (std::vector<std::int32_t>{1, 2}));
+    CHECK(v.markers() == (std::vector<int>{1, 1, 2}));
+
+    for (const char* fn : {"s.grid", "s.node", "t.grid", "u.grid", "v.grid"})
+        std::remove(fn);
+}
+
 static void test_read_graph_csr() {
     // ragged rows, extra whitespace, CRLF line ends, trailing newline
     write_text("g.graph", "3 6\r\n0 1 2\r\n  1 0 \r\n2 \r\n");
@@ -452,6 +514,7 @@ static void test_gnuplot_columns() {
 int main() {
     test_read_points();
     test_node_file();
+    test_grid_file();
     test_read_graph_csr();
     test_ordering();
     test_matrix_market();

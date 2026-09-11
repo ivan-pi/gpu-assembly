@@ -8,6 +8,7 @@
 //   read_graph_csr                   graph file (.graph): stencils -> (ia, ja)
 //   read_nodes, write_nodes          node file (.node), Triangle's format; what NodeSet reads and
 //   writes read_ordering, write_ordering    ordering file (.iperm): one new index per node
+//   read_grid, write_grid            grid file (.grid): Nishikawa's 2D unstructured grid -> Grid
 //   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
 // rbf_io_vtk.h and rbf_io_gnuplot.h add the plotting formats.
@@ -326,6 +327,196 @@ void write_nodes(const std::string& fname,
             out << ' ' << num(attributes[i * nattr + a]);
         if (marker) out << ' ' << marker[i];
         out << '\n';
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Grid file (.grid), Nishikawa's 2D unstructured grid
+// ---------------------------------------------------------------------------
+
+// A 2D unstructured grid as a grid file holds it: nodes, triangle and quad
+// connectivity, and the boundary as node lists, one list per boundary part.
+// The file is 1-based; here everything is 0-based, like the graph file.
+template <class T = double, class I = std::int32_t>
+struct Grid {
+    std::vector<T> x, y;
+    std::vector<I> tri;                 // 3 * num_triangles(), row-major
+    std::vector<I> quad;                // 4 * num_quads(), row-major
+    std::vector<std::vector<I>> bound;  // node indices of each boundary part, in order
+                                        // along the boundary; a closed loop repeats
+                                        // its first node last
+
+    std::size_t num_nodes() const { return x.size(); }
+    std::size_t num_triangles() const { return tri.size() / 3; }
+    std::size_t num_quads() const { return quad.size() / 4; }
+    std::size_t num_boundaries() const { return bound.size(); }
+
+    // Boundary marker per node in the convention of the node file: 0 for a
+    // node no part lists, else the number (from 1) of the first part that
+    // lists it -- so write_nodes(fname, ..., markers().data()) hands the
+    // grid's nodes to NodeSet.
+    std::vector<int> markers() const {
+        std::vector<int> m(num_nodes(), 0);
+        for (std::size_t b = 0; b < bound.size(); ++b)
+            for (const I j : bound[b])
+                if (m[j] == 0) m[j] = static_cast<int>(b + 1);
+        return m;
+    }
+};
+
+// Grid file, the custom 2D format of Nishikawa's EDU2D solvers
+// (docs/file_formats.md#grid-file has the reference):
+//
+//     nnodes
+//     x y                  (nnodes lines)
+//     ntria
+//     a b c                (ntria lines)
+//     nquad
+//     a b c d              (nquad lines)
+//     nbound
+//     nb                   (per part: its node count,
+//     b1                    then that many indices,
+//     ...                   one per line)
+//
+// Node indices in the file are 1-based and are shifted to 0-based here.
+// Each count must sit on its own line and be met exactly, an index must
+// lie in [1, nnodes], an element's nodes must be distinct, and a boundary
+// part must list at least two nodes, consecutive ones distinct. The
+// reference's orientation conventions (elements counterclockwise, parts
+// with the interior on their left) are not checked.
+template <class T = double, class I = std::int32_t>
+Grid<T, I> read_grid(const std::string& fname) {
+    static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
+    static_assert(std::is_integral_v<I> && std::is_signed_v<I>,
+                  "index type must be a signed integer");
+    auto in = detail::open_in(fname);
+    std::string line;
+    std::size_t lineno = 0;
+
+    const auto fail_here = [&](const std::string& what) {
+        detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
+    };
+    const auto next_line = [&](const std::string& what) {
+        if (!std::getline(in, line)) detail::fail(fname, "unexpected end of file: " + what);
+        ++lineno;
+    };
+    const auto read_count = [&](const std::string& what) {
+        next_line(what);
+        detail::LineCursor c{line};
+        std::size_t n;
+        if (!c.next(n) || !c.at_end()) fail_here("expected " + what + " on a line of its own");
+        return n;
+    };
+
+    Grid<T, I> g;
+    const std::size_t nnodes = read_count("the node count");
+    g.x.reserve(nnodes);
+    g.y.reserve(nnodes);
+    for (std::size_t i = 0; i < nnodes; ++i) {
+        next_line("node " + std::to_string(i + 1) + " of " + std::to_string(nnodes));
+        detail::LineCursor c{line};
+        T px, py;
+        if (!(c.next(px) && c.next(py)) || !c.at_end()) fail_here("expected \"x y\"");
+        if (!std::isfinite(px) || !std::isfinite(py)) fail_here("coordinate is not finite");
+        g.x.push_back(px);
+        g.y.push_back(py);
+    }
+
+    // an element's nodes, or one boundary node: 1-based in the file, checked
+    // against nnodes and shifted to 0-based
+    const auto next_index = [&](detail::LineCursor& c) {
+        I v;
+        if (!c.next(v)) fail_here("bad node index at \"" + c.here() + "\"");
+        if (v < 1 || static_cast<std::size_t>(v) > nnodes)
+            fail_here("node index " + std::to_string(v) + " outside [1, " + std::to_string(nnodes) +
+                      "]; grid files are 1-based");
+        return static_cast<I>(v - 1);
+    };
+    const auto read_elements = [&](std::vector<I>& conn, std::size_t nv, const char* name) {
+        const std::size_t ne = read_count(std::string("the ") + name + " count");
+        conn.reserve(nv * ne);
+        for (std::size_t e = 0; e < ne; ++e) {
+            next_line(name + std::string(" ") + std::to_string(e + 1) + " of " +
+                      std::to_string(ne));
+            detail::LineCursor c{line};
+            const std::size_t at = conn.size();
+            for (std::size_t v = 0; v < nv; ++v)
+                conn.push_back(next_index(c));
+            if (!c.at_end())
+                fail_here(std::string("expected the ") + std::to_string(nv) + " nodes of a " +
+                          name);
+            for (std::size_t v = 0; v < nv; ++v)
+                for (std::size_t w = v + 1; w < nv; ++w)
+                    if (conn[at + v] == conn[at + w])
+                        fail_here(std::string(name) + " node " + std::to_string(conn[at + v] + 1) +
+                                  " listed twice");
+        }
+    };
+    read_elements(g.tri, 3, "triangle");
+    read_elements(g.quad, 4, "quadrilateral");
+
+    const std::size_t nbound = read_count("the boundary count");
+    g.bound.resize(nbound);
+    for (std::size_t b = 0; b < nbound; ++b) {
+        const std::string part = "boundary part " + std::to_string(b + 1);
+        const std::size_t nb = read_count("the node count of " + part);
+        if (nb < 2) fail_here(part + " has " + std::to_string(nb) + " nodes, at least 2 needed");
+        auto& nodes = g.bound[b];
+        nodes.reserve(nb);
+        for (std::size_t j = 0; j < nb; ++j) {
+            next_line("node " + std::to_string(j + 1) + " of " + part);
+            detail::LineCursor c{line};
+            const I v = next_index(c);
+            if (!c.at_end()) fail_here("expected one boundary node per line");
+            if (j > 0 && v == nodes.back())
+                fail_here(part + " lists node " + std::to_string(v + 1) + " twice in a row");
+            nodes.push_back(v);
+        }
+    }
+    in >> std::ws;
+    if (!in.eof()) detail::fail(fname, "unexpected data after the last boundary part");
+    return g;
+}
+
+// Inverse of read_grid: writes the grid 1-based, as the format requires.
+// The connectivity must be whole elements of valid 0-based indices, and
+// every boundary part needs the two nodes the reader requires; all of it
+// is asserted, since a violation writes a file read_grid rejects.
+template <class T, class I>
+void write_grid(const std::string& fname, const Grid<T, I>& g) {
+    using detail::num;
+    assert(g.x.size() == g.y.size() && "x and y differ in length");
+    assert(g.tri.size() % 3 == 0 && "tri is not whole triangles");
+    assert(g.quad.size() % 4 == 0 && "quad is not whole quadrilaterals");
+#ifndef NDEBUG
+    const auto in_range = [&](I v) { return v >= 0 && static_cast<std::size_t>(v) < g.x.size(); };
+    for (const I v : g.tri)
+        assert(in_range(v) && "triangle node out of range");
+    for (const I v : g.quad)
+        assert(in_range(v) && "quadrilateral node out of range");
+    for (const auto& part : g.bound) {
+        assert(part.size() >= 2 && "boundary part of fewer than 2 nodes");
+        for (const I v : part)
+            assert(in_range(v) && "boundary node out of range");
+    }
+#endif
+    auto out = detail::open_out(fname);
+    out << g.num_nodes() << '\n';
+    for (std::size_t i = 0; i < g.num_nodes(); ++i)
+        out << num(g.x[i]) << ' ' << num(g.y[i]) << '\n';
+    out << g.num_triangles() << '\n';
+    for (std::size_t e = 0; e < g.num_triangles(); ++e)
+        out << (g.tri[3 * e] + 1) << ' ' << (g.tri[3 * e + 1] + 1) << ' ' << (g.tri[3 * e + 2] + 1)
+            << '\n';
+    out << g.num_quads() << '\n';
+    for (std::size_t e = 0; e < g.num_quads(); ++e)
+        out << (g.quad[4 * e] + 1) << ' ' << (g.quad[4 * e + 1] + 1) << ' '
+            << (g.quad[4 * e + 2] + 1) << ' ' << (g.quad[4 * e + 3] + 1) << '\n';
+    out << g.num_boundaries() << '\n';
+    for (const auto& part : g.bound) {
+        out << part.size() << '\n';
+        for (const I v : part)
+            out << (v + 1) << '\n';
     }
 }
 

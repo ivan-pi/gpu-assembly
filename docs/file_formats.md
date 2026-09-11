@@ -1,11 +1,11 @@
 # File formats
 
 The formats read and written by `rbf::io`. Two of them are our own
-plain-text formats, two are borrowed from Triangle and METIS, and the rest
-are standards or conventions of which only the parts we use are described
-here.
+plain-text formats, three are borrowed from Triangle, METIS and
+Nishikawa's EDU2D solvers, and the rest are standards or conventions of
+which only the parts we use are described here.
 
-The readers and writers of the first five formats are declared in
+The readers and writers of the first six formats are declared in
 `rbf_io.h`, `write_vtk_polydata` in `rbf_io_vtk.h`, and `write_columns`
 in `rbf_io_gnuplot.h`; include the ones whose formats you use.
 
@@ -14,6 +14,7 @@ in `rbf_io_gnuplot.h`; include the ones whose formats you use.
 | [Points file](#points-file) | `.points` | `read_points`, `read_points_aos` | |
 | [Graph file](#graph-file) | `.graph` | `read_graph_csr` | |
 | [Node file](#node-file) | `.node` | `read_nodes`, `NodeSet(fname)` | `write_nodes`, `NodeSet::write` |
+| [Grid file](#grid-file) | `.grid` | `read_grid` | `write_grid` |
 | [Ordering file](#ordering-file) | `.iperm` | `Permutation::read`, `read_ordering` | `Permutation::write`, `write_ordering` |
 | [Matrix Market](#matrix-market) | `.mtx` | | `write_matrix_market`, `write_matrix_market_pattern` |
 | [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata` |
@@ -127,6 +128,63 @@ flags only: attributes in the file are skipped on reading and the file it
 writes has none. Renumbering (`NodeSet::renumber`) permutes the arrays in
 memory, and `NodeSet::write` saves the result in the new order, so a
 reordered file can be read back as is, minus any attributes it had.
+
+## Grid file
+
+A 2D unstructured grid — nodal coordinates, triangle and quadrilateral
+connectivity, and the boundary as lists of nodes — in the custom `.grid`
+format of Hiroaki Nishikawa's EDU2D solvers. Cite the format as:
+
+> Nishikawa, Hiroaki. (2018). Unstructured grid file format (2D, 3D).
+> <https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D>
+> (accessed Sep 11, 2026)
+
+Every count sits on a line of its own and every record on the next
+lines, in this order:
+
+```
+nnodes
+x y            one node per line, nnodes lines
+ntria
+a b c          one triangle per line, ntria lines
+nquad
+a b c d        one quad per line, nquad lines
+nbound
+nb             then for each of the nbound boundary parts:
+b1             its node count nb, followed by that many
+...            node indices, one per line
+```
+
+Node indices in the file are 1-based, as the format prescribes;
+`read_grid` shifts them to 0-based, the numbering of the graph file, and
+`write_grid` shifts back on output. `Grid` holds the result: `x`, `y`,
+the connectivity `tri` and `quad` row-major, and the node list of each
+boundary part in `bound`.
+
+A boundary part lists its nodes in order along the boundary, each pair
+of consecutive nodes a boundary edge; a part that closes a loop repeats
+its first node last, as both parts of the reference's example do, but a
+part may also be an open polyline, ending where the next part begins.
+By the reference's conventions elements are numbered counterclockwise
+and a part runs with the interior on its left, the outer boundary
+counterclockwise and holes clockwise; the reader checks neither
+orientation nor closure. It does check that every count is met, that
+every index is in range, that an element's nodes are distinct, and that
+a part has at least two nodes, with no node twice in a row. A grid may
+have no triangles, no quads, or no boundary parts. The reference also
+describes a 3D format (`.ugrid`) and a companion boundary-condition
+file (`.bcmap`); neither is read here.
+
+`Grid::markers()` bridges to the [node file](#node-file) convention: a
+node gets the number of the first boundary part that lists it (from 1),
+or 0 if no part does, so a grid becomes a `NodeSet` via `write_nodes`:
+
+```cpp
+auto g = rbf::io::read_grid("case.grid");
+const auto m = g.markers();
+rbf::io::write_nodes("case.node", g.num_nodes(), g.x.data(), g.y.data(), m.data());
+rbf::NodeSet<double> ns("case.node");   // flag b: node on boundary part b
+```
 
 ## Ordering file
 
