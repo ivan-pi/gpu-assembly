@@ -141,18 +141,31 @@ struct LineCursor {
 };
 
 // Next line with content: comment starts a comment ('#' for the node file,
-// '!' for the boundary-condition files), blank lines are skipped. The line
-// is truncated at the comment so the cursor sees data only.
+// '!' for the boundary-condition files, '\0' for a format without
+// comments), blank lines are skipped. The line is truncated at the
+// comment so the cursor sees data only.
 inline bool next_data_line(std::istream& in,
                            std::string& line,
                            std::size_t& lineno,
                            char comment = '#') {
     while (std::getline(in, line)) {
         ++lineno;
-        if (const auto at = line.find(comment); at != std::string::npos) line.resize(at);
+        if (comment != '\0')
+            if (const auto at = line.find(comment); at != std::string::npos) line.resize(at);
         if (line.find_first_not_of(" \t\r") != std::string::npos) return true;
     }
     return false;
+}
+
+// One "x y" coordinate line, shared by the points file and the grid file:
+// nullptr on success, else the complaint for the caller to report with its
+// own line context.
+template <class T>
+const char* parse_xy(std::string_view line, T& x, T& y) {
+    LineCursor c{line};
+    if (!(c.next(x) && c.next(y)) || !c.at_end()) return "expected \"x y\"";
+    if (!std::isfinite(x) || !std::isfinite(y)) return "coordinate is not finite";
+    return nullptr;
 }
 
 }  // namespace detail
@@ -198,12 +211,9 @@ void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_poi
     for (std::size_t i = 0; i < n; ++i) {
         if (!std::getline(in, line))
             fail(fname, "expected " + std::to_string(n) + " points, found " + std::to_string(i));
-        LineCursor c{line};
         T px, py;
-        if (!(c.next(px) && c.next(py)) || !c.at_end())
-            fail(fname, "line " + std::to_string(i + 2) + ": expected \"x y\"");
-        if (!std::isfinite(px) || !std::isfinite(py))
-            fail(fname, "line " + std::to_string(i + 2) + ": coordinate is not finite");
+        if (const char* err = parse_xy(line, px, py))
+            fail(fname, "line " + std::to_string(i + 2) + ": " + err);
         on_point(px, py);
     }
 }
@@ -377,7 +387,6 @@ void write_nodes(const std::string& fname,
 // UnstructuredGrid::check_orientation() verifies them on demand.
 template <class T = double, class I = std::int32_t>
 UnstructuredGrid<T, I> read_grid(const std::string& fname, IndexBase base) {
-    const bool zero_based = base == IndexBase::zero;
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     static_assert(std::is_integral_v<I> && std::is_signed_v<I>,
                   "index type must be a signed integer");
@@ -388,45 +397,42 @@ UnstructuredGrid<T, I> read_grid(const std::string& fname, IndexBase base) {
     const auto fail_here = [&](const std::string& what) {
         detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
     };
-    const auto next_line = [&](const std::string& what) {
-        do {
-            if (!std::getline(in, line)) detail::fail(fname, "unexpected end of file: " + what);
-            ++lineno;
-        } while (line.find_first_not_of(" \t\r") == std::string::npos);
+    // what() is rendered only when the file ends early, so the context
+    // costs nothing on the lines that are there
+    const auto next_line = [&](auto&& what) {
+        if (!detail::next_data_line(in, line, lineno, '\0'))
+            detail::fail(fname, "unexpected end of file: " + what());
     };
     const auto read_count = [&](const std::string& what) {
-        next_line(what);
+        next_line([&] { return what; });
         detail::LineCursor c{line};
         std::size_t n;
         if (!c.next(n) || !c.at_end()) fail_here("expected " + what + " on a line of its own");
         return n;
     };
 
-    std::vector<T> gx, gy;
-    std::vector<I> gtri, gquad;
-    std::vector<std::vector<I>> gbound;
     std::size_t nnodes = 0, ntria = 0, nquad = 0;
-    next_line("the header");
+    next_line([] { return std::string("the header"); });
     {
         detail::LineCursor c{line};
         if (!(c.next(nnodes) && c.next(ntria) && c.next(nquad)) || !c.at_end())
             fail_here("expected the header \"nnodes ntria nquad\"");
     }
+    std::vector<T> gx, gy;
     gx.reserve(nnodes);
     gy.reserve(nnodes);
     for (std::size_t i = 0; i < nnodes; ++i) {
-        next_line("node " + std::to_string(i + 1) + " of " + std::to_string(nnodes));
-        detail::LineCursor c{line};
+        next_line(
+            [&] { return "node " + std::to_string(i + 1) + " of " + std::to_string(nnodes); });
         T px, py;
-        if (!(c.next(px) && c.next(py)) || !c.at_end()) fail_here("expected \"x y\"");
-        if (!std::isfinite(px) || !std::isfinite(py)) fail_here("coordinate is not finite");
+        if (const char* err = detail::parse_xy(line, px, py)) fail_here(err);
         gx.push_back(px);
         gy.push_back(py);
     }
 
     // an element's nodes, or one boundary node: 1-based in the file, checked
     // against nnodes and shifted only if a 0-based grid was asked for
-    const I shift = zero_based ? 1 : 0;
+    const I shift = base == IndexBase::zero ? 1 : 0;
     const auto next_index = [&](detail::LineCursor& c) {
         I v;
         if (!c.next(v)) fail_here("bad node index at \"" + c.here() + "\"");
@@ -435,12 +441,14 @@ UnstructuredGrid<T, I> read_grid(const std::string& fname, IndexBase base) {
                       "]; grid files are 1-based");
         return static_cast<I>(v - shift);
     };
-    const auto read_elements = [&](std::vector<I>& conn, std::size_t ne, std::size_t nv,
-                                   const char* name) {
+    const auto read_elements = [&](std::size_t ne, std::size_t nv, const char* name) {
+        std::vector<I> conn;
         conn.reserve(nv * ne);
         for (std::size_t e = 0; e < ne; ++e) {
-            next_line(name + std::string(" ") + std::to_string(e + 1) + " of " +
-                      std::to_string(ne));
+            next_line([&] {
+                return std::string(name) + " " + std::to_string(e + 1) + " of " +
+                       std::to_string(ne);
+            });
             detail::LineCursor c{line};
             const std::size_t at = conn.size();
             for (std::size_t v = 0; v < nv; ++v)
@@ -454,39 +462,35 @@ UnstructuredGrid<T, I> read_grid(const std::string& fname, IndexBase base) {
                         fail_here(std::string(name) + " node " +
                                   std::to_string(conn[at + v] + shift) + " listed twice");
         }
+        return conn;
     };
-    read_elements(gtri, ntria, 3, "triangle");
-    read_elements(gquad, nquad, 4, "quadrilateral");
+    std::vector<I> gtri = read_elements(ntria, 3, "triangle");
+    std::vector<I> gquad = read_elements(nquad, 4, "quadrilateral");
 
+    // every part's count first, then the lists, part after part
     const std::size_t nbound = read_count("the boundary count");
-    gbound.resize(nbound);
-    const auto part_name = [](std::size_t b) { return "boundary part " + std::to_string(b + 1); };
-    const auto read_part_count = [&](std::size_t b) {
-        const std::size_t nb = read_count("the node count of " + part_name(b));
-        if (nb < 2)
-            fail_here(part_name(b) + " has " + std::to_string(nb) + " nodes, at least 2 needed");
-        return nb;
-    };
-    const auto read_part_nodes = [&](std::size_t b, std::size_t nb) {
+    std::vector<std::size_t> nb(nbound);
+    for (std::size_t b = 0; b < nbound; ++b) {
+        nb[b] = read_count("the node count of boundary part " + std::to_string(b + 1));
+        if (nb[b] < 2)
+            fail_here("boundary part " + std::to_string(b + 1) + " has " + std::to_string(nb[b]) +
+                      " nodes, at least 2 needed");
+    }
+    std::vector<std::vector<I>> gbound(nbound);
+    for (std::size_t b = 0; b < nbound; ++b) {
+        const std::string part = "boundary part " + std::to_string(b + 1);
         auto& nodes = gbound[b];
-        nodes.reserve(nb);
-        for (std::size_t j = 0; j < nb; ++j) {
-            next_line("node " + std::to_string(j + 1) + " of " + part_name(b));
+        nodes.reserve(nb[b]);
+        for (std::size_t j = 0; j < nb[b]; ++j) {
+            next_line([&] { return "node " + std::to_string(j + 1) + " of " + part; });
             detail::LineCursor c{line};
             const I v = next_index(c);
             if (!c.at_end()) fail_here("expected one boundary node per line");
             if (j > 0 && v == nodes.back())
-                fail_here(part_name(b) + " lists node " + std::to_string(v + shift) +
-                          " twice in a row");
+                fail_here(part + " lists node " + std::to_string(v + shift) + " twice in a row");
             nodes.push_back(v);
         }
-    };
-    // every part's count first, then the lists, part after part
-    std::vector<std::size_t> nb(nbound);
-    for (std::size_t b = 0; b < nbound; ++b)
-        nb[b] = read_part_count(b);
-    for (std::size_t b = 0; b < nbound; ++b)
-        read_part_nodes(b, nb[b]);
+    }
     in >> std::ws;
     if (!in.eof()) detail::fail(fname, "unexpected data after the last boundary part");
     return UnstructuredGrid<T, I>(std::move(gx), std::move(gy), std::move(gtri), std::move(gquad),
@@ -501,17 +505,20 @@ UnstructuredGrid<T, I> read_grid(const std::string& fname, IndexBase base) {
 template <class T, class I>
 void write_grid(const std::string& fname, const UnstructuredGrid<T, I>& g) {
     using detail::num;
-    const I shift = g.zero_based() ? 1 : 0;
+    const I shift = g.base() == IndexBase::zero ? 1 : 0;
     auto out = detail::open_out(fname);
     out << g.num_nodes() << ' ' << g.num_triangles() << ' ' << g.num_quads() << '\n';
     for (std::size_t i = 0; i < g.num_nodes(); ++i)
         out << num(g.x()[i]) << ' ' << num(g.y()[i]) << '\n';
-    for (std::size_t e = 0; e < g.num_triangles(); ++e)
-        out << (g.tri()[3 * e] + shift) << ' ' << (g.tri()[3 * e + 1] + shift) << ' '
-            << (g.tri()[3 * e + 2] + shift) << '\n';
-    for (std::size_t e = 0; e < g.num_quads(); ++e)
-        out << (g.quad()[4 * e] + shift) << ' ' << (g.quad()[4 * e + 1] + shift) << ' '
-            << (g.quad()[4 * e + 2] + shift) << ' ' << (g.quad()[4 * e + 3] + shift) << '\n';
+    const auto rows = [&](const std::vector<I>& conn, std::size_t nv) {
+        for (std::size_t e = 0; e * nv < conn.size(); ++e) {
+            for (std::size_t v = 0; v < nv; ++v)
+                out << (v ? " " : "") << (conn[e * nv + v] + shift);
+            out << '\n';
+        }
+    };
+    rows(g.tri(), 3);
+    rows(g.quad(), 4);
     out << g.num_boundaries() << '\n';
     for (const auto& part : g.bound())
         out << part.size() << '\n';
@@ -562,11 +569,14 @@ inline std::vector<BoundaryCondition> read_bcmap(const std::string& fname) {
     std::vector<BoundaryCondition> bcs;
     std::string line;
     std::size_t lineno = 0;
+    const auto fail_here = [&](const std::string& what) {
+        detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
+    };
     while (detail::next_data_line(in, line, lineno, '!')) {
         detail::LineCursor c{line};
         BoundaryCondition r;
         if (!c.next(r.tag) || !c.next_token(r.name) || !c.at_end())
-            detail::fail(fname, "line " + std::to_string(lineno) + ": expected \"tag name\"");
+            fail_here("expected \"tag name\"");
         bcs.push_back(std::move(r));
     }
     detail::check_unique_tags(fname, bcs);
@@ -591,12 +601,14 @@ inline std::vector<BoundaryCondition> read_mapbc(const std::string& fname) {
     auto in = detail::open_in(fname);
     std::string line;
     std::size_t lineno = 0;
+    const auto fail_here = [&](const std::string& what) {
+        detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
+    };
 
     if (!detail::next_data_line(in, line, lineno, '!')) detail::fail(fname, "empty file");
     std::size_t n;
     if (detail::LineCursor c{line}; !c.next(n) || !c.at_end())
-        detail::fail(fname, "line " + std::to_string(lineno) +
-                                ": expected the boundary-group count on a line of its own");
+        fail_here("expected the boundary-group count on a line of its own");
 
     std::vector<BoundaryCondition> bcs;
     bcs.reserve(n);
@@ -606,18 +618,13 @@ inline std::vector<BoundaryCondition> read_mapbc(const std::string& fname) {
                                     std::to_string(i));
         detail::LineCursor c{line};
         BoundaryCondition r;
-        if (!c.next(r.tag) || !c.next(r.bc))
-            detail::fail(fname,
-                         "line " + std::to_string(lineno) + ": expected \"tag bc [family]\"");
+        if (!c.next(r.tag) || !c.next(r.bc)) fail_here("expected \"tag bc [family]\"");
         c.next_token(r.name);  // the family name is optional
-        if (!c.at_end())
-            detail::fail(fname, "line " + std::to_string(lineno) +
-                                    ": unexpected data after the family name");
+        if (!c.at_end()) fail_here("unexpected data after the family name");
         bcs.push_back(std::move(r));
     }
     if (detail::next_data_line(in, line, lineno, '!'))
-        detail::fail(fname, "line " + std::to_string(lineno) + ": unexpected data after " +
-                                std::to_string(n) + " boundary groups");
+        fail_here("unexpected data after " + std::to_string(n) + " boundary groups");
     detail::check_unique_tags(fname, bcs);
     return bcs;
 }

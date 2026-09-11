@@ -173,9 +173,11 @@ the library. The grid records the choice (`base()`), which `markers()`
 and `write_grid` consult, so a grid cannot be handed on in the wrong
 base, and the file `write_grid` writes is 1-based either way. The
 class's constructor takes the arrays directly, moved in, and asserts
-the structural invariants: coordinates of one length, whole elements,
-every index in range for the declared base, boundary parts of at least
-two nodes.
+the same structural rules the reader enforces on a file: coordinates of
+one length, whole elements with distinct nodes, every index in range
+for the declared base, boundary parts of at least two nodes with no
+node twice in a row — so a grid that constructs also round-trips
+through `write_grid` and back.
 
 A boundary part lists its nodes in order along the boundary, each pair
 of consecutive nodes a boundary edge. A part marks itself closed by
@@ -217,10 +219,11 @@ file of the [next section](#boundary-condition-files).
 convention: a node gets the number of the first boundary part that
 lists it (from 1), or 0 if no part does, in either base. `NodeSet` has
 a constructor taking an `UnstructuredGrid` — the nodes with the markers
-as the flag, the connectivity dropped. It takes the grid by value: pass
-it with `std::move` to move the coordinate arrays in instead of copying
-them (`NodeSet` owns its geometry, since `renumber` permutes it in
-place, so a non-owning view is not an option):
+as the flag, the connectivity dropped. An lvalue grid stays usable and
+only its coordinates are copied; pass it with `std::move` to move the
+coordinate arrays in instead (`NodeSet` owns its geometry, since
+`renumber` permutes it in place, so a non-owning view is not an
+option):
 
 ```cpp
 auto g = rbf::io::read_grid("case.grid", rbf::IndexBase::one);

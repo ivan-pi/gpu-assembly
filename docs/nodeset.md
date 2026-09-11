@@ -11,8 +11,9 @@ undergone and a lazily-built index for the stencil search:
 Besides the file, a node set can be constructed from coordinate and
 flag vectors directly (`NodeSet(x, y, flag)`, moved in), or from a
 [grid file](file_formats.md#grid-file)'s `rbf::UnstructuredGrid`, whose
-`markers()` become the flag and whose connectivity is dropped; the grid
-is taken by value, so `std::move` it in to avoid the copy.
+`markers()` become the flag and whose connectivity is dropped; an
+lvalue grid only has its coordinates copied, and `std::move` it in to
+move them instead.
 
 `T` is the coordinate type, `I` the index type of the stencils, chosen to
 match the `CsrMatrix<T, I>` they will feed (`double` and `int32_t` by

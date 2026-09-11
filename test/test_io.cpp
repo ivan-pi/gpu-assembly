@@ -151,19 +151,19 @@ static void test_grid_file() {
     // square hole, 5 triangles, 2 quads, the hole (B1) and the outer
     // boundary (B2) as closed loops. The counts share the header line and
     // the boundary node counts come before the lists.
+    const std::string header = "9 5 2\n";
+    const std::string coords =
+        "0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n1.3 2.0\n";
+    const std::string tris = "9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n";
+    const std::string quads = "1 5 4 7\n4 8 6 2\n";
     write_text("s.grid",
-               "9 5 2\n"
-               "0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
-               "1.3 2.0\n"
-               "9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
-               "1 5 4 7\n4 8 6 2\n"
-               "2\n5\n6\n4\n7\n9\n2\n4\n1\n5\n8\n6\n3\n1\n");
+               header + coords + tris + quads + "2\n5\n6\n4\n7\n9\n2\n4\n1\n5\n8\n6\n3\n1\n");
 
     // native 1-based indices, as in the file
     auto n1 = rbf::io::read_grid("s.grid", IndexBase::one);
     CHECK(n1.num_nodes() == 9 && n1.num_triangles() == 5 && n1.num_quads() == 2 &&
           n1.num_boundaries() == 2);
-    CHECK(n1.base() == IndexBase::one && !n1.zero_based());
+    CHECK(n1.base() == IndexBase::one);
     CHECK(n1.x()[6] == 1.3 && n1.y()[6] == 1.0);  // node 7 of the file
     CHECK(n1.tri() == (std::vector<std::int32_t>{9, 2, 3, 5, 8, 4, 2, 6, 3, 1, 7, 9, 1, 9, 3}));
     CHECK(n1.quad() == (std::vector<std::int32_t>{1, 5, 4, 7, 4, 8, 6, 2}));
@@ -173,7 +173,7 @@ static void test_grid_file() {
 
     // 0-based on request, the numbering of the graph file
     auto g = rbf::io::read_grid("s.grid", IndexBase::zero);
-    CHECK(g.base() == IndexBase::zero && g.zero_based());
+    CHECK(g.base() == IndexBase::zero);
     CHECK(g.tri() == (std::vector<std::int32_t>{8, 1, 2, 4, 7, 3, 1, 5, 2, 0, 6, 8, 0, 8, 2}));
     CHECK(g.quad() == (std::vector<std::int32_t>{0, 4, 3, 6, 3, 7, 5, 1}));
     CHECK(g.bound()[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));
@@ -193,20 +193,15 @@ static void test_grid_file() {
     CHECK(n1.check_orientation());
 
     // blank lines between the sections (or anywhere else) change nothing
-    write_text("b.grid",
-               "9 5 2\n"
-               "0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
-               "1.3 2.0\n"
-               "\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
-               "\n1 5 4 7\n4 8 6 2\n"
-               "\n2\n\n5\n6\n\n4\n7\n9\n2\n4\n\n1\n5\n8\n6\n3\n1\n\n");
+    write_text("b.grid", header + coords + "\n" + tris + "\n" + quads +
+                             "\n2\n\n5\n6\n\n4\n7\n9\n2\n4\n\n1\n5\n8\n6\n3\n1\n\n");
     auto gb = rbf::io::read_grid("b.grid", IndexBase::zero);
     CHECK(gb.x() == g.x() && gb.y() == g.y() && gb.tri() == g.tri() && gb.quad() == g.quad() &&
           gb.bound() == g.bound());
 
     // a NodeSet directly from the grid: markers become the flag, the
-    // connectivity is dropped. Copied from an lvalue, moved from an
-    // rvalue, and the same node set from either base.
+    // connectivity is dropped. An lvalue only has its coordinates copied,
+    // an rvalue is moved from, and either base gives the same node set.
     rbf::NodeSet<double> ns(g);  // copy: g stays intact
     CHECK(!g.x().empty() && ns.num_points() == 9 && ns.num_boundary() == 9);
     CHECK(ns.x == g.x() && ns.y == g.y() && ns.flag == expected_markers);
@@ -262,8 +257,7 @@ static std::size_t msgs_with(const std::string& log, const std::string& what) {
 }
 
 // run check_orientation with a log and hand the messages back
-template <class G>
-static std::string orientation_log(const G& g) {
+static std::string orientation_log(const rbf::UnstructuredGrid<>& g) {
     std::ostringstream log;
     CHECK(!g.check_orientation(&log));  // a non-empty log means violations
     CHECK(!g.check_orientation());      // and the silent call agrees

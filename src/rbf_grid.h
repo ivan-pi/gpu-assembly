@@ -38,10 +38,13 @@ class UnstructuredGrid {
 public:
     // The arrays are moved in and the invariants asserted, as the writers
     // do: x and y of one length; tri whole triangles and quad whole quads,
-    // row-major; bound the node list of each boundary part, in order along
-    // the boundary, each of at least two nodes (a part marks itself closed
+    // row-major, each element's nodes distinct; bound the node list of
+    // each boundary part, in order along the boundary, each of at least
+    // two nodes with no node twice in a row (a part marks itself closed
     // by repeating its first node last); every index in [1, nnodes] under
-    // IndexBase::one, in [0, nnodes) under IndexBase::zero.
+    // IndexBase::one, in [0, nnodes) under IndexBase::zero. These are the
+    // structural rules read_grid enforces on a file, so a grid that
+    // constructs also round-trips through write_grid and back.
     UnstructuredGrid(std::vector<T> x,
                      std::vector<T> y,
                      std::vector<I> tri,
@@ -54,14 +57,22 @@ public:
         assert(tri_.size() % 3 == 0 && "tri is not whole triangles");
         assert(quad_.size() % 4 == 0 && "quad is not whole quadrilaterals");
 #ifndef NDEBUG
-        for (const I v : tri_)
-            assert(in_range(v) && "triangle node out of range");
-        for (const I v : quad_)
-            assert(in_range(v) && "quadrilateral node out of range");
+        const auto check_elements = [&](const std::vector<I>& conn, std::size_t nv) {
+            for (std::size_t e = 0; e * nv < conn.size(); ++e)
+                for (std::size_t i = 0; i < nv; ++i) {
+                    assert(in_range(conn[e * nv + i]) && "element node out of range");
+                    for (std::size_t j = i + 1; j < nv; ++j)
+                        assert(conn[e * nv + i] != conn[e * nv + j] && "element node listed twice");
+                }
+        };
+        check_elements(tri_, 3);
+        check_elements(quad_, 4);
         for (const auto& part : bound_) {
             assert(part.size() >= 2 && "boundary part of fewer than 2 nodes");
-            for (const I v : part)
-                assert(in_range(v) && "boundary node out of range");
+            for (std::size_t j = 0; j < part.size(); ++j) {
+                assert(in_range(part[j]) && "boundary node out of range");
+                assert((j == 0 || part[j] != part[j - 1]) && "boundary node twice in a row");
+            }
         }
 #endif
     }
@@ -71,7 +82,6 @@ public:
     std::size_t num_quads() const { return quad_.size() / 4; }
     std::size_t num_boundaries() const { return bound_.size(); }
     IndexBase base() const { return base_; }
-    bool zero_based() const { return base_ == IndexBase::zero; }
 
     // The arrays, read-only. The && overloads of x() and y() move the
     // coordinates out of an expiring grid -- std::move(g).x() -- which is
@@ -99,7 +109,7 @@ public:
         std::vector<int> m(num_nodes(), 0);
         for (std::size_t b = 0; b < bound_.size(); ++b)
             for (const I j : bound_[b])
-                if (m[pos(j)] == 0) m[pos(j)] = static_cast<int>(b + 1);
+                if (int& mj = m[pos(j)]; mj == 0) mj = static_cast<int>(b + 1);
         return m;
     }
 
@@ -123,46 +133,50 @@ public:
         const std::uint64_t n = num_nodes();
         const auto no = [&](I v) { return std::to_string(pos(v) + 1); };  // as in the file
         const auto key = [&](I u, I v) { return static_cast<std::uint64_t>(pos(u)) * n + pos(v); };
-        std::size_t violations = 0;
+        bool ok = true;
         const auto report = [&](const std::string& msg) {
-            ++violations;
+            ok = false;
             if (log) *log << msg << '\n';
+        };
+
+        // every element in file order -- f(nodes, nv, name, index) -- and
+        // every directed element edge, in the same order
+        const auto each_element = [&](auto&& f) {
+            const auto walk = [&](const std::vector<I>& conn, std::size_t nv, const char* name) {
+                for (std::size_t e = 0; e * nv < conn.size(); ++e)
+                    f(conn.data() + e * nv, nv, name, e);
+            };
+            walk(tri_, 3, "triangle");
+            walk(quad_, 4, "quadrilateral");
+        };
+        const auto each_edge = [&](auto&& f) {
+            each_element([&](const I* el, std::size_t nv, const char*, std::size_t) {
+                for (std::size_t i = 0; i < nv; ++i)
+                    f(el[i], el[(i + 1) % nv]);
+            });
         };
 
         // the directed element edges, and the counterclockwise test
         std::unordered_map<std::uint64_t, int> edges;
-        const auto add_elements = [&](const std::vector<I>& conn, std::size_t nv,
-                                      const char* name) {
-            for (std::size_t e = 0; e * nv < conn.size(); ++e) {
-                const I* el = conn.data() + e * nv;
-                double area2 = 0;  // twice the signed area, by the shoelace formula
-                for (std::size_t i = 0; i < nv; ++i) {
-                    const std::size_t u = pos(el[i]), v = pos(el[(i + 1) % nv]);
-                    area2 +=
-                        static_cast<double>(x_[u]) * y_[v] - static_cast<double>(x_[v]) * y_[u];
-                    ++edges[key(el[i], el[(i + 1) % nv])];
-                }
-                if (!(area2 > 0))
-                    report(std::string(name) + " " + std::to_string(e + 1) +
-                           " is not counterclockwise");
+        edges.reserve(tri_.size() + quad_.size());  // one edge per element node
+        each_element([&](const I* el, std::size_t nv, const char* name, std::size_t e) {
+            double area2 = 0;  // twice the signed area, by the shoelace formula
+            for (std::size_t i = 0; i < nv; ++i) {
+                const std::size_t u = pos(el[i]), v = pos(el[(i + 1) % nv]);
+                area2 += static_cast<double>(x_[u]) * y_[v] - static_cast<double>(x_[v]) * y_[u];
+                ++edges[static_cast<std::uint64_t>(u) * n + v];
             }
-        };
-        add_elements(tri_, 3, "triangle");
-        add_elements(quad_, 4, "quadrilateral");
+            if (!(area2 > 0))
+                report(std::string(name) + " " + std::to_string(e + 1) +
+                       " is not counterclockwise");
+        });
 
-        // every element edge again, in file order, for deterministic output
-        const auto each_edge = [&](auto&& f) {
-            const auto walk = [&](const std::vector<I>& conn, std::size_t nv) {
-                for (std::size_t e = 0; e * nv < conn.size(); ++e)
-                    for (std::size_t i = 0; i < nv; ++i)
-                        f(conn[e * nv + i], conn[e * nv + (i + 1) % nv]);
-            };
-            walk(tri_, 3);
-            walk(quad_, 4);
-        };
+        // a directed edge used twice cannot come from a consistent
+        // counterclockwise numbering
         std::unordered_set<std::uint64_t> seen;
         each_edge([&](I u, I v) {
-            if (edges[key(u, v)] > 1 && seen.insert(key(u, v)).second)
+            const auto k = key(u, v);
+            if (edges.at(k) > 1 && seen.insert(k).second)
                 report("element edge " + no(u) + " -> " + no(v) +
                        " is used twice in the same direction");
         });
@@ -174,12 +188,15 @@ public:
             const auto& part = bound_[b];
             for (std::size_t j = 0; j + 1 < part.size(); ++j) {
                 const I u = part[j], v = part[j + 1];
-                const bool fwd = edges.count(key(u, v)) > 0, rev = edges.count(key(v, u)) > 0;
-                const std::string edge =
+                const auto k = key(u, v);
+                const bool fwd = edges.count(k) > 0, rev = edges.count(key(v, u)) > 0;
+                if (fwd && !rev) {
+                    walked.insert(k);
+                    continue;
+                }
+                const std::string edge =  // built only for a violation
                     "boundary part " + std::to_string(b + 1) + ", edge " + no(u) + " -> " + no(v);
-                if (fwd && !rev)
-                    walked.insert(key(u, v));
-                else if (!fwd && rev)
+                if (!fwd && rev)
                     report(edge + " walks with the domain on the right");
                 else if (fwd && rev)
                     report(edge + " is an interior edge");
@@ -191,22 +208,23 @@ public:
         // and the parts together must walk the whole mesh boundary
         seen.clear();
         each_edge([&](I u, I v) {
-            if (edges.count(key(v, u)) == 0 && walked.count(key(u, v)) == 0 &&
-                seen.insert(key(u, v)).second)
+            const auto k = key(u, v);
+            if (edges.count(key(v, u)) == 0 && walked.count(k) == 0 && seen.insert(k).second)
                 report("element boundary edge " + no(u) + " -> " + no(v) +
                        " is not walked by any boundary part");
         });
-        return violations == 0;
+        return ok;
     }
 
 private:
-    // 0-based position of a stored index, in either base
+    // 0-based position of a stored index: the enumerator value of base_
+    // (zero = 0, one = 1) is exactly the offset to remove.
     std::size_t pos(I v) const {
         assert(in_range(v) && "node index out of range");
-        return static_cast<std::size_t>(v - (zero_based() ? 0 : 1));
+        return static_cast<std::size_t>(v - static_cast<I>(base_));
     }
     bool in_range(I v) const {
-        const I p = v - (zero_based() ? 0 : 1);
+        const I p = v - static_cast<I>(base_);
         return p >= 0 && static_cast<std::size_t>(p) < x_.size();
     }
 
