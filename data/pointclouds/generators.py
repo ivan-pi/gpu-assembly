@@ -11,10 +11,12 @@ to whoever needs it.
    LShape
    PerturbedGrid
    PoissonBox
+   PolarRegion
    RefinedCavity
 """
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from .nodeset import Marker, NodeSet, boundary_first
 
@@ -326,9 +328,11 @@ class PerturbedGrid(NodeSet):
     sigma : float, default 0.2
         The displacement of a node, in spacings. The reference uses 0,
         0.02 and 0.2; a node stays in its own cell below 0.5.
-    geometry : {"periodic", "channel"}
-        Both sides periodic, as in the Taylor-Green test, or periodic in
-        x with walls at ``y = 0`` and ``y = N``, as in the Poiseuille test.
+    geometry : {"periodic", "channel", "box"}
+        Both sides periodic, as in the Taylor-Green test; periodic in
+        x with walls at ``y = 0`` and ``y = N``, as in the Poiseuille
+        test; or walls on all four sides, as in the Poisson tests on
+        the square.
     seed : int, optional
         Of the displacements; random when not given.
 
@@ -340,6 +344,12 @@ class PerturbedGrid(NodeSet):
     from ``y = 0``, x fastest, so the wall nodes are the first N and the
     last N.
 
+    The box has N + 1 rows and columns, walled at 0 and N on either
+    axis, the markers south (1), east (2), north (3) and west (4) by
+    the outward normal and corner (5) where two walls meet; a wall node
+    slides along its wall and a corner stays put. The nodes keep the
+    row-by-row order, so the east and west nodes lie in their rows.
+
     References
     ----------
     .. [1] Strzelczyk and Matyka, "How nodes layout, refinement and
@@ -348,31 +358,41 @@ class PerturbedGrid(NodeSet):
     """
 
     def __init__(self, n, sigma=0.2, *, geometry="periodic", seed=None):
-        periodic = geometry == "periodic"
-        x = np.arange(float(n))
-        y = np.arange(float(n if periodic else n + 1))
+        periodic = (geometry != "box", geometry == "periodic")
+        box = float(n)
+        x = np.arange(float(n if periodic[0] else n + 1))
+        y = np.arange(float(n if periodic[1] else n + 1))
         xv, yv = np.meshgrid(x, y)  # row by row, x fastest
         pts = np.column_stack((xv.ravel(), yv.ravel()))
-        m = np.full(len(pts), Marker.interior)
-        if not periodic:
-            m[:n], m[-n:] = Marker.south, Marker.north
+        never = np.zeros(len(pts), bool)
+        s = never if periodic[1] else pts[:, 1] == 0.0
+        nn = never if periodic[1] else pts[:, 1] == box
+        e = never if periodic[0] else pts[:, 0] == box
+        w = never if periodic[0] else pts[:, 0] == 0.0
+        m = np.select(
+            [(s | nn) & (e | w), s, e, nn, w],
+            [Marker.corner, Marker.south, Marker.east, Marker.north, Marker.west],
+            Marker.interior,
+        )
         d = np.random.default_rng(seed).uniform(-sigma, sigma, pts.shape)
-        d[m != Marker.interior, 1] = 0.0  # a wall node stays on its wall
+        d[s | nn, 1] = 0.0  # a wall node stays on its wall
+        d[e | w, 0] = 0.0
         pts += d  # NodeSet wraps the periodic sides
-        box = float(n)
-        if not periodic:
-            pts[:, 1] = np.clip(pts[:, 1], 0.0, box)  # only reached by sigma >= 1
+        for axis in range(2):
+            if not periodic[axis]:  # only reached by sigma >= 1
+                pts[:, axis] = np.clip(pts[:, axis], 0.0, box)
         super().__init__(
             pts,
             m,
             extent=(box, box),
-            periodic=(True, periodic),
+            periodic=periodic,
             title=f"perturbed grid, size={n}x{n}, sigma={sigma:g}, {geometry}",
         )
 
 
 class PoissonBox(NodeSet):
-    """A Poisson disk sample of a periodic box, with or without a hole.
+    """A Poisson disk sample of a box, periodic or walled, with or
+    without a hole.
 
     No two nodes are closer than `distance` and no room is left for
     another one, drawn by `pointclouds.poisson.PoissonDisk`: about
@@ -382,9 +402,12 @@ class PoissonBox(NodeSet):
     Parameters
     ----------
     extent : (2,) array_like
-        The box ``[0, Lx) x [0, Ly)``.
+        The box ``[0, Lx) x [0, Ly)``, closed on the walls.
     distance : float, default 1.0
         The least distance between two nodes.
+    boundary : {"periodic", "walls"}
+        Periodic on both sides, or walls on all four, as in the
+        scattered tests on the square.
     candidates : int, default 100
         The number of throws a node makes before it is retired.
     hole : float, optional
@@ -397,18 +420,36 @@ class PoissonBox(NodeSet):
     ValueError
         For a box narrower than twice the distance, and for a hole
         smaller than the distance in radius or closer than that to its
-        image across the periodic sides.
+        image across the periodic sides, or to the walls.
 
     Notes
     -----
     With a hole, nodes are laid on its circle first, as many as keep them
     `distance` apart, with the marker hole; the sample grows from them, so
     the nearest nodes sit about a spacing off the circle; and what lands
-    inside is discarded. That is the unit cell of a square array of
-    cylinders.
+    inside is discarded. In the periodic box that is the unit cell of a
+    square array of cylinders.
+
+    With walls, the four walls are laid first the same way, nodes about
+    `distance` apart from the corners inwards, marked south (1), east
+    (2), north (3) and west (4) by the outward normal and corner (5) at
+    the corners; the wall nodes come before the hole's, and the sample
+    grows from them all. The sampler works on a box grown by half a
+    distance on every side, so that a wall node keeps its 5 by 5 search
+    cells; nothing fits in the margin, since everything there is within
+    the distance of a wall node.
     """
 
-    def __init__(self, extent, distance=1.0, *, candidates=100, hole=None, seed=None):
+    def __init__(
+        self,
+        extent,
+        distance=1.0,
+        *,
+        boundary="periodic",
+        candidates=100,
+        hole=None,
+        seed=None,
+    ):
         from .poisson import PoissonDisk  # compiled by numba, only when needed
 
         extent = np.asarray(extent, float)
@@ -416,40 +457,254 @@ class PoissonBox(NodeSet):
             raise ValueError(
                 f"the box is narrower than twice the distance {distance:g}: no room"
             )
+        periodic = boundary == "periodic"
         centre = 0.5 * extent
-        seeds = ()
+        seeds, m = [np.empty((0, 2))], [np.empty(0, int)]
+        if not periodic:
+            corners = np.array([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]) * extent
+            walls = (Marker.south, Marker.east, Marker.north, Marker.west)
+            for a, b, wall in zip(corners[:-1], corners[1:], walls):
+                k = max(int(np.hypot(*(b - a)) / distance), 1)  # steps of >= d
+                seeds.append(a + (np.arange(k) / k)[:, None] * (b - a))
+                mk = np.full(k, wall)
+                mk[0] = Marker.corner
+                m.append(mk)
         if hole is not None:
             if hole < distance:
                 raise ValueError(
                     f"a hole of radius {hole:g} is smaller than the distance "
                     f"{distance:g} between nodes"
                 )
-            if 2 * hole + distance > extent.min():
+            if periodic and 2 * hole + distance > extent.min():
                 raise ValueError(
                     f"a hole of radius {hole:g} leaves less than the distance "
                     f"{distance:g} to its image across the periodic sides of a "
                     f"box {extent.min():g} across"
                 )
+            if not periodic and 2 * (hole + distance) > extent.min():
+                raise ValueError(
+                    f"a hole of radius {hole:g} leaves less than the distance "
+                    f"{distance:g} to the walls of a box {extent.min():g} across"
+                )
             n = int(np.pi / np.arcsin(distance / (2 * hole)))  # chords of at least d
             phi = 2 * np.pi * np.arange(n) / n
-            seeds = centre + hole * np.column_stack((np.cos(phi), np.sin(phi)))
+            seeds.append(centre + hole * np.column_stack((np.cos(phi), np.sin(phi))))
+            m.append(np.full(n, Marker.hole))
+        seeds, m = np.vstack(seeds), np.concatenate(m)
+        pad = 0.0 if periodic else 0.5 * distance
         sampler = PoissonDisk(
-            distance, extent, periodic=True, ncandidates=candidates, seed=seed
+            distance,
+            extent + 2 * pad,
+            periodic=periodic,
+            ncandidates=candidates,
+            seed=seed,
         )
-        sampler.add_points(seeds)
+        sampler.add_points(seeds + pad)
         sampler.fill_space()
-        pts = sampler.points
+        pts = sampler.points - pad
+        pts[: len(seeds)] = seeds  # exactly, without the padding round trip
         title = (
-            f"periodic poisson, size={extent[0]:g}x{extent[1]:g}, distance={distance:g}"
+            f"{'periodic' if periodic else 'walled'} poisson, "
+            f"size={extent[0]:g}x{extent[1]:g}, distance={distance:g}"
         )
         if hole is not None:
             inside = np.hypot(*(pts - centre).T) < hole
             inside[: len(seeds)] = False  # the circle nodes sit on the hole, not in it
             pts = pts[~inside]
             title += f", hole={hole:g}"
-        m = np.full(len(pts), Marker.interior)
-        m[: len(seeds)] = Marker.hole
-        super().__init__(pts, m, extent=extent, periodic=(True, True), title=title)
+        markers = np.full(len(pts), Marker.interior)
+        markers[: len(seeds)] = m
+        super().__init__(
+            pts, markers, extent=extent, periodic=(periodic, periodic), title=title
+        )
+
+
+class PolarRegion(NodeSet):
+    """The region between two polar curves, Poisson-disk sampled.
+
+    The star-shaped test domains of the RBF-FD literature: the region
+    ``r_in(theta) <= r <= r_out(theta)`` between two closed curves
+    about the origin, each a constant or a trigonometric polynomial
+
+    .. math:: r(\\theta) = c_0 + \\sum_k c_k \\cos k \\theta
+                               + \\sum_k s_k \\sin k \\theta.
+
+    Bayona, Flyer, Fornberg and Barnett [1]_ solve elliptic equations
+    with variable coefficients between the curves
+    ``3/10 + sin(t)/10 + 3 sin(5t)/20`` and
+    ``1 + cos(t)/5 + 3 sin(4t)/20``, the defaults of
+    tools/polar_region.py. Nodes are laid along the curves first,
+    evenly in arc length, then the interior is filled by
+    `pointclouds.poisson.PoissonDisk` seeded with them over the
+    bounding box of the outer curve, and what lands outside the region
+    is discarded. The nodes of the outer curve come first, marked
+    circle (1), then those of the inner one, marked hole (6).
+
+    Parameters
+    ----------
+    outer : float or pair of sequences
+        The outer curve: the radius of a circle, or the coefficients
+        ``((c0, c1, ...), (s1, s2, ...))`` of its cosines and sines,
+        either of which may be empty.
+    spacing : float, default 1.0
+        The distance h between neighbouring nodes.
+    inner : float or pair of sequences, optional
+        The inner curve, in the same form; the whole region inside
+        `outer` without it.
+    candidates : int, default 100
+        The number of throws a node makes before it is retired.
+    seed : int, optional
+        Of the sample; random when not given.
+
+    Raises
+    ------
+    ValueError
+        For a curve that is not star-shaped about the origin (a radius
+        of 0 or less at some angle), curves within a spacing of each
+        other along some ray, or a curve too small for the spacing.
+
+    Notes
+    -----
+    A curve is sampled densely, its arc length accumulated along the
+    chords and divided evenly, which closes the loop exactly; where the
+    curve bends sharply a chord falls short of its arc, so the node
+    count is lowered until neighbouring nodes are at least a spacing
+    apart. A feature narrower than the spacing, such as the hairpin
+    lobe of the Bayona inner curve, still forces the nodes of its two
+    sides together in the plane; of any two closer than the spacing the
+    later one is dropped, so such a feature keeps the nodes the spacing
+    has room for. The interior sample keeps the spacing from the curve nodes,
+    so the nearest interior nodes sit about a spacing inside the
+    curves; cropping the sample to the region is a radial comparison
+    at the angle of a point, which is what needs the curves to be
+    star-shaped. A node generator with repulsive relaxation can take
+    the cloud as its starting point.
+
+    References
+    ----------
+    .. [1] Bayona, Flyer, Fornberg and Barnett, "On the role of
+       polynomials in RBF-FD approximations: II. Numerical solution of
+       elliptic PDEs," J. Comput. Phys. 332, 257-273, 2017.
+    """
+
+    DENSE = 4096  # samples of a curve for its arc length
+
+    def __init__(self, outer, spacing=1.0, *, inner=None, candidates=100, seed=None):
+        from .poisson import PoissonDisk  # compiled by numba, only when needed
+
+        if spacing <= 0.0:
+            raise ValueError("the spacing must be positive")
+        theta = 2 * np.pi * np.arange(self.DENSE) / self.DENSE
+        rout = self._radius(outer, theta)
+        curves = [outer] if inner is None else [outer, inner]
+        for curve in curves:
+            if self._radius(curve, theta).min() <= 0.0:
+                raise ValueError(
+                    "a curve must be star-shaped about the origin: "
+                    "r(theta) positive throughout"
+                )
+        if inner is not None:
+            gap = (rout - self._radius(inner, theta)).min()
+            if gap < spacing:
+                raise ValueError(
+                    f"the curves come within {gap:g} of each other along "
+                    f"some ray, less than the spacing {spacing:g}"
+                )
+        pts = [self._curve(curve, spacing) for curve in curves]
+        m = [np.full(len(p), mk) for p, mk in zip(pts, (Marker.circle, Marker.hole))]
+        seeds, m = np.vstack(pts), np.concatenate(m)
+        keep = self._thin(seeds, spacing)
+        seeds, m = seeds[keep], m[keep]
+        outline = self._polyline(outer)
+        lo = outline.min(axis=0) - 0.5 * spacing
+        sampler = PoissonDisk(
+            spacing,
+            outline.max(axis=0) + 0.5 * spacing - lo,
+            periodic=False,
+            ncandidates=candidates,
+            seed=seed,
+        )
+        sampler.add_points(seeds - lo)
+        sampler.fill_space()
+        drawn = sampler.points[len(seeds) :] + lo
+        rho, phi = np.hypot(*drawn.T), np.arctan2(drawn[:, 1], drawn[:, 0])
+        keep = rho < self._radius(outer, phi)
+        if inner is not None:
+            keep &= rho > self._radius(inner, phi)
+        title = f"polar region, outer={self._name(outer)}"
+        if inner is not None:
+            title += f", inner={self._name(inner)}"
+        super().__init__(
+            np.vstack((seeds, drawn[keep])),
+            np.concatenate((m, np.full(np.count_nonzero(keep), Marker.interior))),
+            title=title + f", spacing={spacing:g}",
+        )
+
+    @staticmethod
+    def _radius(curve, theta):
+        """Evaluates r(theta): a constant, or the trigonometric series."""
+        if isinstance(curve, (int, float, np.integer, np.floating)):
+            return np.full_like(theta, float(curve))
+        cos, sin = (np.atleast_1d(np.asarray(c, float)) for c in curve)
+        r = (cos * np.cos(np.multiply.outer(theta, np.arange(len(cos))))).sum(-1)
+        return r + (
+            sin * np.sin(np.multiply.outer(theta, 1 + np.arange(len(sin))))
+        ).sum(-1)
+
+    @staticmethod
+    def _name(curve):
+        """Writes a curve into a title: its radius, or its coefficients."""
+        if isinstance(curve, (int, float, np.integer, np.floating)):
+            return f"{curve:g}"
+        cos, sin = curve
+        return (
+            f"cos({','.join(f'{c:g}' for c in np.atleast_1d(cos))})"
+            f"+sin({','.join(f'{s:g}' for s in np.atleast_1d(sin))})"
+        )
+
+    @staticmethod
+    def _thin(pts, h):
+        """Keeps the earlier of any two points closer than h.
+
+        A curve feature narrower than the spacing forces the nodes on
+        its sides together in the plane however they are spread along
+        the arc; what survives is pairwise at least h apart.
+        """
+        drop = np.zeros(len(pts), bool)
+        for i, j in sorted(cKDTree(pts).query_pairs(h * (1.0 - 1e-12))):
+            if not drop[i]:
+                drop[j] = True
+        return ~drop
+
+    @classmethod
+    def _polyline(cls, curve):
+        """Draws the curve as a dense closed polyline."""
+        theta = 2 * np.pi * np.arange(cls.DENSE + 1) / cls.DENSE
+        r = cls._radius(curve, theta)
+        return r[:, None] * np.column_stack((np.cos(theta), np.sin(theta)))
+
+    @classmethod
+    def _curve(cls, curve, h):
+        """Places nodes along the curve, evenly in arc length, h apart.
+
+        The arc length accumulates along the chords of the dense
+        polyline and is divided evenly; the node count is lowered while
+        any two neighbours are closer than h, since a chord cuts a
+        bending arc short.
+        """
+        xy = cls._polyline(curve)
+        s = np.concatenate(([0.0], np.cumsum(np.hypot(*np.diff(xy, axis=0).T))))
+        theta = 2 * np.pi * np.arange(cls.DENSE + 1) / cls.DENSE
+        n = int(s[-1] / h)
+        while n >= 3:
+            t = np.interp(np.arange(n) * s[-1] / n, s, theta)
+            r = cls._radius(curve, t)
+            pts = r[:, None] * np.column_stack((np.cos(t), np.sin(t)))
+            gaps = np.hypot(*np.diff(np.vstack((pts, pts[:1])), axis=0).T)
+            if gaps.min() >= h:
+                return pts
+            n -= 1
+        raise ValueError(f"a curve is too small for the spacing {h:g}")
 
 
 class RefinedCavity(NodeSet):

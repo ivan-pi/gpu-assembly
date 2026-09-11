@@ -121,9 +121,15 @@ rest:
 - `tools/refined_cavity.py`: the lid-driven cavity, refined towards the
   walls in three bands, with markers for the walls and the corners.
 - `tools/perturbed_grid.py`: a Cartesian grid with every node displaced
-  by a small random amount, periodic or a channel with walls.
-- `tools/poisson_box.py`: a Poisson disk sample of a periodic box, alone
-  or around a circular hole (an array of cylinders), tiled if asked.
+  by a small random amount, periodic, a channel with walls, or a box
+  walled on all four sides.
+- `tools/poisson_box.py`: a Poisson disk sample of a box, periodic or
+  walled, alone or around a circular hole (an array of cylinders),
+  tiled if asked.
+- `tools/polar_region.py`: the region between two star-shaped polar
+  curves, their nodes evenly spaced in arc length and the interior a
+  Poisson disk sample grown from them; the Bayona variable-coefficient
+  elliptic domain by default.
 - `tools/disk.py`: the disk about the origin, or the annulus between two
   concentric circles, in rings or in a quasi-uniform spiral, with the
   circles marked 1 and 6.
