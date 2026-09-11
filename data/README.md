@@ -138,9 +138,11 @@ rest:
 - `tools/disk.py`: the disk about the origin, or the annulus between two
   concentric circles, in rings or in a quasi-uniform spiral, with the
   circles marked 1 and 6.
-- `tools/lshape.py`: the L-shaped domain about its re-entrant corner,
-  in arcs graded toward the corner to match its `r^(2/3)` singularity
-  and clipped to the domain beyond the graded radius.
+- `tools/reentrant_corner.py`: a square less a wedge at the corner
+  angle, the reentrant-corner family of Mitchell (2013), in arcs
+  graded toward the corner to match its singularity and clipped to the
+  domain beyond the graded radius; an angle of `1.5 pi` is the
+  L-shaped domain.
 
 ## Inspecting
 

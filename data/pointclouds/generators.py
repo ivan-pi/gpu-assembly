@@ -9,7 +9,7 @@ to whoever needs it.
 
    Disk
    EccentricAnnulus
-   LShape
+   ReentrantCorner
    PerturbedGrid
    PoissonBox
    PolarRegion
@@ -270,166 +270,6 @@ class EccentricAnnulus(NodeSet):
             title=f"eccentric annulus, radius={radius:g}, hole={hole:g}, "
             f"eccentricity={eccentricity:g}, spacing={spacing:g}",
         )
-
-
-class LShape(NodeSet):
-    """The L-shaped domain, graded toward its re-entrant corner in rings.
-
-    The canonical corner-singularity test: the square ``[-L, L]^2`` less
-    the quadrant ``x > 0, y < 0``, with the re-entrant corner at the
-    origin. The Laplace solution ``r^(2/3) sin(2 theta / 3)`` is singular
-    there, so uniform refinement loses its rate; the cloud grades the
-    spacing toward the corner as ``h(r) ~ h (r / radius)^(1 - 2/3)``, the
-    classical a-priori remedy [1]_, used with RBF-FD in [2]_. It is also
-    the domain of the MATLAB-logo membrane eigenproblem.
-
-    Parameters
-    ----------
-    size : float
-        The leg length L: each leg of the L is L wide and 2 L long.
-    spacing : float, default 1.0
-        The distance h between neighbouring nodes away from the corner.
-    radius : float, optional
-        The radius R of the graded region about the corner, at most a
-        spacing short of L so that the graded arcs fit in the legs and
-        hand over to the walls; half of `size` when not given.
-    exponent : float, default 1.5
-        The grading exponent beta: the rings sit at the radii
-        ``r_k = R (k/n)**beta``, so the spacing near the corner falls off
-        as ``r**(1 - 1/beta)``. The default is ``1/lambda`` for the
-        ``lambda = 2/3`` singularity of the corner; 1 spaces the rings
-        evenly, an ungraded control case.
-
-    Raises
-    ------
-    ValueError
-        For a size or a spacing that is not positive, an exponent below
-        1, and a radius of less than two spacings or reaching within a
-        spacing of the legs.
-
-    Notes
-    -----
-    Inside `radius` the cloud is the arcs of the 270-degree sector at the
-    graded radii, each node about a local spacing from its neighbours,
-    the arc endpoints on the two walls of the corner; beyond it the rings
-    continue at the constant spacing h, clipped to the domain, and the
-    walls carry their own evenly spaced nodes. Where a clipped ring meets
-    a wall the spacing is ragged by design: a node generator with
-    repulsive relaxation can take the cloud as its starting point and
-    smooth the seam, and the functionality tests do not mind it.
-
-    The markers name the outward normal, so two walls share one where the
-    normals agree: south (1) for ``y = -L`` and the corner wall
-    ``y = 0, x > 0``, east (2) for ``x = L`` and the corner wall
-    ``x = 0, y < 0``, north (3) for ``y = L``, west (4) for ``x = -L``,
-    and corner (5) for the six corners, the re-entrant one included. The
-    boundary nodes come first.
-
-    References
-    ----------
-    .. [1] Mitchell, "A collection of 2D elliptic problems for testing
-       adaptive grid refinement algorithms," Appl. Math. Comput. 220,
-       350-364, 2013, doi:10.1016/j.amc.2013.05.068.
-    .. [2] Oanh, Davydov and Phu, "Adaptive RBF-FD method for elliptic
-       problems with point singularities in 2D," Appl. Math. Comput.
-       313, 474-497, 2017, doi:10.1016/j.amc.2017.06.006.
-    """
-
-    SECTOR = 1.5 * np.pi  # the 270-degree opening of the re-entrant corner
-
-    def __init__(self, size, spacing=1.0, *, radius=None, exponent=1.5):
-        if size <= 0.0 or spacing <= 0.0:
-            raise ValueError("the size and the spacing must be positive")
-        if exponent < 1.0:
-            raise ValueError("an exponent below 1 coarsens toward the corner")
-        if radius is None:
-            radius = size / 2
-        if not 2 * spacing <= radius <= size - spacing:
-            raise ValueError(
-                f"the graded radius must lie between two spacings "
-                f"{2 * spacing:g} and a spacing short of the leg length "
-                f"{size - spacing:g}"
-            )
-        n = max(round(exponent * radius / spacing), 2)
-        radii = radius * (np.arange(n + 1) / n) ** exponent
-        pts = [np.zeros((1, 2))]
-        m = [np.array([Marker.corner])]
-        # the graded arcs; their endpoints are the wall nodes of the grading
-        for k in range(1, n + 1):
-            h = radii[k + 1] - radii[k] if k < n else spacing
-            ring = self._arc(radii[k], h)
-            mk = np.full(len(ring), Marker.interior)
-            mk[0], mk[-1] = Marker.south, Marker.east
-            pts.append(ring)
-            m.append(mk)
-        # uniform arcs beyond the graded region, clipped to the domain
-        r = radius + spacing
-        while r < size * np.sqrt(2.0):
-            ring = self._arc(r, spacing)[1:-1]
-            keep = self._inside(ring, size)
-            keep &= self._wall_distance(ring, size) >= 0.55 * spacing
-            pts.append(ring[keep])
-            m.append(np.full(np.count_nonzero(keep), Marker.interior))
-            r += spacing
-        # the corner walls beyond the grading, then the outer walls
-        d = np.arange(radius + spacing, size - 0.5 * spacing, spacing)
-        pts.append(np.column_stack((d, np.zeros_like(d))))
-        m.append(np.full(len(d), Marker.south))
-        pts.append(np.column_stack((np.zeros_like(d), -d)))
-        m.append(np.full(len(d), Marker.east))
-        verts = self._outline(size)[1:-1]
-        walls = (Marker.east, Marker.north, Marker.west, Marker.south)
-        for a, b, wall in zip(verts[:-1], verts[1:], walls):
-            k = max(round(np.hypot(*(b - a)) / spacing), 1)
-            seg = a + (np.arange(k) / k)[:, None] * (b - a)
-            mk = np.full(k, wall)
-            mk[0] = Marker.corner
-            pts.append(seg)
-            m.append(mk)
-        pts.append(verts[-1:])
-        m.append(np.array([Marker.corner]))
-        pts = np.round(np.vstack(pts), 12) + 0.0  # rounding noise, and no -0.0
-        m = np.concatenate(m)
-        first = boundary_first(m)
-        super().__init__(
-            pts[first],
-            m[first],
-            title=f"l-shape, size={size:g}, radius={radius:g}, "
-            f"exponent={exponent:g}, spacing={spacing:g}",
-        )
-
-    @classmethod
-    def _arc(cls, r, h, turn=0.0):
-        """Places nodes about h apart on the 270-degree arc of radius r.
-
-        With both endpoints, which lie on the walls of the corner.
-        """
-        n = max(round(cls.SECTOR * r / h), 2)
-        phi = turn + cls.SECTOR * np.arange(n + 1) / n
-        return r * np.column_stack((np.cos(phi), np.sin(phi)))
-
-    @staticmethod
-    def _outline(L):
-        """The boundary of the L, counter-clockwise from the corner."""
-        return np.array(
-            [(0, 0), (L, 0), (L, L), (-L, L), (-L, -L), (0, -L), (0, 0)], float
-        )
-
-    @staticmethod
-    def _inside(pts, L):
-        """Which points lie in the L."""
-        x, y = pts.T
-        return (np.abs(x) <= L) & (np.abs(y) <= L) & ~((x > 0) & (y < 0))
-
-    @classmethod
-    def _wall_distance(cls, pts, L):
-        """The distance of every point to the boundary of the L."""
-        d = np.full(len(pts), np.inf)
-        for a, b in zip(cls._outline(L)[:-1], cls._outline(L)[1:]):
-            ab = b - a
-            t = np.clip((pts - a) @ ab / (ab @ ab), 0.0, 1.0)
-            d = np.minimum(d, np.hypot(*(pts - (a + t[:, None] * ab)).T))
-        return d
 
 
 class PerturbedGrid(NodeSet):
@@ -837,6 +677,218 @@ class PolarRegion(NodeSet):
                 return pts
             n -= 1
         raise ValueError(f"a curve is too small for the spacing {h:g}")
+
+
+class ReentrantCorner(NodeSet):
+    """A square less a wedge at the corner angle, graded toward the corner.
+
+    The reentrant-corner family of Mitchell [1]_, section 2.2: the
+    sector ``0 <= theta <= omega`` of the square ``[-L, L]^2``, the
+    corner at the origin, one edge of it along the positive x axis and
+    the other at the angle `omega`. The Laplace solution
+    ``r^alpha sin(alpha theta)`` with ``alpha = pi / omega`` is
+    singular at the corner for any ``omega > pi``, the more the wider
+    the angle, so uniform refinement loses its rate; the cloud grades
+    the spacing toward the corner as ``h(r) ~ h (r / radius)^(1 -
+    alpha)``, the classical a-priori remedy, used with RBF-FD in [2]_.
+    ``omega = 3 pi / 2`` is the L-shaped domain, the MATLAB-logo
+    membrane; ``2 pi`` would be the square with a slit, which is
+    excluded, since the two edges of the corner then coincide and
+    stencils over a point cloud cannot tell its sides apart.
+
+    Parameters
+    ----------
+    size : float
+        The half-side L of the square the sector is cut from.
+    spacing : float, default 1.0
+        The distance h between neighbouring nodes away from the corner.
+    omega : float, default 3 pi / 2
+        The angle of the corner, between pi and 2 pi exclusive.
+    radius : float, optional
+        The radius R of the graded region about the corner, at most a
+        spacing short of L so that the graded arcs fit in the square
+        and hand over to the walls; half of `size` when not given.
+    exponent : float, optional
+        The grading exponent beta: the arcs sit at the radii
+        ``r_k = R (k/n)**beta``, so the spacing near the corner falls
+        off as ``r**(1 - 1/beta)``. ``1 / alpha = omega / pi`` when not
+        given, matching the singularity of the corner, 3/2 on the
+        L-shaped domain; 1 spaces the arcs evenly, an ungraded control
+        case.
+
+    Raises
+    ------
+    ValueError
+        For a size or a spacing that is not positive, an angle outside
+        ``(pi, 2 pi)``, an exponent below 1, and a radius of less than
+        two spacings or reaching within a spacing of the square.
+
+    Notes
+    -----
+    Inside `radius` the cloud is the arcs of the sector at the graded
+    radii, each node about a local spacing from its neighbours, the arc
+    endpoints on the two edges of the corner; beyond it the arcs
+    continue at the constant spacing h, clipped to the domain, and the
+    walls carry their own evenly spaced nodes. Where a clipped arc
+    meets a wall the spacing is ragged by design: a node generator with
+    repulsive relaxation can take the cloud as its starting point and
+    smooth the seam, and the functionality tests do not mind it. As
+    `omega` nears ``2 pi`` the two edges of the corner close on each
+    other -- nodes at the radius r on them are ``2 r sin(omega / 2)``
+    apart -- and stencils reach across the missing wedge, as they would
+    across a slit.
+
+    The edge along the positive x axis is marked south (1), its outward
+    normal, and the edge at `omega` east (2), whatever its slope; the
+    walls of the square carry south to west (1 to 4) by their outward
+    normal, and corner (5) marks the origin, the corners of the square
+    inside the sector, and the two nodes where the edges of the corner
+    meet the square. On the L-shaped domain the two edges lie on
+    ``y = 0, x > 0`` and ``x = 0, y < 0``, so every marker agrees with
+    its outward normal there. The boundary nodes come first.
+
+    References
+    ----------
+    .. [1] Mitchell, "A collection of 2D elliptic problems for testing
+       adaptive grid refinement algorithms," Appl. Math. Comput. 220,
+       350-364, 2013, doi:10.1016/j.amc.2013.05.068.
+    .. [2] Oanh, Davydov and Phu, "Adaptive RBF-FD method for elliptic
+       problems with point singularities in 2D," Appl. Math. Comput.
+       313, 474-497, 2017, doi:10.1016/j.amc.2017.06.006.
+    """
+
+    def __init__(
+        self, size, spacing=1.0, *, omega=1.5 * np.pi, radius=None, exponent=None
+    ):
+        if size <= 0.0 or spacing <= 0.0:
+            raise ValueError("the size and the spacing must be positive")
+        if not np.pi < omega < 2 * np.pi:
+            raise ValueError(
+                "the corner angle must lie between pi (a straight edge, no "
+                "corner) and 2 pi (a slit, whose sides coincide)"
+            )
+        if exponent is None:
+            exponent = omega / np.pi  # 1 / alpha, matching r^(pi / omega)
+        if exponent < 1.0:
+            raise ValueError("an exponent below 1 coarsens toward the corner")
+        if radius is None:
+            radius = size / 2
+        if not 2 * spacing <= radius <= size - spacing:
+            raise ValueError(
+                f"the graded radius must lie between two spacings "
+                f"{2 * spacing:g} and a spacing short of the half-side "
+                f"{size - spacing:g}"
+            )
+        outline = self._outline(size, omega)
+        n = max(round(exponent * radius / spacing), 2)
+        radii = radius * (np.arange(n + 1) / n) ** exponent
+        pts = [np.zeros((1, 2))]
+        m = [np.array([Marker.corner])]
+        # the graded arcs; their endpoints are the edge nodes of the grading
+        for k in range(1, n + 1):
+            h = radii[k + 1] - radii[k] if k < n else spacing
+            ring = self._arc(radii[k], h, omega)
+            mk = np.full(len(ring), Marker.interior)
+            mk[0], mk[-1] = Marker.south, Marker.east
+            pts.append(ring)
+            m.append(mk)
+        # uniform arcs beyond the graded region, clipped to the domain
+        r = radius + spacing
+        while r < size * np.sqrt(2.0):
+            ring = self._arc(r, spacing, omega)[1:-1]
+            keep = self._inside(ring, size, omega)
+            keep &= self._wall_distance(ring, outline) >= 0.55 * spacing
+            pts.append(ring[keep])
+            m.append(np.full(np.count_nonzero(keep), Marker.interior))
+            r += spacing
+        # the two edges of the corner beyond the grading; the omega edge
+        # runs to where it meets the square, the vertex before the last
+        for reach, phi, wall in (
+            (size, 0.0, Marker.south),
+            (np.hypot(*outline[-2]), omega, Marker.east),
+        ):
+            d = np.arange(radius + spacing, reach - 0.5 * spacing, spacing)
+            pts.append(d[:, None] * [np.cos(phi), np.sin(phi)])
+            m.append(np.full(len(d), wall))
+        # the walls of the square, from (L, 0) around to the omega edge
+        verts = outline[1:-1]
+        for a, b in zip(verts[:-1], verts[1:]):
+            k = max(round(np.hypot(*(b - a)) / spacing), 1)
+            seg = a + (np.arange(k) / k)[:, None] * (b - a)
+            mk = np.full(k, self._wall_of(a, b, size))
+            mk[0] = Marker.corner
+            pts.append(seg)
+            m.append(mk)
+        pts.append(verts[-1:])
+        m.append(np.array([Marker.corner]))
+        pts = np.round(np.vstack(pts), 12) + 0.0  # rounding noise, and no -0.0
+        m = np.concatenate(m)
+        first = boundary_first(m)
+        super().__init__(
+            pts[first],
+            m[first],
+            title=f"reentrant corner, size={size:g}, omega={omega / np.pi:g}pi, "
+            f"radius={radius:g}, exponent={exponent:g}, spacing={spacing:g}",
+        )
+
+    @staticmethod
+    def _arc(r, h, omega):
+        """Places nodes about h apart on the arc of the sector at radius r.
+
+        With both endpoints, which lie on the edges of the corner.
+        """
+        n = max(round(omega * r / h), 2)
+        phi = omega * np.arange(n + 1) / n
+        return r * np.column_stack((np.cos(phi), np.sin(phi)))
+
+    @staticmethod
+    def _outline(L, omega):
+        """The boundary, counter-clockwise from the corner.
+
+        The edge along the positive x axis, the walls of the square
+        through its corners inside the sector, and the edge at `omega`
+        back; a corner the omega edge lands on exactly is not doubled.
+        """
+        corners = np.array([(L, L), (-L, L), (-L, -L), (L, -L)], float)
+        angles = np.pi * np.array([0.25, 0.75, 1.25, 1.75])
+        way = np.array([np.cos(omega), np.sin(omega)])
+        p = way * L / np.abs(way).max()  # where the omega edge meets the square
+        verts = [(0.0, 0.0), (L, 0.0)]
+        verts += [tuple(c) for c, a in zip(corners, angles) if a < omega]
+        verts += [tuple(p), (0.0, 0.0)]
+        verts = np.round(np.array(verts), 12) + 0.0
+        apart = np.hypot(*np.diff(verts, axis=0).T) > 1e-9
+        return verts[np.concatenate(([True], apart))]
+
+    @staticmethod
+    def _inside(pts, L, omega):
+        """Which points lie in the sector of the square."""
+        x, y = pts.T
+        t = np.arctan2(y, x)
+        t = np.where(t < 0.0, t + 2 * np.pi, t)
+        return (np.abs(x) <= L) & (np.abs(y) <= L) & (t <= omega)
+
+    @staticmethod
+    def _wall_of(a, b, L):
+        """The marker of the square wall the segment from a to b lies on."""
+        x, y = (a + b) / 2
+        if np.isclose(x, L):
+            return Marker.east
+        if np.isclose(y, L):
+            return Marker.north
+        if np.isclose(x, -L):
+            return Marker.west
+        return Marker.south  # y == -L
+
+    @staticmethod
+    def _wall_distance(pts, outline):
+        """The distance of every point to the boundary."""
+        d = np.full(len(pts), np.inf)
+        for a, b in zip(outline[:-1], outline[1:]):
+            ab = b - a
+            t = np.clip((pts - a) @ ab / (ab @ ab), 0.0, 1.0)
+            d = np.minimum(d, np.hypot(*(pts - (a + t[:, None] * ab)).T))
+        return d
 
 
 class RefinedCavity(NodeSet):
