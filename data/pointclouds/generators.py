@@ -730,9 +730,15 @@ class ReentrantCorner(NodeSet):
     endpoints on the two edges of the corner; beyond it the arcs
     continue at the constant spacing h, clipped to the domain, and the
     walls carry their own evenly spaced nodes. Where a clipped arc
-    meets a wall the spacing is ragged by design: a node generator with
-    repulsive relaxation can take the cloud as its starting point and
-    smooth the seam, and the functionality tests do not mind it. As
+    meets a wall the spacing is ragged by design, within floors: a
+    clipped node keeps ``0.55 h`` from the walls themselves and
+    ``0.7 h`` from their nodes, which leaves holes of no more than
+    about ``1.5 h`` beside a wall -- higher floors trade close pairs
+    for wider holes, which hurt more. Where the omega edge meets the
+    square at an acute angle the clearing is wider, since the floors
+    hold against both walls of that thin wedge. A node generator with repulsive
+    relaxation can take the cloud as its starting point and smooth the
+    seam, and the functionality tests do not mind it. As
     `omega` nears ``2 pi`` the two edges of the corner close on each
     other -- nodes at the radius r on them are ``2 r sin(omega / 2)``
     apart -- and stencils reach across the missing wedge, as they would
@@ -792,35 +798,43 @@ class ReentrantCorner(NodeSet):
             mk[0], mk[-1] = Marker.south, Marker.east
             pts.append(ring)
             m.append(mk)
-        # uniform arcs beyond the graded region, clipped to the domain
-        r = radius + spacing
-        while r < size * np.sqrt(2.0):
-            ring = self._arc(r, spacing, omega)[1:-1]
-            keep = self._inside(ring, size, omega)
-            keep &= self._wall_distance(ring, outline) >= 0.55 * spacing
-            pts.append(ring[keep])
-            m.append(np.full(np.count_nonzero(keep), Marker.interior))
-            r += spacing
-        # the two edges of the corner beyond the grading; the omega edge
-        # runs to where it meets the square, the vertex before the last
+        # the two edges of the corner beyond the grading -- the omega edge
+        # runs to where it meets the square, the vertex before the last --
+        # and the walls of the square, from (L, 0) around to the omega
+        # edge, laid before the clipped arcs so those keep clear of the
+        # wall nodes as well as of the walls themselves
+        walls, wm = [], []
         for reach, phi, wall in (
             (size, 0.0, Marker.south),
             (np.hypot(*outline[-2]), omega, Marker.east),
         ):
             d = np.arange(radius + spacing, reach - 0.5 * spacing, spacing)
-            pts.append(d[:, None] * [np.cos(phi), np.sin(phi)])
-            m.append(np.full(len(d), wall))
-        # the walls of the square, from (L, 0) around to the omega edge
+            walls.append(d[:, None] * [np.cos(phi), np.sin(phi)])
+            wm.append(np.full(len(d), wall))
         verts = outline[1:-1]
         for a, b in zip(verts[:-1], verts[1:]):
             k = max(round(np.hypot(*(b - a)) / spacing), 1)
             seg = a + (np.arange(k) / k)[:, None] * (b - a)
             mk = np.full(k, self._wall_of(a, b, size))
             mk[0] = Marker.corner
-            pts.append(seg)
-            m.append(mk)
-        pts.append(verts[-1:])
-        m.append(np.array([Marker.corner]))
+            walls.append(seg)
+            wm.append(mk)
+        walls.append(verts[-1:])
+        wm.append(np.array([Marker.corner]))
+        pts += walls
+        m += wm
+        # uniform arcs beyond the graded region, clipped to the domain: a
+        # node keeps 0.55 h from the walls and 0.7 h from their nodes
+        tree = cKDTree(np.vstack(walls))
+        r = radius + spacing
+        while r < size * np.sqrt(2.0):
+            ring = self._arc(r, spacing, omega)[1:-1]
+            keep = self._inside(ring, size, omega)
+            keep &= self._wall_distance(ring, outline) >= 0.55 * spacing
+            keep &= tree.query(ring)[0] >= 0.7 * spacing
+            pts.append(ring[keep])
+            m.append(np.full(np.count_nonzero(keep), Marker.interior))
+            r += spacing
         pts = np.round(np.vstack(pts), 12) + 0.0  # rounding noise, and no -0.0
         m = np.concatenate(m)
         first = boundary_first(m)
