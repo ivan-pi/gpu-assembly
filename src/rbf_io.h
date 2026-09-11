@@ -8,6 +8,8 @@
 //   read_graph_csr                   graph file (.graph): stencils -> (ia, ja)
 //   read_nodes, write_nodes          node file (.node), Triangle's format; what NodeSet reads and
 //   writes read_ordering, write_ordering    ordering file (.iperm): one new index per node
+//   read_grid, write_grid            grid file (.grid): Nishikawa's format -> UnstructuredGrid
+//   read_bcmap, read_mapbc           boundary conditions (.bcmap, .mapbc): part tag -> name/number
 //   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
 // rbf_io_vtk.h and rbf_io_gnuplot.h add the plotting formats.
@@ -36,6 +38,8 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#include "rbf_grid.h"
 
 namespace rbf::io {
 
@@ -120,19 +124,48 @@ struct LineCursor {
         return true;
     }
 
+    // The next whitespace-delimited token, for names.
+    bool next_token(std::string& t) {
+        skip_ws();
+        const char* q = p;
+        while (q != end && !ws(*q))
+            ++q;
+        if (q == p) return false;
+        t.assign(p, q);
+        p = q;
+        return true;
+    }
+
     // The text at the cursor, for error messages.
     std::string here() const { return std::string(std::string_view(p, end - p).substr(0, 16)); }
 };
 
-// Next line with content: '#' starts a comment, blank lines are skipped.
-// The line is truncated at the comment so the cursor sees data only.
-inline bool next_data_line(std::istream& in, std::string& line, std::size_t& lineno) {
+// Next line with content: comment starts a comment ('#' for the node file,
+// '!' for the boundary-condition files, '\0' for a format without
+// comments), blank lines are skipped. The line is truncated at the
+// comment so the cursor sees data only.
+inline bool next_data_line(std::istream& in,
+                           std::string& line,
+                           std::size_t& lineno,
+                           char comment = '#') {
     while (std::getline(in, line)) {
         ++lineno;
-        if (const auto hash = line.find('#'); hash != std::string::npos) line.resize(hash);
+        if (comment != '\0')
+            if (const auto at = line.find(comment); at != std::string::npos) line.resize(at);
         if (line.find_first_not_of(" \t\r") != std::string::npos) return true;
     }
     return false;
+}
+
+// One "x y" coordinate line, shared by the points file and the grid file:
+// nullptr on success, else the complaint for the caller to report with its
+// own line context.
+template <class T>
+const char* parse_xy(std::string_view line, T& x, T& y) {
+    LineCursor c{line};
+    if (!(c.next(x) && c.next(y)) || !c.at_end()) return "expected \"x y\"";
+    if (!std::isfinite(x) || !std::isfinite(y)) return "coordinate is not finite";
+    return nullptr;
 }
 
 }  // namespace detail
@@ -178,12 +211,9 @@ void read_points_with(const std::string& fname, OnCount on_count, OnPoint on_poi
     for (std::size_t i = 0; i < n; ++i) {
         if (!std::getline(in, line))
             fail(fname, "expected " + std::to_string(n) + " points, found " + std::to_string(i));
-        LineCursor c{line};
         T px, py;
-        if (!(c.next(px) && c.next(py)) || !c.at_end())
-            fail(fname, "line " + std::to_string(i + 2) + ": expected \"x y\"");
-        if (!std::isfinite(px) || !std::isfinite(py))
-            fail(fname, "line " + std::to_string(i + 2) + ": coordinate is not finite");
+        if (const char* err = parse_xy(line, px, py))
+            fail(fname, "line " + std::to_string(i + 2) + ": " + err);
         on_point(px, py);
     }
 }
@@ -327,6 +357,276 @@ void write_nodes(const std::string& fname,
         if (marker) out << ' ' << marker[i];
         out << '\n';
     }
+}
+
+// ---------------------------------------------------------------------------
+// Grid file (.grid), Nishikawa's 2D unstructured grid
+// ---------------------------------------------------------------------------
+
+// Grid file, the custom 2D format of Nishikawa's grid-generation and
+// EDU2D solver codes (docs/file_formats.md#grid-file has the references):
+//
+//     nnodes ntria nquad
+//     x y                  (nnodes lines)
+//     a b c                (ntria triangles)
+//     a b c d              (nquad quads)
+//     nbound
+//     nb                   (the node count of every part, one per line)
+//     b1                   (then the node lists, part after part,
+//     ...                   one index per line)
+//
+// Node indices in the file are 1-based; base = IndexBase::one keeps them
+// that way, IndexBase::zero shifts them to 0-based, the numbering of the
+// graph file, and the returned UnstructuredGrid records the choice.
+// Every count must be met exactly, an index must lie in [1, nnodes] in
+// the file, an element's nodes must be distinct, and a boundary part
+// must list at least two nodes, consecutive ones distinct. The format
+// itself has no blank lines; the reader skips any it meets, so a file
+// spaced apart for readability reads the same. The reference's
+// orientation conventions are not checked while parsing:
+// UnstructuredGrid::check_orientation() verifies them on demand.
+template <class T = double, class I = std::int32_t>
+UnstructuredGrid<T, I> read_grid(const std::string& fname, IndexBase base) {
+    static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
+    static_assert(std::is_integral_v<I> && std::is_signed_v<I>,
+                  "index type must be a signed integer");
+    auto in = detail::open_in(fname);
+    std::string line;
+    std::size_t lineno = 0;
+
+    const auto fail_here = [&](const std::string& what) {
+        detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
+    };
+    // what() is rendered only when the file ends early, so the context
+    // costs nothing on the lines that are there
+    const auto next_line = [&](auto&& what) {
+        if (!detail::next_data_line(in, line, lineno, '\0'))
+            detail::fail(fname, "unexpected end of file: " + what());
+    };
+    const auto read_count = [&](const std::string& what) {
+        next_line([&] { return what; });
+        detail::LineCursor c{line};
+        std::size_t n;
+        if (!c.next(n) || !c.at_end()) fail_here("expected " + what + " on a line of its own");
+        return n;
+    };
+
+    std::size_t nnodes = 0, ntria = 0, nquad = 0;
+    next_line([] { return std::string("the header"); });
+    {
+        detail::LineCursor c{line};
+        if (!(c.next(nnodes) && c.next(ntria) && c.next(nquad)) || !c.at_end())
+            fail_here("expected the header \"nnodes ntria nquad\"");
+    }
+    std::vector<T> gx, gy;
+    gx.reserve(nnodes);
+    gy.reserve(nnodes);
+    for (std::size_t i = 0; i < nnodes; ++i) {
+        next_line(
+            [&] { return "node " + std::to_string(i + 1) + " of " + std::to_string(nnodes); });
+        T px, py;
+        if (const char* err = detail::parse_xy(line, px, py)) fail_here(err);
+        gx.push_back(px);
+        gy.push_back(py);
+    }
+
+    // an element's nodes, or one boundary node: 1-based in the file, checked
+    // against nnodes and shifted only if a 0-based grid was asked for
+    const I shift = base == IndexBase::zero ? 1 : 0;
+    const auto next_index = [&](detail::LineCursor& c) {
+        I v;
+        if (!c.next(v)) fail_here("bad node index at \"" + c.here() + "\"");
+        if (v < 1 || static_cast<std::size_t>(v) > nnodes)
+            fail_here("node index " + std::to_string(v) + " outside [1, " + std::to_string(nnodes) +
+                      "]; grid files are 1-based");
+        return static_cast<I>(v - shift);
+    };
+    const auto read_elements = [&](std::size_t ne, std::size_t nv, const char* name) {
+        std::vector<I> conn;
+        conn.reserve(nv * ne);
+        for (std::size_t e = 0; e < ne; ++e) {
+            next_line([&] {
+                return std::string(name) + " " + std::to_string(e + 1) + " of " +
+                       std::to_string(ne);
+            });
+            detail::LineCursor c{line};
+            const std::size_t at = conn.size();
+            for (std::size_t v = 0; v < nv; ++v)
+                conn.push_back(next_index(c));
+            if (!c.at_end())
+                fail_here(std::string("expected the ") + std::to_string(nv) + " nodes of a " +
+                          name);
+            for (std::size_t v = 0; v < nv; ++v)
+                for (std::size_t w = v + 1; w < nv; ++w)
+                    if (conn[at + v] == conn[at + w])
+                        fail_here(std::string(name) + " node " +
+                                  std::to_string(conn[at + v] + shift) + " listed twice");
+        }
+        return conn;
+    };
+    std::vector<I> gtri = read_elements(ntria, 3, "triangle");
+    std::vector<I> gquad = read_elements(nquad, 4, "quadrilateral");
+
+    // every part's count first, then the lists, part after part
+    const std::size_t nbound = read_count("the boundary count");
+    std::vector<std::size_t> nb(nbound);
+    for (std::size_t b = 0; b < nbound; ++b) {
+        nb[b] = read_count("the node count of boundary part " + std::to_string(b + 1));
+        if (nb[b] < 2)
+            fail_here("boundary part " + std::to_string(b + 1) + " has " + std::to_string(nb[b]) +
+                      " nodes, at least 2 needed");
+    }
+    std::vector<std::vector<I>> gbound(nbound);
+    for (std::size_t b = 0; b < nbound; ++b) {
+        const std::string part = "boundary part " + std::to_string(b + 1);
+        auto& nodes = gbound[b];
+        nodes.reserve(nb[b]);
+        for (std::size_t j = 0; j < nb[b]; ++j) {
+            next_line([&] { return "node " + std::to_string(j + 1) + " of " + part; });
+            detail::LineCursor c{line};
+            const I v = next_index(c);
+            if (!c.at_end()) fail_here("expected one boundary node per line");
+            if (j > 0 && v == nodes.back())
+                fail_here(part + " lists node " + std::to_string(v + shift) + " twice in a row");
+            nodes.push_back(v);
+        }
+    }
+    in >> std::ws;
+    if (!in.eof()) detail::fail(fname, "unexpected data after the last boundary part");
+    return UnstructuredGrid<T, I>(std::move(gx), std::move(gy), std::move(gtri), std::move(gquad),
+                                  std::move(gbound), base);
+}
+
+// Inverse of read_grid, writing the canonical layout: the counts on the
+// header line, boundary part counts before the lists, and indices
+// 1-based, as the format requires, shifted back if the grid keeps them
+// 0-based. The structural invariants the reader would check are the
+// class's own, established at construction.
+template <class T, class I>
+void write_grid(const std::string& fname, const UnstructuredGrid<T, I>& g) {
+    using detail::num;
+    const I shift = g.base() == IndexBase::zero ? 1 : 0;
+    auto out = detail::open_out(fname);
+    out << g.num_nodes() << ' ' << g.num_triangles() << ' ' << g.num_quads() << '\n';
+    for (std::size_t i = 0; i < g.num_nodes(); ++i)
+        out << num(g.x()[i]) << ' ' << num(g.y()[i]) << '\n';
+    const auto rows = [&](const std::vector<I>& conn, std::size_t nv) {
+        for (std::size_t e = 0; e * nv < conn.size(); ++e) {
+            for (std::size_t v = 0; v < nv; ++v)
+                out << (v ? " " : "") << (conn[e * nv + v] + shift);
+            out << '\n';
+        }
+    };
+    rows(g.tri(), 3);
+    rows(g.quad(), 4);
+    out << g.num_boundaries() << '\n';
+    for (const auto& part : g.bound())
+        out << part.size() << '\n';
+    for (const auto& part : g.bound())
+        for (const I v : part)
+            out << (v + shift) << '\n';
+}
+
+// ---------------------------------------------------------------------------
+// Boundary-condition files (.bcmap, .mapbc)
+// ---------------------------------------------------------------------------
+
+// The condition on one boundary part of a grid file, by its tag -- the
+// part number UnstructuredGrid::markers() assigns. Which fields carry it depends on
+// the dialect: the .bcmap of the EDU2D solvers names the condition (bc
+// stays 0), FUN3D's .mapbc numbers it in bc, with name the optional
+// family name, empty when absent.
+struct BoundaryCondition {
+    int tag = 0;
+    int bc = 0;
+    std::string name;
+};
+
+namespace detail {
+
+inline void check_unique_tags(const std::string& fname, const std::vector<BoundaryCondition>& bcs) {
+    for (std::size_t i = 0; i < bcs.size(); ++i)
+        for (std::size_t j = 0; j < i; ++j)
+            if (bcs[j].tag == bcs[i].tag)
+                fail(fname, "boundary tag " + std::to_string(bcs[i].tag) + " listed twice");
+}
+
+}  // namespace detail
+
+// Boundary-condition file of the EDU2D/3D solvers (.bcmap; the grid-file
+// reference describes it): one boundary part per line, its tag and the
+// name of its condition, read to end of file.
+//
+//     ! Boundary tag  BC name
+//     1 freestream
+//     2 subsonic_outflow
+//     3 viscous_wall
+//
+// '!' starts a comment and blank lines are skipped. A tag listed twice is
+// an error; the returned records keep the file's order.
+inline std::vector<BoundaryCondition> read_bcmap(const std::string& fname) {
+    auto in = detail::open_in(fname);
+    std::vector<BoundaryCondition> bcs;
+    std::string line;
+    std::size_t lineno = 0;
+    const auto fail_here = [&](const std::string& what) {
+        detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
+    };
+    while (detail::next_data_line(in, line, lineno, '!')) {
+        detail::LineCursor c{line};
+        BoundaryCondition r;
+        if (!c.next(r.tag) || !c.next_token(r.name) || !c.at_end())
+            fail_here("expected \"tag name\"");
+        bcs.push_back(std::move(r));
+    }
+    detail::check_unique_tags(fname, bcs);
+    return bcs;
+}
+
+// FUN3D's boundary-condition file (.mapbc; the FUN3D manual, appendix B):
+// the number of boundary groups on the first line, then one line per part
+// with its tag, the FUN3D boundary-condition number, and optionally a
+// family name.
+//
+//     13
+//     1 6662 box_ymin
+//     2 5025 box_zmax
+//     ...
+//
+// '!' starts a comment and blank lines are skipped, which also accepts the
+// commented header some variants carry. The count must be met exactly with
+// nothing after it, and a tag listed twice is an error; the returned
+// records keep the file's order, name empty where no family is given.
+inline std::vector<BoundaryCondition> read_mapbc(const std::string& fname) {
+    auto in = detail::open_in(fname);
+    std::string line;
+    std::size_t lineno = 0;
+    const auto fail_here = [&](const std::string& what) {
+        detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
+    };
+
+    if (!detail::next_data_line(in, line, lineno, '!')) detail::fail(fname, "empty file");
+    std::size_t n;
+    if (detail::LineCursor c{line}; !c.next(n) || !c.at_end())
+        fail_here("expected the boundary-group count on a line of its own");
+
+    std::vector<BoundaryCondition> bcs;
+    bcs.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!detail::next_data_line(in, line, lineno, '!'))
+            detail::fail(fname, "header says " + std::to_string(n) + " boundary groups, found " +
+                                    std::to_string(i));
+        detail::LineCursor c{line};
+        BoundaryCondition r;
+        if (!c.next(r.tag) || !c.next(r.bc)) fail_here("expected \"tag bc [family]\"");
+        c.next_token(r.name);  // the family name is optional
+        if (!c.at_end()) fail_here("unexpected data after the family name");
+        bcs.push_back(std::move(r));
+    }
+    if (detail::next_data_line(in, line, lineno, '!'))
+        fail_here("unexpected data after " + std::to_string(n) + " boundary groups");
+    detail::check_unique_tags(fname, bcs);
+    return bcs;
 }
 
 // ---------------------------------------------------------------------------

@@ -8,10 +8,12 @@
 #include <span>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <nanoflann.hpp>
 
+#include "rbf_grid.h"
 #include "rbf_io.h"
 #include "rbf_reorder.h"
 
@@ -58,9 +60,34 @@ public:
     // all-interior nodes. Attributes are skipped: read them with
     // rbf::io::read_nodes directly and permute with file_order() if needed.
     explicit NodeSet(const std::string& fname) {
-        num_points_ = io::read_nodes(fname, x, y, flag);
-        rebuild_bnd();
-        file_order_ = Permutation<I>::identity(num_points_);
+        io::read_nodes(fname, x, y, flag);
+        init();
+    }
+
+    // Nodes given directly: the coordinates and a flag per node (0 =
+    // interior), moved in. The three must have the same length.
+    NodeSet(std::vector<T> x_, std::vector<T> y_, std::vector<int> flag_)
+        : x(std::move(x_)), y(std::move(y_)), flag(std::move(flag_)) {
+        assert(y.size() == x.size() && flag.size() == x.size() && "x, y and flag differ in length");
+        init();
+    }
+
+    // The nodes of an UnstructuredGrid (a grid file, rbf::io::read_grid)
+    // as a node set: the connectivity is dropped, and the flag is
+    // markers(), the first boundary part listing each node, whatever base
+    // the grid keeps its indices in. An lvalue grid stays usable, only its
+    // coordinates are copied; an rvalue has them moved out:
+    //
+    //     NodeSet<double> ns(std::move(g));    // moves the coordinates out of g
+    //     NodeSet<double> ns(g);               // copies them, g stays usable
+    template <class IG>
+    explicit NodeSet(const UnstructuredGrid<T, IG>& g) : NodeSet(g.x(), g.y(), g.markers()) {}
+    template <class IG>
+    explicit NodeSet(UnstructuredGrid<T, IG>&& g) {
+        flag = g.markers();  // before the coordinates move out of g
+        x = std::move(g).x();
+        y = std::move(g).y();
+        init();
     }
 
     NodeSet(const NodeSet&) = delete;
@@ -170,6 +197,14 @@ public:
 private:
     using Tree = nanoflann::
         KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<T, NodeSet>, NodeSet, 2, I>;
+
+    // The tail every constructor shares: the size, the boundary list, and
+    // the identity file order.
+    void init() {
+        num_points_ = x.size();
+        rebuild_bnd();
+        file_order_ = Permutation<I>::identity(num_points_);
+    }
 
     void rebuild_bnd() {
         bnd.clear();

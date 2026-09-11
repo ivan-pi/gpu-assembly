@@ -18,6 +18,7 @@
 #include <fstream>
 #include <iterator>
 #include <span>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,13 @@ static std::string first_line(const std::string& fname) {
     std::string line;
     std::getline(in, line);
     return line;
+}
+
+static bool same_file(const std::string& a, const std::string& b) {
+    std::ifstream fa(a), fb(b);
+    std::string sa((std::istreambuf_iterator<char>(fa)), {}),
+        sb((std::istreambuf_iterator<char>(fb)), {});
+    return !sa.empty() && sa == sb;
 }
 
 struct Point {
@@ -134,6 +142,200 @@ static void test_node_file() {
     CHECK(fx == awkward_f && fy == awkward_f);
 
     for (const char* fn : {"a.node", "b.node", "c.node", "f.node"})
+        std::remove(fn);
+}
+
+static void test_grid_file() {
+    using rbf::IndexBase;
+    // the 9-node example of the format reference: a square domain with a
+    // square hole, 5 triangles, 2 quads, the hole (B1) and the outer
+    // boundary (B2) as closed loops. The counts share the header line and
+    // the boundary node counts come before the lists.
+    const std::string header = "9 5 2\n";
+    const std::string coords =
+        "0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n1.3 2.0\n";
+    const std::string tris = "9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n";
+    const std::string quads = "1 5 4 7\n4 8 6 2\n";
+    write_text("s.grid",
+               header + coords + tris + quads + "2\n5\n6\n4\n7\n9\n2\n4\n1\n5\n8\n6\n3\n1\n");
+
+    // native 1-based indices, as in the file
+    auto n1 = rbf::io::read_grid("s.grid", IndexBase::one);
+    CHECK(n1.num_nodes() == 9 && n1.num_triangles() == 5 && n1.num_quads() == 2 &&
+          n1.num_boundaries() == 2);
+    CHECK(n1.base() == IndexBase::one);
+    CHECK(n1.x()[6] == 1.3 && n1.y()[6] == 1.0);  // node 7 of the file
+    CHECK(n1.tri() == (std::vector<std::int32_t>{9, 2, 3, 5, 8, 4, 2, 6, 3, 1, 7, 9, 1, 9, 3}));
+    CHECK(n1.quad() == (std::vector<std::int32_t>{1, 5, 4, 7, 4, 8, 6, 2}));
+    CHECK(n1.bound()[0] == (std::vector<std::int32_t>{4, 7, 9, 2, 4}));  // 1st repeated: closed
+    CHECK(n1.bound()[1] == (std::vector<std::int32_t>{1, 5, 8, 6, 3, 1}));
+    CHECK(n1.closed(0) && n1.closed(1));
+
+    // 0-based on request, the numbering of the graph file
+    auto g = rbf::io::read_grid("s.grid", IndexBase::zero);
+    CHECK(g.base() == IndexBase::zero);
+    CHECK(g.tri() == (std::vector<std::int32_t>{8, 1, 2, 4, 7, 3, 1, 5, 2, 0, 6, 8, 0, 8, 2}));
+    CHECK(g.quad() == (std::vector<std::int32_t>{0, 4, 3, 6, 3, 7, 5, 1}));
+    CHECK(g.bound()[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));
+    CHECK(g.bound()[1] == (std::vector<std::int32_t>{0, 4, 7, 5, 2, 0}));
+    CHECK(g.closed(0) && g.closed(1));
+
+    // markers: the first part listing a node names it, in either base;
+    // every node here is on the boundary
+    const std::vector<int> expected_markers{2, 1, 2, 1, 2, 2, 1, 2, 1};
+    CHECK(g.markers() == expected_markers);
+    CHECK(n1.markers() == expected_markers);
+
+    // the example follows the reference's orientation conventions:
+    // elements counterclockwise, every part edge a mesh-boundary element
+    // edge with the domain on its left, and the whole boundary walked
+    CHECK(g.check_orientation());
+    CHECK(n1.check_orientation());
+
+    // blank lines between the sections (or anywhere else) change nothing
+    write_text("b.grid", header + coords + "\n" + tris + "\n" + quads +
+                             "\n2\n\n5\n6\n\n4\n7\n9\n2\n4\n\n1\n5\n8\n6\n3\n1\n\n");
+    auto gb = rbf::io::read_grid("b.grid", IndexBase::zero);
+    CHECK(gb.x() == g.x() && gb.y() == g.y() && gb.tri() == g.tri() && gb.quad() == g.quad() &&
+          gb.bound() == g.bound());
+
+    // a NodeSet directly from the grid: markers become the flag, the
+    // connectivity is dropped. An lvalue only has its coordinates copied,
+    // an rvalue is moved from, and either base gives the same node set.
+    rbf::NodeSet<double> ns(g);  // copy: g stays intact
+    CHECK(!g.x().empty() && ns.num_points() == 9 && ns.num_boundary() == 9);
+    CHECK(ns.x == g.x() && ns.y == g.y() && ns.flag == expected_markers);
+    CHECK(ns.indices_with(1) == (std::vector<std::int32_t>{1, 3, 6, 8}));
+    rbf::NodeSet<double> nm(std::move(n1));  // move: the coordinates leave n1
+    CHECK(nm.x == ns.x && nm.y == ns.y && nm.flag == ns.flag);
+
+    // a grid built by hand round-trips at full precision, and the written
+    // file does not depend on the base
+    std::vector<double> ax = g.x(), ay = g.y();
+    for (std::size_t i = 0; i < awkward.size(); ++i) {
+        ax[i] = awkward[i];
+        ay[i] = -awkward[i];
+    }
+    rbf::UnstructuredGrid<double, std::int32_t> ga(std::move(ax), std::move(ay), g.tri(), g.quad(),
+                                                   g.bound(), IndexBase::zero);
+    rbf::io::write_grid("t.grid", ga);
+    auto r = rbf::io::read_grid("t.grid", IndexBase::zero);
+    CHECK(r.x() == ga.x() && r.y() == ga.y() && r.tri() == ga.tri() && r.quad() == ga.quad() &&
+          r.bound() == ga.bound());
+    auto r1 = rbf::io::read_grid("t.grid", IndexBase::one);
+    rbf::io::write_grid("t1.grid", r1);
+    CHECK(same_file("t.grid", "t1.grid"));
+
+    // float coordinates and 64-bit indices read the same file
+    auto gf = rbf::io::read_grid<float, std::int64_t>("s.grid", IndexBase::zero);
+    CHECK(gf.x()[6] == 1.3f && gf.tri().size() == 15 && gf.tri()[0] == 8);
+
+    // triangles only, no quads and no boundary; every node interior
+    write_text("u.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n0\n");
+    auto u = rbf::io::read_grid("u.grid", IndexBase::one);
+    CHECK(u.num_triangles() == 1 && u.num_quads() == 0 && u.num_boundaries() == 0);
+    CHECK(u.markers() == std::vector<int>(3, 0));
+
+    // open parts sharing an endpoint: the first part keeps the shared node
+    write_text("v.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n2\n2\n2\n1\n2\n2\n3\n");
+    auto v = rbf::io::read_grid("v.grid", IndexBase::zero);
+    CHECK(v.bound()[0] == (std::vector<std::int32_t>{0, 1}));
+    CHECK(v.bound()[1] == (std::vector<std::int32_t>{1, 2}));
+    CHECK(!v.closed(0) && !v.closed(1));
+    CHECK(v.markers() == (std::vector<int>{1, 1, 2}));
+
+    for (const char* fn : {"s.grid", "b.grid", "t.grid", "t1.grid", "u.grid", "v.grid"})
+        std::remove(fn);
+}
+
+static std::size_t msgs_with(const std::string& log, const std::string& what) {
+    std::size_t n = 0;
+    for (auto p = log.find(what); p != std::string::npos; p = log.find(what, p + 1))
+        ++n;
+    return n;
+}
+
+// run check_orientation with a log and hand the messages back
+static std::string orientation_log(const rbf::UnstructuredGrid<>& g) {
+    std::ostringstream log;
+    CHECK(!g.check_orientation(&log));  // a non-empty log means violations
+    CHECK(!g.check_orientation());      // and the silent call agrees
+    return log.str();
+}
+
+static void test_grid_orientation() {
+    using rbf::IndexBase;
+    // one counterclockwise triangle, its boundary walked with the domain
+    // on the left: consistent, and the log stays empty
+    write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n1\n4\n1\n2\n3\n1\n");
+    std::ostringstream quiet;
+    CHECK(rbf::io::read_grid("o.grid", IndexBase::zero).check_orientation(&quiet));
+    CHECK(quiet.str().empty());
+    CHECK(rbf::io::read_grid("o.grid", IndexBase::one).check_orientation());
+
+    // the same triangle numbered clockwise: negative area, and every part
+    // edge now runs against the element's edges
+    write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 3 2\n1\n4\n1\n2\n3\n1\n");
+    auto log = orientation_log(rbf::io::read_grid("o.grid", IndexBase::zero));
+    CHECK(msgs_with(log, "triangle 1 is not counterclockwise") == 1);
+    CHECK(msgs_with(log, "domain on the right") == 3);
+    CHECK(msgs_with(log, "not walked by any boundary part") == 3);
+
+    // a counterclockwise triangle whose boundary is walked backwards
+    write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n1\n4\n1\n3\n2\n1\n");
+    log = orientation_log(rbf::io::read_grid("o.grid", IndexBase::one));
+    CHECK(msgs_with(log, "not counterclockwise") == 0);
+    CHECK(msgs_with(log, "domain on the right") == 3);
+    CHECK(msgs_with(log, "not walked by any boundary part") == 3);
+
+    // two triangles of the unit square: a part along the shared diagonal
+    // is an interior edge, and the real boundary goes unwalked
+    write_text("o.grid", "4 2 0\n0 0\n1 0\n1 1\n0 1\n1 2 3\n1 3 4\n1\n2\n1\n3\n");
+    log = orientation_log(rbf::io::read_grid("o.grid", IndexBase::zero));
+    CHECK(msgs_with(log, "boundary part 1, edge 1 -> 3 is an interior edge") == 1);
+    CHECK(msgs_with(log, "not walked by any boundary part") == 4);
+
+    // a part edge between nodes no element connects
+    write_text("o.grid", "4 2 0\n0 0\n1 0\n1 1\n0 1\n1 2 3\n1 3 4\n1\n2\n2\n4\n");
+    log = orientation_log(rbf::io::read_grid("o.grid", IndexBase::zero));
+    CHECK(msgs_with(log, "edge 2 -> 4 is not an element edge") == 1);
+
+    std::remove("o.grid");
+}
+
+static void test_bc_files() {
+    // .bcmap, the EDU2D example of the grid-file reference
+    write_text("a.bcmap",
+               "! Boundary tag  BC name\n1 freestream\n2 subsonic_outflow\n3 viscous_wall\n");
+    auto b = rbf::io::read_bcmap("a.bcmap");
+    CHECK(b.size() == 3);
+    CHECK(b[0].tag == 1 && b[0].name == "freestream" && b[0].bc == 0);
+    CHECK(b[1].tag == 2 && b[1].name == "subsonic_outflow");
+    CHECK(b[2].tag == 3 && b[2].name == "viscous_wall");
+
+    // .mapbc, the sample of the FUN3D manual: count, then tag, BC number
+    // and family name
+    write_text("a.mapbc",
+               "13\n1 6662 box_ymin\n2 5025 box_zmax\n3 5050 box_xmin\n4 5025 box_ymax\n"
+               "5 5025 box_zmin\n6 5025 box_xmax\n7 3000 wing_upper\n8 3000 wing_lower\n"
+               "9 3000 wing_upper\n10 3000 wing_upper\n11 3000 wing_lower\n12 3000 wing_lower\n"
+               "13 3000 wing_tip\n");
+    auto m = rbf::io::read_mapbc("a.mapbc");
+    CHECK(m.size() == 13);
+    CHECK(m[0].tag == 1 && m[0].bc == 6662 && m[0].name == "box_ymin");
+    CHECK(m[6].tag == 7 && m[6].bc == 3000 && m[6].name == "wing_upper");
+    CHECK(m[12].tag == 13 && m[12].bc == 3000 && m[12].name == "wing_tip");
+
+    // family names are optional; a commented header and blank lines are
+    // skipped, as in the grid-file reference's variant
+    write_text("b.mapbc", "! Boundary tag  BC #\n3\n\n1 5050\n2 5051 outflow\n3 4000\n");
+    auto s = rbf::io::read_mapbc("b.mapbc");
+    CHECK(s.size() == 3);
+    CHECK(s[0].tag == 1 && s[0].bc == 5050 && s[0].name.empty());
+    CHECK(s[1].tag == 2 && s[1].bc == 5051 && s[1].name == "outflow");
+    CHECK(s[2].tag == 3 && s[2].bc == 4000 && s[2].name.empty());
+
+    for (const char* fn : {"a.bcmap", "a.mapbc", "b.mapbc"})
         std::remove(fn);
 }
 
@@ -315,13 +517,6 @@ static VtkFile read_vtk(const std::string& fname) {
     return f;
 }
 
-static bool same_file(const std::string& a, const std::string& b) {
-    std::ifstream fa(a), fb(b);
-    std::string sa((std::istreambuf_iterator<char>(fa)), {}),
-        sb((std::istreambuf_iterator<char>(fb)), {});
-    return !sa.empty() && sa == sb;
-}
-
 static void test_vtk_polydata() {
     const std::vector<double> x = awkward, y{1, 2, 3, 4, 5, 6};
     const std::vector<double> u{10, 11, 12, 13, 14, 15}, r{0.5, 0.25, 0.125, 1.0 / 3.0, 1e-300, 0};
@@ -452,6 +647,9 @@ static void test_gnuplot_columns() {
 int main() {
     test_read_points();
     test_node_file();
+    test_grid_file();
+    test_grid_orientation();
+    test_bc_files();
     test_read_graph_csr();
     test_ordering();
     test_matrix_market();
