@@ -162,7 +162,9 @@ class EccentricAnnulus(NodeSet):
     solution [1]_ and serves as a benchmark for discretizations of
     curvilinear geometry with strong boundary layers [2]_. The outer
     circle of radius R is centred on the origin, the inner one of
-    radius R0 is moved to ``(e, 0)``. Nodes are laid on the two circles
+    radius R0 is moved down to ``(0, -e)``, as the reference draws it,
+    so the geometry is symmetric about the y axis with the narrow gap
+    at the bottom. Nodes are laid on the two circles
     first, as many as keep them a spacing apart -- the outer ones
     first, marked circle (1), then the inner, marked hole (6) -- and
     the interior is filled by `pointclouds.poisson.PoissonDisk` seeded
@@ -179,7 +181,7 @@ class EccentricAnnulus(NodeSet):
     hole : float
         R0 of the inner circle.
     eccentricity : float, default 0.0
-        The distance e of the inner centre from the origin, along +x;
+        The distance e of the inner centre below the origin, along -y;
         0 is the concentric annulus, scattered.
     candidates : int, default 100
         The number of throws a node makes before it is retired.
@@ -228,7 +230,7 @@ class EccentricAnnulus(NodeSet):
         if radius <= 0.0 or spacing <= 0.0 or hole <= 0.0:
             raise ValueError("the radius, the spacing and the hole must be positive")
         if eccentricity < 0.0:
-            raise ValueError("the eccentricity cannot be negative: it points along +x")
+            raise ValueError("the eccentricity cannot be negative: it points along -y")
         if hole < spacing:
             raise ValueError(
                 f"a hole of radius {hole:g} is smaller than the spacing "
@@ -241,7 +243,7 @@ class EccentricAnnulus(NodeSet):
                 f"leaves a gap of {gap:g} at its narrowest inside a radius of "
                 f"{radius:g}, less than the spacing {spacing:g}"
             )
-        centre = np.array([eccentricity, 0.0])
+        centre = np.array([0.0, -eccentricity])
         seeds, m = [], []
         for r, c, marker in ((radius, 0.0, Marker.circle), (hole, centre, Marker.hole)):
             n = int(np.pi / np.arcsin(spacing / (2 * r)))  # chords of at least h

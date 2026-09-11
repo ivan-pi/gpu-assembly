@@ -18,7 +18,8 @@ examples:
   eccentric_annulus.py --radius 20 --hole 6 -e 8 -d 1 bearing_20.node
 
 The outer circle of radius R is about the origin, the inner one of
-radius R0 is moved to (E, 0); its nodes come after the outer circle's,
+radius R0 is moved down to (0, -E), the narrow gap at the bottom as
+the reference draws it; its nodes come after the outer circle's,
 marked 6 against 1. The defaults are the cylinders of the Wannier flow
 benchmark of Trask, Maxey and Hu (2016), R0 = pi/10 and R = pi/2 at
 the eccentricity pi/5 (rotating at 1 and 1/2), which are of unit size,
@@ -50,7 +51,7 @@ def main():
         type=cli.number(float, least=0.0),
         default=pi / 5,
         metavar="E",
-        help="distance of the inner centre from the origin, along +x; "
+        help="distance of the inner centre below the origin, along -y; "
         "0 is the concentric annulus (default: pi/5)",
     )
     ap.add_argument(
