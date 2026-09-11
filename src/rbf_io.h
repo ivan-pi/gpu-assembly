@@ -36,6 +36,8 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -392,6 +394,100 @@ struct Grid {
                 if (m[j - off] == 0) m[j - off] = static_cast<int>(b + 1);
         return m;
     }
+
+    // The reference's orientation conventions:
+    //   - element nodes are ordered counterclockwise,
+    //   - boundary node ordering is induced by the element node ordering,
+    //   - the domain is always on your left while walking along a boundary.
+    // Checked against the coordinates and connectivity: an element whose
+    // signed area is not positive; a directed element edge used twice,
+    // which no consistent counterclockwise numbering produces; a part edge
+    // that is not an element edge, walks against one (domain on the
+    // right), or is an interior edge; and element boundary edges no part
+    // walks. One message per violation, in file order, empty when the grid
+    // follows the conventions; node numbers in the messages are 1-based,
+    // as in the file. read_grid does not call this: parsing accepts any
+    // orientation.
+    std::vector<std::string> orientation_report() const {
+        const I off = zero_based ? 0 : 1;
+        const std::uint64_t n = num_nodes();
+        const auto pos = [&](I v) {  // 0-based position of a stored index
+            assert(v >= off && static_cast<std::uint64_t>(v - off) < n &&
+                   "node index out of range");
+            return static_cast<std::size_t>(v - off);
+        };
+        const auto no = [&](I v) { return std::to_string(pos(v) + 1); };  // as in the file
+        const auto key = [&](I u, I v) { return static_cast<std::uint64_t>(pos(u)) * n + pos(v); };
+        std::vector<std::string> out;
+
+        // the directed element edges, and the counterclockwise test
+        std::unordered_map<std::uint64_t, int> edges;
+        const auto add_elements = [&](const std::vector<I>& conn, std::size_t nv,
+                                      const char* name) {
+            for (std::size_t e = 0; e * nv < conn.size(); ++e) {
+                const I* el = conn.data() + e * nv;
+                double area2 = 0;  // twice the signed area, by the shoelace formula
+                for (std::size_t i = 0; i < nv; ++i) {
+                    const std::size_t u = pos(el[i]), v = pos(el[(i + 1) % nv]);
+                    area2 += static_cast<double>(x[u]) * y[v] - static_cast<double>(x[v]) * y[u];
+                    ++edges[key(el[i], el[(i + 1) % nv])];
+                }
+                if (!(area2 > 0))
+                    out.push_back(std::string(name) + " " + std::to_string(e + 1) +
+                                  " is not counterclockwise");
+            }
+        };
+        add_elements(tri, 3, "triangle");
+        add_elements(quad, 4, "quadrilateral");
+
+        // every element edge again, in file order, for deterministic output
+        const auto each_edge = [&](auto&& f) {
+            const auto walk = [&](const std::vector<I>& conn, std::size_t nv) {
+                for (std::size_t e = 0; e * nv < conn.size(); ++e)
+                    for (std::size_t i = 0; i < nv; ++i)
+                        f(conn[e * nv + i], conn[e * nv + (i + 1) % nv]);
+            };
+            walk(tri, 3);
+            walk(quad, 4);
+        };
+        std::unordered_set<std::uint64_t> seen;
+        each_edge([&](I u, I v) {
+            if (edges[key(u, v)] > 1 && seen.insert(key(u, v)).second)
+                out.push_back("element edge " + no(u) + " -> " + no(v) +
+                              " is used twice in the same direction");
+        });
+
+        // a part edge must be an element edge whose reverse no element
+        // uses: a mesh-boundary edge, walked with the domain on the left
+        std::unordered_set<std::uint64_t> walked;
+        for (std::size_t b = 0; b < bound.size(); ++b) {
+            const auto& part = bound[b];
+            for (std::size_t j = 0; j + 1 < part.size(); ++j) {
+                const I u = part[j], v = part[j + 1];
+                const bool fwd = edges.count(key(u, v)) > 0, rev = edges.count(key(v, u)) > 0;
+                const std::string edge =
+                    "boundary part " + std::to_string(b + 1) + ", edge " + no(u) + " -> " + no(v);
+                if (fwd && !rev)
+                    walked.insert(key(u, v));
+                else if (!fwd && rev)
+                    out.push_back(edge + " walks with the domain on the right");
+                else if (fwd && rev)
+                    out.push_back(edge + " is an interior edge");
+                else
+                    out.push_back(edge + " is not an element edge");
+            }
+        }
+
+        // and the parts together must walk the whole mesh boundary
+        seen.clear();
+        each_edge([&](I u, I v) {
+            if (edges.count(key(v, u)) == 0 && walked.count(key(u, v)) == 0 &&
+                seen.insert(key(u, v)).second)
+                out.push_back("element boundary edge " + no(u) + " -> " + no(v) +
+                              " is not walked by any boundary part");
+        });
+        return out;
+    }
 };
 
 // Grid file, the custom 2D format of Nishikawa's grid-generation and
@@ -414,8 +510,8 @@ struct Grid {
 // boundary part must list at least two nodes, consecutive ones distinct.
 // The format itself has no blank lines; the reader skips any it meets,
 // so a file spaced apart for readability reads the same. The reference's
-// orientation conventions (elements counterclockwise, parts with the
-// interior on their left) are not checked.
+// orientation conventions are not checked while parsing:
+// Grid::orientation_report() verifies them on demand.
 template <class T = double, class I = std::int32_t>
 Grid<T, I> read_grid(const std::string& fname, bool zero_based) {
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");

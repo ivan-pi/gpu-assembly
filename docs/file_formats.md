@@ -177,15 +177,29 @@ of consecutive nodes a boundary edge. A part marks itself closed by
 repeating the node where it closes — both parts of the reference's
 example end on a repeat of their first node — and a part that does not
 is an open polyline, ending where the next part begins;
-`Grid::closed(b)` tells the two apart. By the reference's conventions
-elements are numbered counterclockwise and a part runs with the
-interior on its left, the outer boundary counterclockwise and holes
-clockwise; the reader checks neither orientation nor closure. It does
-check that every count is met, that every index is in range, that an
-element's nodes are distinct, and that a part has at least two nodes,
-with no node twice in a row. The format itself has no blank lines; the
-reader skips any it meets, so a file spaced apart for readability reads
-the same. A grid may have no triangles, no quads, or no boundary parts.
+`Grid::closed(b)` tells the two apart.
+
+The reference sets three orientation conventions: element nodes are
+ordered counterclockwise, the boundary node ordering is induced by the
+element node ordering, and the domain is always on your left while
+walking along a boundary — so the outer boundary runs counterclockwise
+and holes clockwise. Parsing does not check them;
+`Grid::orientation_report()` does, on demand. It verifies that every
+element's signed area is positive and that every part edge is an
+element edge no element uses in reverse — a mesh-boundary edge, walked
+in the element-induced direction with the domain on its left — and
+reports, one message per violation, elements that are not
+counterclockwise, part edges that are reversed, interior, or absent
+from the elements, directed element edges used twice (impossible under
+a consistent counterclockwise numbering), and mesh-boundary edges no
+part walks. An empty report means the grid follows the conventions.
+
+The reader does check that every count is met, that every index is in
+range, that an element's nodes are distinct, and that a part has at
+least two nodes, with no node twice in a row. The format itself has no
+blank lines; the reader skips any it meets, so a file spaced apart for
+readability reads the same. A grid may have no triangles, no quads, or
+no boundary parts.
 The reference also describes a 3D format (`.ugrid`), which is not read
 here, and the boundary-condition file of the
 [next section](#boundary-condition-files).
