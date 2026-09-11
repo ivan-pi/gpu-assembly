@@ -138,11 +138,10 @@ and EDU2D solver codes. Cite the format as:
 
 > Nishikawa, Hiroaki. (2018). Unstructured grid file format (2D, 3D).
 > <https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D>
-> (accessed Sep 11, 2026)
 
-The layout is the one Nishikawa's own codes use ("Making Your Own
-Mesh", NIA & SU2 workshop, August 2019); the sectioned variant of the
-2018 notes is not read:
+We use the layout of his 2019 talk "Making Your Own Mesh: A List of
+Custom Grid Generation Codes" (NIA & SU2 Foundation user workshop,
+August 2019):
 
 ```
 nnodes ntria nquad
@@ -155,16 +154,15 @@ b1             then the node lists, part after part,
 ...            one node index per line
 ```
 
-Node indices are 1-based. A count that is not met, an index out of
-range, a repeated node within an element, and a boundary part of
-fewer than two nodes or with a node twice in a row are errors; blank
-lines are skipped, and a grid may have no triangles, no quads, or no
-boundary parts. A part lists its nodes in order along the boundary
-and marks itself closed by repeating its first node last
-(`UnstructuredGrid::closed(b)`); otherwise it is an open polyline. By
-the reference's conventions element nodes are counterclockwise, the
-boundary ordering is induced by the element ordering, and the domain
-stays on your left along a boundary. Parsing accepts any orientation;
+Node indices are 1-based. Blank lines are skipped, and a grid may
+have no triangles, no quads, or no boundary parts. A part lists its
+nodes in order along the boundary and marks itself closed by
+repeating its first node last — the format's convention for a closed
+boundary; a part that does not is an open polyline, and
+`UnstructuredGrid::closed(b)` tells the two apart. By the reference's
+conventions element nodes are counterclockwise, the boundary ordering
+is induced by the element ordering, and the domain stays on your left
+when walking along a boundary. Parsing accepts any orientation;
 `check_orientation()` verifies the conventions on demand — `true`
 when they hold, one message per violation to an optional stream.
 
@@ -208,7 +206,7 @@ to end of file:
 `read_mapbc` reads FUN3D's `.mapbc` (FUN3D manual, appendix B,
 <https://fun3d.larc.nasa.gov/>): the group count, then per part its
 tag, the FUN3D condition number (`bc`) and an optional family name
-(`name`); the count must be met exactly:
+(`name`):
 
 ```
 13
