@@ -18,6 +18,7 @@
 #include <fstream>
 #include <iterator>
 #include <span>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -188,8 +189,8 @@ static void test_grid_file() {
     // the example follows the reference's orientation conventions:
     // elements counterclockwise, every part edge a mesh-boundary element
     // edge with the domain on its left, and the whole boundary walked
-    CHECK(g.orientation_report().empty());
-    CHECK(n1.orientation_report().empty());
+    CHECK(g.check_orientation());
+    CHECK(n1.check_orientation());
 
     // blank lines between the sections (or anywhere else) change nothing
     write_text("b.grid",
@@ -253,46 +254,58 @@ static void test_grid_file() {
         std::remove(fn);
 }
 
-static std::size_t msgs_with(const std::vector<std::string>& report, const std::string& what) {
+static std::size_t msgs_with(const std::string& log, const std::string& what) {
     std::size_t n = 0;
-    for (const auto& m : report)
-        if (m.find(what) != std::string::npos) ++n;
+    for (auto p = log.find(what); p != std::string::npos; p = log.find(what, p + 1))
+        ++n;
     return n;
 }
 
+// run check_orientation with a log and hand the messages back
+template <class G>
+static std::string orientation_log(const G& g) {
+    std::ostringstream log;
+    CHECK(!g.check_orientation(&log));  // a non-empty log means violations
+    CHECK(!g.check_orientation());      // and the silent call agrees
+    return log.str();
+}
+
 static void test_grid_orientation() {
+    using rbf::IndexBase;
     // one counterclockwise triangle, its boundary walked with the domain
-    // on the left: nothing to report
+    // on the left: consistent, and the log stays empty
     write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n1\n4\n1\n2\n3\n1\n");
-    CHECK(rbf::io::read_grid("o.grid", rbf::IndexBase::zero).orientation_report().empty());
-    CHECK(rbf::io::read_grid("o.grid", rbf::IndexBase::one).orientation_report().empty());
+    std::ostringstream quiet;
+    CHECK(rbf::io::read_grid("o.grid", IndexBase::zero).check_orientation(&quiet));
+    CHECK(quiet.str().empty());
+    CHECK(rbf::io::read_grid("o.grid", IndexBase::one).check_orientation());
 
     // the same triangle numbered clockwise: negative area, and every part
     // edge now runs against the element's edges
     write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 3 2\n1\n4\n1\n2\n3\n1\n");
-    auto r = rbf::io::read_grid("o.grid", rbf::IndexBase::zero).orientation_report();
-    CHECK(msgs_with(r, "triangle 1 is not counterclockwise") == 1);
-    CHECK(msgs_with(r, "domain on the right") == 3);
-    CHECK(msgs_with(r, "not walked by any boundary part") == 3);
+    auto log = orientation_log(rbf::io::read_grid("o.grid", IndexBase::zero));
+    CHECK(msgs_with(log, "triangle 1 is not counterclockwise") == 1);
+    CHECK(msgs_with(log, "domain on the right") == 3);
+    CHECK(msgs_with(log, "not walked by any boundary part") == 3);
 
     // a counterclockwise triangle whose boundary is walked backwards
     write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n1\n4\n1\n3\n2\n1\n");
-    r = rbf::io::read_grid("o.grid", rbf::IndexBase::one).orientation_report();
-    CHECK(msgs_with(r, "not counterclockwise") == 0);
-    CHECK(msgs_with(r, "domain on the right") == 3);
-    CHECK(msgs_with(r, "not walked by any boundary part") == 3);
+    log = orientation_log(rbf::io::read_grid("o.grid", IndexBase::one));
+    CHECK(msgs_with(log, "not counterclockwise") == 0);
+    CHECK(msgs_with(log, "domain on the right") == 3);
+    CHECK(msgs_with(log, "not walked by any boundary part") == 3);
 
     // two triangles of the unit square: a part along the shared diagonal
     // is an interior edge, and the real boundary goes unwalked
     write_text("o.grid", "4 2 0\n0 0\n1 0\n1 1\n0 1\n1 2 3\n1 3 4\n1\n2\n1\n3\n");
-    r = rbf::io::read_grid("o.grid", rbf::IndexBase::zero).orientation_report();
-    CHECK(msgs_with(r, "boundary part 1, edge 1 -> 3 is an interior edge") == 1);
-    CHECK(msgs_with(r, "not walked by any boundary part") == 4);
+    log = orientation_log(rbf::io::read_grid("o.grid", IndexBase::zero));
+    CHECK(msgs_with(log, "boundary part 1, edge 1 -> 3 is an interior edge") == 1);
+    CHECK(msgs_with(log, "not walked by any boundary part") == 4);
 
     // a part edge between nodes no element connects
     write_text("o.grid", "4 2 0\n0 0\n1 0\n1 1\n0 1\n1 2 3\n1 3 4\n1\n2\n2\n4\n");
-    r = rbf::io::read_grid("o.grid", rbf::IndexBase::zero).orientation_report();
-    CHECK(msgs_with(r, "edge 2 -> 4 is not an element edge") == 1);
+    log = orientation_log(rbf::io::read_grid("o.grid", IndexBase::zero));
+    CHECK(msgs_with(log, "edge 2 -> 4 is not an element edge") == 1);
 
     std::remove("o.grid");
 }

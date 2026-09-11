@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <ostream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -23,8 +24,9 @@ namespace rbf {
 // The base a grid's node indices are kept in, in memory. The file format
 // is always 1-based; what is chosen here is only whether reading keeps
 // that (IndexBase::one) or shifts to 0-based (IndexBase::zero), the
-// numbering of the graph file and the rest of the library.
-enum class IndexBase { one, zero };
+// numbering of the graph file and the rest of the library. The
+// enumerator values 0 and 1 match the names.
+enum class IndexBase { zero, one };
 
 // The class owns its arrays and establishes the structural invariants at
 // construction: coordinates of one length, whole elements, every index in
@@ -105,20 +107,27 @@ public:
     //   - element nodes are ordered counterclockwise,
     //   - boundary node ordering is induced by the element node ordering,
     //   - the domain is always on your left while walking along a boundary.
-    // Checked against the coordinates and connectivity: an element whose
-    // signed area is not positive; a directed element edge used twice,
-    // which no consistent counterclockwise numbering produces; a part edge
-    // that is not an element edge, walks against one (domain on the
-    // right), or is an interior edge; and element boundary edges no part
-    // walks. One message per violation, in file order, empty when the grid
-    // follows the conventions; node numbers in the messages are 1-based,
-    // as in the file. read_grid does not call this: parsing accepts any
-    // orientation.
-    std::vector<std::string> orientation_report() const {
+    // Checked against the coordinates and connectivity; returns true when
+    // the grid follows them. The violations: an element whose signed area
+    // is not positive; a directed element edge used twice, which no
+    // consistent counterclockwise numbering produces; a part edge that is
+    // not an element edge, walks against one (domain on the right), or is
+    // an interior edge; and element boundary edges no part walks. Silent
+    // by default; given a stream, it prints one message per violation, in
+    // file order, node numbers 1-based as in the file:
+    //
+    //     if (!g.check_orientation(&std::cerr)) ...
+    //
+    // read_grid does not call this: parsing accepts any orientation.
+    bool check_orientation(std::ostream* log = nullptr) const {
         const std::uint64_t n = num_nodes();
         const auto no = [&](I v) { return std::to_string(pos(v) + 1); };  // as in the file
         const auto key = [&](I u, I v) { return static_cast<std::uint64_t>(pos(u)) * n + pos(v); };
-        std::vector<std::string> out;
+        std::size_t violations = 0;
+        const auto report = [&](const std::string& msg) {
+            ++violations;
+            if (log) *log << msg << '\n';
+        };
 
         // the directed element edges, and the counterclockwise test
         std::unordered_map<std::uint64_t, int> edges;
@@ -134,8 +143,8 @@ public:
                     ++edges[key(el[i], el[(i + 1) % nv])];
                 }
                 if (!(area2 > 0))
-                    out.push_back(std::string(name) + " " + std::to_string(e + 1) +
-                                  " is not counterclockwise");
+                    report(std::string(name) + " " + std::to_string(e + 1) +
+                           " is not counterclockwise");
             }
         };
         add_elements(tri_, 3, "triangle");
@@ -154,8 +163,8 @@ public:
         std::unordered_set<std::uint64_t> seen;
         each_edge([&](I u, I v) {
             if (edges[key(u, v)] > 1 && seen.insert(key(u, v)).second)
-                out.push_back("element edge " + no(u) + " -> " + no(v) +
-                              " is used twice in the same direction");
+                report("element edge " + no(u) + " -> " + no(v) +
+                       " is used twice in the same direction");
         });
 
         // a part edge must be an element edge whose reverse no element
@@ -171,11 +180,11 @@ public:
                 if (fwd && !rev)
                     walked.insert(key(u, v));
                 else if (!fwd && rev)
-                    out.push_back(edge + " walks with the domain on the right");
+                    report(edge + " walks with the domain on the right");
                 else if (fwd && rev)
-                    out.push_back(edge + " is an interior edge");
+                    report(edge + " is an interior edge");
                 else
-                    out.push_back(edge + " is not an element edge");
+                    report(edge + " is not an element edge");
             }
         }
 
@@ -184,10 +193,10 @@ public:
         each_edge([&](I u, I v) {
             if (edges.count(key(v, u)) == 0 && walked.count(key(u, v)) == 0 &&
                 seen.insert(key(u, v)).second)
-                out.push_back("element boundary edge " + no(u) + " -> " + no(v) +
-                              " is not walked by any boundary part");
+                report("element boundary edge " + no(u) + " -> " + no(v) +
+                       " is not walked by any boundary part");
         });
-        return out;
+        return violations == 0;
     }
 
 private:

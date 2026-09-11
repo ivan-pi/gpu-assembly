@@ -374,7 +374,7 @@ void write_nodes(const std::string& fname,
 // itself has no blank lines; the reader skips any it meets, so a file
 // spaced apart for readability reads the same. The reference's
 // orientation conventions are not checked while parsing:
-// UnstructuredGrid::orientation_report() verifies them on demand.
+// UnstructuredGrid::check_orientation() verifies them on demand.
 template <class T = double, class I = std::int32_t>
 UnstructuredGrid<T, I> read_grid(const std::string& fname, IndexBase base) {
     const bool zero_based = base == IndexBase::zero;

@@ -189,25 +189,29 @@ ordered counterclockwise, the boundary node ordering is induced by the
 element node ordering, and the domain is always on your left while
 walking along a boundary — so the outer boundary runs counterclockwise
 and holes clockwise. Parsing does not check them;
-`UnstructuredGrid::orientation_report()` does, on demand. It verifies that every
+`UnstructuredGrid::check_orientation()` does, on demand, returning
+`true` when the grid follows the conventions. It verifies that every
 element's signed area is positive and that every part edge is an
 element edge no element uses in reverse — a mesh-boundary edge, walked
-in the element-induced direction with the domain on its left — and
-reports, one message per violation, elements that are not
-counterclockwise, part edges that are reversed, interior, or absent
-from the elements, directed element edges used twice (impossible under
-a consistent counterclockwise numbering), and mesh-boundary edges no
-part walks. An empty report means the grid follows the conventions.
+in the element-induced direction with the domain on its left. The
+violations it finds: elements that are not counterclockwise, part
+edges that are reversed, interior, or absent from the elements,
+directed element edges used twice (impossible under a consistent
+counterclockwise numbering), and mesh-boundary edges no part walks.
+The check is silent by default; given a stream it prints one message
+per violation:
+
+```cpp
+if (!g.check_orientation(&std::cerr)) { /* the messages name each fault */ }
+```
 
 The reader does check that every count is met, that every index is in
 range, that an element's nodes are distinct, and that a part has at
 least two nodes, with no node twice in a row. The format itself has no
 blank lines; the reader skips any it meets, so a file spaced apart for
 readability reads the same. A grid may have no triangles, no quads, or
-no boundary parts.
-The reference also describes a 3D format (`.ugrid`), which is not read
-here, and the boundary-condition file of the
-[next section](#boundary-condition-files).
+no boundary parts. The reference also describes the boundary-condition
+file of the [next section](#boundary-condition-files).
 
 `UnstructuredGrid::markers()` bridges to the [node file](#node-file)
 convention: a node gets the number of the first boundary part that
