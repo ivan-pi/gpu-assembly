@@ -1,9 +1,8 @@
 # File formats
 
-The formats read and written by `rbf::io`. Two of them are our own
-plain-text formats, four are borrowed — from Triangle, Nishikawa's
-grid codes, FUN3D and METIS — and the rest are standards or
-conventions of which only the parts we use are described here.
+The formats read and written by `rbf::io`. Where an existing format
+serves, we build on it rather than invent our own — each section names
+its source — and only the parts we use are described here.
 
 `write_vtk_polydata` is declared in `rbf_io_vtk.h` and `write_columns`
 in `rbf_io_gnuplot.h`; everything else in `rbf_io.h`. Include the
