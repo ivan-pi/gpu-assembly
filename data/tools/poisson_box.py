@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Generate a Poisson disk sample of a periodic box with its stencil graph.
+"""Generate a Poisson disk sample of a box with its stencil graph.
 
-The cloud is PoissonBox in pointclouds.generators, tiled by TiledNodeSet
-in pointclouds.nodeset when asked.
+The cloud is PoissonBox in pointclouds.generators, periodic or walled,
+tiled by TiledNodeSet in pointclouds.nodeset when asked.
 """
 
 import numpy as np
@@ -15,11 +15,16 @@ EPILOG = """\
 examples:
   poisson_box.py --size 32 32 tg_32
   poisson_box.py --size 64 64 --hole 20 cylinder_64.node
+  poisson_box.py --size 32 32 --boundary walls square_32.node
+  poisson_box.py --size 32 32 --boundary channel channel_32.node
   poisson_box.py --size 32 32 --tile 4 4 tg_128
 
-Lengths are in lattice units. The nodes on the circle of a hole come
-first, marked 6. The output is a points file and a graph file in the
-same numbering, or a node file with the markers if named so
+Lengths are in lattice units. With walls, the wall nodes come first,
+marked 1 (south), 2 (east), 3 (north), 4 (west) and 5 (corner); the
+channel, a box walled on two sides and periodic in x, has only 1 and
+3; the nodes on the circle of a hole follow either, marked 6. Tiling
+needs the periodic box. The output is a points file and a graph file
+in the same numbering, or a node file with the markers if named so
 (docs/file_formats.md)."""
 
 
@@ -47,6 +52,15 @@ def main():
         default=1.0,
         metavar="D",
         help="least distance between two nodes (default: 1)",
+    )
+    ap.add_argument(
+        "-b",
+        "--boundary",
+        choices=("periodic", "channel", "walls"),
+        default="periodic",
+        help="periodic on both sides, a channel with walls at y = 0 and "
+        "y = LY and periodic in x, or walls on all four sides, the wall "
+        "nodes laid before the sample (default: periodic)",
     )
     ap.add_argument(
         "--candidates",
@@ -82,11 +96,18 @@ def main():
     cli.add_output_options(ap, ".points")
     args = ap.parse_args()
 
+    if args.boundary != "periodic" and tuple(args.tile) != (1, 1):
+        ap.error("--tile needs the periodic box")
     hole = args.hole
     if args.solid_fraction is not None:
         hole = hole_radius(args.solid_fraction, args.size)
     cloud = PoissonBox(
-        args.size, args.distance, candidates=args.candidates, hole=hole, seed=args.seed
+        args.size,
+        args.distance,
+        boundary=args.boundary,
+        ncandidates=args.candidates,
+        hole=hole,
+        seed=args.seed,
     )
     if tuple(args.tile) != (1, 1):
         cloud = TiledNodeSet(cloud, args.tile)

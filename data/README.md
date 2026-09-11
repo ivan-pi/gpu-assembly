@@ -121,12 +121,28 @@ rest:
 - `tools/refined_cavity.py`: the lid-driven cavity, refined towards the
   walls in three bands, with markers for the walls and the corners.
 - `tools/perturbed_grid.py`: a Cartesian grid with every node displaced
-  by a small random amount, periodic or a channel with walls.
-- `tools/poisson_box.py`: a Poisson disk sample of a periodic box, alone
-  or around a circular hole (an array of cylinders), tiled if asked.
+  by a small random amount; periodic, or a box walled on two sides (a
+  channel) or on all four.
+- `tools/poisson_box.py`: a Poisson disk sample of a box — periodic, a
+  channel walled on two sides, or walled on all four — alone or around
+  a circular hole (an array of cylinders), tiled if asked (periodic
+  only).
+- `tools/polar_region.py`: the region between two star-shaped polar
+  curves, their nodes evenly spaced in arc length and the interior a
+  Poisson disk sample grown from them; the Bayona variable-coefficient
+  elliptic domain by default.
+- `tools/eccentric_annulus.py`: the annulus between two eccentric
+  circles, the domain of the Wannier flow benchmark, its circles
+  marked 1 and 6 and the interior a Poisson disk sample grown from
+  them; the cylinders of Trask, Maxey and Hu (2016) by default.
 - `tools/disk.py`: the disk about the origin, or the annulus between two
   concentric circles, in rings or in a quasi-uniform spiral, with the
   circles marked 1 and 6.
+- `tools/reentrant_corner.py`: a square less a wedge at the corner
+  angle, the reentrant-corner family of Mitchell (2013), in arcs
+  graded toward the corner to match its singularity and clipped to the
+  domain beyond the graded radius; an angle of `1.5 pi` is the
+  L-shaped domain.
 
 ## Inspecting
 

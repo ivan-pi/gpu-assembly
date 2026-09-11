@@ -13,13 +13,18 @@ examples:
   perturbed_grid.py -n 40 tg_40
   perturbed_grid.py -n 40 --sigma 0.02 -K 21 tg_40
   perturbed_grid.py -n 40 --geometry channel poiseuille_40.node
+  perturbed_grid.py -n 40 --geometry box --sigma 0 square_40.node
   perturbed_grid.py -n 40 --seed 1234 tg_40
 
 Lengths are in lattice units: the box is N by N and the spacing 1. The
 periodic box is the Taylor-Green test; the channel, periodic in x with
 walls at y = 0 and y = N, the Poiseuille test, its wall nodes with the
-markers 1 (bottom) and 3 (top). The output is a points file and a graph
-file in the same numbering, or a node file with the markers if named so
+markers 1 (bottom) and 3 (top); the box, walled on all four sides as
+in the Poisson tests on the square, marks its walls 1 (south), 2
+(east), 3 (north), 4 (west) and 5 (corner). A wall node slides along
+its wall, a corner stays put, and --sigma 0 is the exact Cartesian
+grid. The output is a points file and a graph file in the same
+numbering, or a node file with the markers if named so
 (docs/file_formats.md)."""
 
 
@@ -45,10 +50,10 @@ def main():
     ap.add_argument(
         "-g",
         "--geometry",
-        choices=("periodic", "channel"),
+        choices=("periodic", "channel", "box"),
         default="periodic",
-        help="periodic on both sides, or walls at y = 0 and y = N "
-        "and periodic in x (default: periodic)",
+        help="periodic on both sides, walls at y = 0 and y = N and "
+        "periodic in x, or walls on all four sides (default: periodic)",
     )
     cli.add_graph_options(ap)
     ap.add_argument(
