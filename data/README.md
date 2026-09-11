@@ -127,6 +127,9 @@ rest:
 - `tools/disk.py`: the disk about the origin, or the annulus between two
   concentric circles, in rings or in a quasi-uniform spiral, with the
   circles marked 1 and 6.
+- `tools/lshape.py`: the L-shaped domain about its re-entrant corner,
+  in arcs graded toward the corner to match its `r^(2/3)` singularity
+  and clipped to the domain beyond the graded radius.
 
 ## Inspecting
 
