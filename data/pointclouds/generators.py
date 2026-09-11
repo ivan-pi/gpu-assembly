@@ -183,10 +183,11 @@ class EccentricAnnulus(NodeSet):
     eccentricity : float, default 0.0
         The distance e of the inner centre below the origin, along -y;
         0 is the concentric annulus, scattered.
-    candidates : int, default 100
-        The number of throws a node makes before it is retired.
-    seed : int, optional
-        Of the sample; random when not given.
+    **sampler
+        Passed on to `pointclouds.poisson.PoissonDisk`: `seed`, of the
+        sample, random when not given, and `ncandidates`, the throws a
+        node makes before it is retired, 100 here rather than the
+        sampler's own 30, since more of them pack the nodes tighter.
 
     Raises
     ------
@@ -208,23 +209,14 @@ class EccentricAnnulus(NodeSet):
     References
     ----------
     .. [1] Wannier, "A contribution to the hydrodynamics of
-       lubrication," Q. Appl. Math. 8, 1-19, 1950.
+       lubrication," Q. Appl. Math. 8, 1-32, 1950.
     .. [2] Trask, Maxey and Hu, "Compact moving least squares: an
        optimization framework for generating high-order compact
        meshless discretizations," J. Comput. Phys. 326, 596-611, 2016,
        doi:10.1016/j.jcp.2016.08.045.
     """
 
-    def __init__(
-        self,
-        radius,
-        spacing=1.0,
-        *,
-        hole,
-        eccentricity=0.0,
-        candidates=100,
-        seed=None,
-    ):
+    def __init__(self, radius, spacing=1.0, *, hole, eccentricity=0.0, **sampler):
         from .poisson import PoissonDisk  # compiled by numba, only when needed
 
         if radius <= 0.0 or spacing <= 0.0 or hole <= 0.0:
@@ -252,16 +244,13 @@ class EccentricAnnulus(NodeSet):
             m.append(np.full(n, marker))
         seeds, m = np.vstack(seeds), np.concatenate(m)
         lo = -radius - 0.5 * spacing
-        sampler = PoissonDisk(
-            spacing,
-            np.full(2, 2 * radius + spacing),
-            periodic=False,
-            ncandidates=candidates,
-            seed=seed,
+        sampler.setdefault("ncandidates", 100)
+        disk = PoissonDisk(
+            spacing, np.full(2, 2 * radius + spacing), periodic=False, **sampler
         )
-        sampler.add_points(seeds - lo)
-        sampler.fill_space()
-        drawn = sampler.points[len(seeds) :] + lo
+        disk.add_points(seeds - lo)
+        disk.fill_space()
+        drawn = disk.points[len(seeds) :] + lo
         keep = np.hypot(*drawn.T) < radius
         keep &= np.hypot(*(drawn - centre).T) > hole
         super().__init__(
@@ -368,12 +357,13 @@ class PoissonBox(NodeSet):
         Periodic on both sides; periodic in x with walls at ``y = 0``
         and ``y = Ly``, a box walled on two sides; or walls on all
         four, as in the scattered tests on the square.
-    candidates : int, default 100
-        The number of throws a node makes before it is retired.
     hole : float, optional
         The radius of the disk cut out of the middle of the box.
-    seed : int, optional
-        Of the sample; random when not given.
+    **sampler
+        Passed on to `pointclouds.poisson.PoissonDisk`: `seed`, of the
+        sample, random when not given, and `ncandidates`, the throws a
+        node makes before it is retired, 100 here rather than the
+        sampler's own 30, since more of them pack the nodes tighter.
 
     Raises
     ------
@@ -403,14 +393,7 @@ class PoissonBox(NodeSet):
     """
 
     def __init__(
-        self,
-        extent,
-        distance=1.0,
-        *,
-        boundary="periodic",
-        candidates=100,
-        hole=None,
-        seed=None,
+        self, extent, distance=1.0, *, boundary="periodic", hole=None, **sampler
     ):
         from .poisson import PoissonDisk  # compiled by numba, only when needed
 
@@ -466,16 +449,11 @@ class PoissonBox(NodeSet):
             m.append(np.full(n, Marker.hole))
         seeds, m = np.vstack(seeds), np.concatenate(m)
         pad = np.where(periodic, 0.0, 0.5 * distance)
-        sampler = PoissonDisk(
-            distance,
-            extent + 2 * pad,
-            periodic=periodic,
-            ncandidates=candidates,
-            seed=seed,
-        )
-        sampler.add_points(seeds + pad)
-        sampler.fill_space()
-        pts = sampler.points - pad
+        sampler.setdefault("ncandidates", 100)
+        disk = PoissonDisk(distance, extent + 2 * pad, periodic=periodic, **sampler)
+        disk.add_points(seeds + pad)
+        disk.fill_space()
+        pts = disk.points - pad
         pts[: len(seeds)] = seeds  # exactly, without the padding round trip
         title = (
             f"{'walled' if boundary == 'walls' else boundary} poisson, "
@@ -523,10 +501,11 @@ class PolarRegion(NodeSet):
     inner : float or pair of sequences, optional
         The inner curve, in the same form; the whole region inside
         `outer` without it.
-    candidates : int, default 100
-        The number of throws a node makes before it is retired.
-    seed : int, optional
-        Of the sample; random when not given.
+    **sampler
+        Passed on to `pointclouds.poisson.PoissonDisk`: `seed`, of the
+        sample, random when not given, and `ncandidates`, the throws a
+        node makes before it is retired, 100 here rather than the
+        sampler's own 30, since more of them pack the nodes tighter.
 
     Raises
     ------
@@ -561,7 +540,7 @@ class PolarRegion(NodeSet):
 
     DENSE = 4096  # samples of a curve for its arc length
 
-    def __init__(self, outer, spacing=1.0, *, inner=None, candidates=100, seed=None):
+    def __init__(self, outer, spacing=1.0, *, inner=None, **sampler):
         from .poisson import PoissonDisk  # compiled by numba, only when needed
 
         if spacing <= 0.0:
@@ -589,16 +568,13 @@ class PolarRegion(NodeSet):
         seeds, m = seeds[keep], m[keep]
         outline = self._polyline(outer)
         lo = outline.min(axis=0) - 0.5 * spacing
-        sampler = PoissonDisk(
-            spacing,
-            outline.max(axis=0) + 0.5 * spacing - lo,
-            periodic=False,
-            ncandidates=candidates,
-            seed=seed,
+        sampler.setdefault("ncandidates", 100)
+        disk = PoissonDisk(
+            spacing, outline.max(axis=0) + 0.5 * spacing - lo, periodic=False, **sampler
         )
-        sampler.add_points(seeds - lo)
-        sampler.fill_space()
-        drawn = sampler.points[len(seeds) :] + lo
+        disk.add_points(seeds - lo)
+        disk.fill_space()
+        drawn = disk.points[len(seeds) :] + lo
         rho, phi = np.hypot(*drawn.T), np.arctan2(drawn[:, 1], drawn[:, 0])
         keep = rho < self._radius(outer, phi)
         if inner is not None:
@@ -736,9 +712,10 @@ class ReentrantCorner(NodeSet):
     about ``1.5 h`` beside a wall -- higher floors trade close pairs
     for wider holes, which hurt more. Where the omega edge meets the
     square at an acute angle the clearing is wider, since the floors
-    hold against both walls of that thin wedge. A node generator with repulsive
-    relaxation can take the cloud as its starting point and smooth the
-    seam, and the functionality tests do not mind it. As
+    hold against both walls of that thin wedge. A node generator with
+    repulsive relaxation can take the cloud as its starting point and
+    smooth the seam -- `spacing_at` is the spacing law for it to keep
+    -- and the functionality tests do not mind it. As
     `omega` nears ``2 pi`` the two edges of the corner close on each
     other -- nodes at the radius r on them are ``2 r sin(omega / 2)``
     apart -- and stencils reach across the missing wedge, as they would
@@ -788,6 +765,8 @@ class ReentrantCorner(NodeSet):
         outline = self._outline(size, omega)
         n = max(round(exponent * radius / spacing), 2)
         radii = radius * (np.arange(n + 1) / n) ** exponent
+        self.spacing, self.radius, self.exponent = spacing, radius, exponent
+        self._inner = radii[1]  # the innermost arc, the floor of spacing_at
         pts = [np.zeros((1, 2))]
         m = [np.array([Marker.corner])]
         # the graded arcs; their endpoints are the edge nodes of the grading
@@ -844,6 +823,27 @@ class ReentrantCorner(NodeSet):
             title=f"reentrant corner, size={size:g}, omega={omega / np.pi:g}pi, "
             f"radius={radius:g}, exponent={exponent:g}, spacing={spacing:g}",
         )
+
+    def spacing_at(self, points):
+        """The spacing the grading asks of every point: a repulsion target.
+
+        ``h (r / R)**(1 - 1/beta)`` of the distance r of a point from
+        the corner, h beyond R, and floored at the radius of the
+        innermost graded arc so it never falls to 0 at the corner. A
+        repulsive relaxation smoothing the cloud can use it as the
+        desired spacing h(x, y).
+
+        Parameters
+        ----------
+        points : (n, 2) array_like
+
+        Returns
+        -------
+        (n,) ndarray
+        """
+        r = np.hypot(*np.asarray(points, float).reshape(-1, 2).T)
+        r = np.clip(r, self._inner, self.radius)
+        return self.spacing * (r / self.radius) ** (1.0 - 1.0 / self.exponent)
 
     @staticmethod
     def _arc(r, h, omega):

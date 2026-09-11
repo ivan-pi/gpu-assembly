@@ -105,7 +105,7 @@ def main():
         args.size,
         args.distance,
         boundary=args.boundary,
-        candidates=args.candidates,
+        ncandidates=args.candidates,
         hole=hole,
         seed=args.seed,
     )

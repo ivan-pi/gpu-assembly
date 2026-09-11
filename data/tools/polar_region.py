@@ -111,7 +111,7 @@ def main():
             if args.no_inner
             else curve(args.inner_cos, args.inner_sin, BAYONA_INNER)
         ),
-        candidates=args.candidates,
+        ncandidates=args.candidates,
         seed=args.seed,
     )
     cli.finish(cloud, args)

@@ -81,7 +81,7 @@ def main():
         args.spacing,
         hole=args.hole,
         eccentricity=args.eccentricity,
-        candidates=args.candidates,
+        ncandidates=args.candidates,
         seed=args.seed,
     )
     cli.finish(cloud, args)
