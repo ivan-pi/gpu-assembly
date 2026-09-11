@@ -161,30 +161,35 @@ b1             then the node lists, part after part,
 (The 2018 reference presents an older sectioned variant, each count on
 a line of its own before its section; that layout is not read.)
 
-Node indices in the file are 1-based, as the format prescribes. The
-required second argument of `read_grid` chooses the base they are kept
-in: `read_grid(fname, false)` keeps them 1-based, native, while
-`read_grid(fname, true)` shifts them to 0-based, the numbering of the
-graph file and the rest of the library. `Grid` records the choice in
-its `zero_based` member, which `markers()` and `write_grid` consult, so
-a grid cannot be handed on in the wrong base; the file `write_grid`
-writes is 1-based either way. `Grid` holds `x`, `y`, the connectivity
-`tri` and `quad` row-major, and the node list of each boundary part in
-`bound`.
+`read_grid` returns an `rbf::UnstructuredGrid<T, I>` — the class in
+`rbf_grid.h` (included by `rbf_io.h`) that owns the grid: `x()`, `y()`,
+the connectivity `tri()` and `quad()` row-major, and the node list of
+each boundary part in `bound()`. Node indices in the file are always
+1-based, as the format prescribes; the required second argument of
+`read_grid`, an `rbf::IndexBase`, chooses only the base they are kept
+in in memory. `IndexBase::one` keeps them native, `IndexBase::zero`
+shifts them to 0-based, the numbering of the graph file and the rest of
+the library. The grid records the choice (`base()`), which `markers()`
+and `write_grid` consult, so a grid cannot be handed on in the wrong
+base, and the file `write_grid` writes is 1-based either way. The
+class's constructor takes the arrays directly, moved in, and asserts
+the structural invariants: coordinates of one length, whole elements,
+every index in range for the declared base, boundary parts of at least
+two nodes.
 
 A boundary part lists its nodes in order along the boundary, each pair
 of consecutive nodes a boundary edge. A part marks itself closed by
 repeating the node where it closes — both parts of the reference's
 example end on a repeat of their first node — and a part that does not
 is an open polyline, ending where the next part begins;
-`Grid::closed(b)` tells the two apart.
+`UnstructuredGrid::closed(b)` tells the two apart.
 
 The reference sets three orientation conventions: element nodes are
 ordered counterclockwise, the boundary node ordering is induced by the
 element node ordering, and the domain is always on your left while
 walking along a boundary — so the outer boundary runs counterclockwise
 and holes clockwise. Parsing does not check them;
-`Grid::orientation_report()` does, on demand. It verifies that every
+`UnstructuredGrid::orientation_report()` does, on demand. It verifies that every
 element's signed area is positive and that every part edge is an
 element edge no element uses in reverse — a mesh-boundary edge, walked
 in the element-induced direction with the domain on its left — and
@@ -204,17 +209,17 @@ The reference also describes a 3D format (`.ugrid`), which is not read
 here, and the boundary-condition file of the
 [next section](#boundary-condition-files).
 
-`Grid::markers()` bridges to the [node file](#node-file) convention: a
-node gets the number of the first boundary part that lists it (from 1),
-or 0 if no part does, in either base. `NodeSet` has a constructor
-taking a `Grid` — the nodes with the markers as the flag, the `tri` and
-`quad` connectivity dropped. It takes the `Grid` by value: pass it with
-`std::move` to move the coordinate arrays in instead of copying them
-(`NodeSet` owns its geometry, since `renumber` permutes it in place, so
-a non-owning view is not an option):
+`UnstructuredGrid::markers()` bridges to the [node file](#node-file)
+convention: a node gets the number of the first boundary part that
+lists it (from 1), or 0 if no part does, in either base. `NodeSet` has
+a constructor taking an `UnstructuredGrid` — the nodes with the markers
+as the flag, the connectivity dropped. It takes the grid by value: pass
+it with `std::move` to move the coordinate arrays in instead of copying
+them (`NodeSet` owns its geometry, since `renumber` permutes it in
+place, so a non-owning view is not an option):
 
 ```cpp
-auto g = rbf::io::read_grid("case.grid", false);
+auto g = rbf::io::read_grid("case.grid", rbf::IndexBase::one);
 rbf::NodeSet<double> ns(std::move(g));   // flag b: node on boundary part b
 ns.write("case.node");                   // the same nodes as a node file
 ```
@@ -222,7 +227,7 @@ ns.write("case.node");                   // the same nodes as a node file
 ## Boundary-condition files
 
 The condition to apply on each boundary part of a [grid
-file](#grid-file), by the part's tag — the number `Grid::markers()`
+file](#grid-file), by the part's tag — the number `UnstructuredGrid::markers()`
 assigns. Two dialects, one reader each; both return
 `std::vector<BoundaryCondition>` in file order, treat `!` as starting a
 comment, skip blank lines, and reject a tag listed twice.

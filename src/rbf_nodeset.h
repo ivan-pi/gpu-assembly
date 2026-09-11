@@ -13,6 +13,7 @@
 
 #include <nanoflann.hpp>
 
+#include "rbf_grid.h"
 #include "rbf_io.h"
 #include "rbf_reorder.h"
 
@@ -74,18 +75,18 @@ public:
         file_order_ = Permutation<I>::identity(num_points_);
     }
 
-    // The nodes of a grid file (rbf::io::read_grid) as a node set: tri and
-    // quad are dropped, and the flag is Grid::markers(), the first boundary
-    // part listing each node, whatever base the Grid keeps its indices in.
-    // The Grid is taken by value, so
+    // The nodes of an UnstructuredGrid (a grid file, rbf::io::read_grid)
+    // as a node set: the connectivity is dropped, and the flag is
+    // markers(), the first boundary part listing each node, whatever base
+    // the grid keeps its indices in. The grid is taken by value, so
     //
     //     NodeSet<double> ns(std::move(g));    // moves the coordinates out of g
     //     NodeSet<double> ns(g);               // copies, g stays usable
     template <class IG>
-    explicit NodeSet(io::Grid<T, IG> g) {
+    explicit NodeSet(UnstructuredGrid<T, IG> g) {
         flag = g.markers();  // before the coordinates move out of g
-        x = std::move(g.x);
-        y = std::move(g.y);
+        x = std::move(g).x();
+        y = std::move(g).y();
         num_points_ = x.size();
         rebuild_bnd();
         file_order_ = Permutation<I>::identity(num_points_);

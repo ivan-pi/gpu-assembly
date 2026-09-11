@@ -145,6 +145,7 @@ static void test_node_file() {
 }
 
 static void test_grid_file() {
+    using rbf::IndexBase;
     // the 9-node example of the format reference: a square domain with a
     // square hole, 5 triangles, 2 quads, the hole (B1) and the outer
     // boundary (B2) as closed loops. The counts share the header line and
@@ -158,24 +159,24 @@ static void test_grid_file() {
                "2\n5\n6\n4\n7\n9\n2\n4\n1\n5\n8\n6\n3\n1\n");
 
     // native 1-based indices, as in the file
-    auto n1 = rbf::io::read_grid("s.grid", false);
+    auto n1 = rbf::io::read_grid("s.grid", IndexBase::one);
     CHECK(n1.num_nodes() == 9 && n1.num_triangles() == 5 && n1.num_quads() == 2 &&
           n1.num_boundaries() == 2);
-    CHECK(!n1.zero_based);
-    CHECK(n1.x[6] == 1.3 && n1.y[6] == 1.0);  // node 7 of the file
-    CHECK(n1.tri == (std::vector<std::int32_t>{9, 2, 3, 5, 8, 4, 2, 6, 3, 1, 7, 9, 1, 9, 3}));
-    CHECK(n1.quad == (std::vector<std::int32_t>{1, 5, 4, 7, 4, 8, 6, 2}));
-    CHECK(n1.bound[0] == (std::vector<std::int32_t>{4, 7, 9, 2, 4}));  // 1st repeated: closed
-    CHECK(n1.bound[1] == (std::vector<std::int32_t>{1, 5, 8, 6, 3, 1}));
+    CHECK(n1.base() == IndexBase::one && !n1.zero_based());
+    CHECK(n1.x()[6] == 1.3 && n1.y()[6] == 1.0);  // node 7 of the file
+    CHECK(n1.tri() == (std::vector<std::int32_t>{9, 2, 3, 5, 8, 4, 2, 6, 3, 1, 7, 9, 1, 9, 3}));
+    CHECK(n1.quad() == (std::vector<std::int32_t>{1, 5, 4, 7, 4, 8, 6, 2}));
+    CHECK(n1.bound()[0] == (std::vector<std::int32_t>{4, 7, 9, 2, 4}));  // 1st repeated: closed
+    CHECK(n1.bound()[1] == (std::vector<std::int32_t>{1, 5, 8, 6, 3, 1}));
     CHECK(n1.closed(0) && n1.closed(1));
 
     // 0-based on request, the numbering of the graph file
-    auto g = rbf::io::read_grid("s.grid", true);
-    CHECK(g.zero_based);
-    CHECK(g.tri == (std::vector<std::int32_t>{8, 1, 2, 4, 7, 3, 1, 5, 2, 0, 6, 8, 0, 8, 2}));
-    CHECK(g.quad == (std::vector<std::int32_t>{0, 4, 3, 6, 3, 7, 5, 1}));
-    CHECK(g.bound[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));
-    CHECK(g.bound[1] == (std::vector<std::int32_t>{0, 4, 7, 5, 2, 0}));
+    auto g = rbf::io::read_grid("s.grid", IndexBase::zero);
+    CHECK(g.base() == IndexBase::zero && g.zero_based());
+    CHECK(g.tri() == (std::vector<std::int32_t>{8, 1, 2, 4, 7, 3, 1, 5, 2, 0, 6, 8, 0, 8, 2}));
+    CHECK(g.quad() == (std::vector<std::int32_t>{0, 4, 3, 6, 3, 7, 5, 1}));
+    CHECK(g.bound()[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));
+    CHECK(g.bound()[1] == (std::vector<std::int32_t>{0, 4, 7, 5, 2, 0}));
     CHECK(g.closed(0) && g.closed(1));
 
     // markers: the first part listing a node names it, in either base;
@@ -198,49 +199,53 @@ static void test_grid_file() {
                "\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
                "\n1 5 4 7\n4 8 6 2\n"
                "\n2\n\n5\n6\n\n4\n7\n9\n2\n4\n\n1\n5\n8\n6\n3\n1\n\n");
-    auto gb = rbf::io::read_grid("b.grid", true);
-    CHECK(gb.x == g.x && gb.y == g.y && gb.tri == g.tri && gb.quad == g.quad &&
-          gb.bound == g.bound);
+    auto gb = rbf::io::read_grid("b.grid", IndexBase::zero);
+    CHECK(gb.x() == g.x() && gb.y() == g.y() && gb.tri() == g.tri() && gb.quad() == g.quad() &&
+          gb.bound() == g.bound());
 
-    // a NodeSet directly from the Grid: markers become the flag, tri and
-    // quad are dropped. Copied from an lvalue, moved from an rvalue, and
-    // the same node set from either base.
+    // a NodeSet directly from the grid: markers become the flag, the
+    // connectivity is dropped. Copied from an lvalue, moved from an
+    // rvalue, and the same node set from either base.
     rbf::NodeSet<double> ns(g);  // copy: g stays intact
-    CHECK(!g.x.empty() && ns.num_points() == 9 && ns.num_boundary() == 9);
-    CHECK(ns.x == g.x && ns.y == g.y && ns.flag == expected_markers);
+    CHECK(!g.x().empty() && ns.num_points() == 9 && ns.num_boundary() == 9);
+    CHECK(ns.x == g.x() && ns.y == g.y() && ns.flag == expected_markers);
     CHECK(ns.indices_with(1) == (std::vector<std::int32_t>{1, 3, 6, 8}));
     rbf::NodeSet<double> nm(std::move(n1));  // move: the coordinates leave n1
     CHECK(nm.x == ns.x && nm.y == ns.y && nm.flag == ns.flag);
-    CHECK(n1.x.empty());
+    CHECK(n1.x().empty());
 
-    // round trip at full precision in both bases; the written file does
-    // not depend on the base
+    // a grid built by hand round-trips at full precision, and the written
+    // file does not depend on the base
+    std::vector<double> ax = g.x(), ay = g.y();
     for (std::size_t i = 0; i < awkward.size(); ++i) {
-        g.x[i] = awkward[i];
-        g.y[i] = -awkward[i];
+        ax[i] = awkward[i];
+        ay[i] = -awkward[i];
     }
-    rbf::io::write_grid("t.grid", g);
-    auto r = rbf::io::read_grid("t.grid", true);
-    CHECK(r.x == g.x && r.y == g.y && r.tri == g.tri && r.quad == g.quad && r.bound == g.bound);
-    auto r1 = rbf::io::read_grid("t.grid", false);
+    rbf::UnstructuredGrid<double, std::int32_t> ga(std::move(ax), std::move(ay), g.tri(), g.quad(),
+                                                   g.bound(), IndexBase::zero);
+    rbf::io::write_grid("t.grid", ga);
+    auto r = rbf::io::read_grid("t.grid", IndexBase::zero);
+    CHECK(r.x() == ga.x() && r.y() == ga.y() && r.tri() == ga.tri() && r.quad() == ga.quad() &&
+          r.bound() == ga.bound());
+    auto r1 = rbf::io::read_grid("t.grid", IndexBase::one);
     rbf::io::write_grid("t1.grid", r1);
     CHECK(same_file("t.grid", "t1.grid"));
 
     // float coordinates and 64-bit indices read the same file
-    auto gf = rbf::io::read_grid<float, std::int64_t>("s.grid", true);
-    CHECK(gf.x[6] == 1.3f && gf.tri.size() == 15 && gf.tri[0] == 8);
+    auto gf = rbf::io::read_grid<float, std::int64_t>("s.grid", IndexBase::zero);
+    CHECK(gf.x()[6] == 1.3f && gf.tri().size() == 15 && gf.tri()[0] == 8);
 
     // triangles only, no quads and no boundary; every node interior
     write_text("u.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n0\n");
-    auto u = rbf::io::read_grid("u.grid", false);
+    auto u = rbf::io::read_grid("u.grid", IndexBase::one);
     CHECK(u.num_triangles() == 1 && u.num_quads() == 0 && u.num_boundaries() == 0);
     CHECK(u.markers() == std::vector<int>(3, 0));
 
     // open parts sharing an endpoint: the first part keeps the shared node
     write_text("v.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n2\n2\n2\n1\n2\n2\n3\n");
-    auto v = rbf::io::read_grid("v.grid", true);
-    CHECK(v.bound[0] == (std::vector<std::int32_t>{0, 1}));
-    CHECK(v.bound[1] == (std::vector<std::int32_t>{1, 2}));
+    auto v = rbf::io::read_grid("v.grid", IndexBase::zero);
+    CHECK(v.bound()[0] == (std::vector<std::int32_t>{0, 1}));
+    CHECK(v.bound()[1] == (std::vector<std::int32_t>{1, 2}));
     CHECK(!v.closed(0) && !v.closed(1));
     CHECK(v.markers() == (std::vector<int>{1, 1, 2}));
 
@@ -259,20 +264,20 @@ static void test_grid_orientation() {
     // one counterclockwise triangle, its boundary walked with the domain
     // on the left: nothing to report
     write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n1\n4\n1\n2\n3\n1\n");
-    CHECK(rbf::io::read_grid("o.grid", true).orientation_report().empty());
-    CHECK(rbf::io::read_grid("o.grid", false).orientation_report().empty());
+    CHECK(rbf::io::read_grid("o.grid", rbf::IndexBase::zero).orientation_report().empty());
+    CHECK(rbf::io::read_grid("o.grid", rbf::IndexBase::one).orientation_report().empty());
 
     // the same triangle numbered clockwise: negative area, and every part
     // edge now runs against the element's edges
     write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 3 2\n1\n4\n1\n2\n3\n1\n");
-    auto r = rbf::io::read_grid("o.grid", true).orientation_report();
+    auto r = rbf::io::read_grid("o.grid", rbf::IndexBase::zero).orientation_report();
     CHECK(msgs_with(r, "triangle 1 is not counterclockwise") == 1);
     CHECK(msgs_with(r, "domain on the right") == 3);
     CHECK(msgs_with(r, "not walked by any boundary part") == 3);
 
     // a counterclockwise triangle whose boundary is walked backwards
     write_text("o.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n1\n4\n1\n3\n2\n1\n");
-    r = rbf::io::read_grid("o.grid", false).orientation_report();
+    r = rbf::io::read_grid("o.grid", rbf::IndexBase::one).orientation_report();
     CHECK(msgs_with(r, "not counterclockwise") == 0);
     CHECK(msgs_with(r, "domain on the right") == 3);
     CHECK(msgs_with(r, "not walked by any boundary part") == 3);
@@ -280,13 +285,13 @@ static void test_grid_orientation() {
     // two triangles of the unit square: a part along the shared diagonal
     // is an interior edge, and the real boundary goes unwalked
     write_text("o.grid", "4 2 0\n0 0\n1 0\n1 1\n0 1\n1 2 3\n1 3 4\n1\n2\n1\n3\n");
-    r = rbf::io::read_grid("o.grid", true).orientation_report();
+    r = rbf::io::read_grid("o.grid", rbf::IndexBase::zero).orientation_report();
     CHECK(msgs_with(r, "boundary part 1, edge 1 -> 3 is an interior edge") == 1);
     CHECK(msgs_with(r, "not walked by any boundary part") == 4);
 
     // a part edge between nodes no element connects
     write_text("o.grid", "4 2 0\n0 0\n1 0\n1 1\n0 1\n1 2 3\n1 3 4\n1\n2\n2\n4\n");
-    r = rbf::io::read_grid("o.grid", true).orientation_report();
+    r = rbf::io::read_grid("o.grid", rbf::IndexBase::zero).orientation_report();
     CHECK(msgs_with(r, "edge 2 -> 4 is not an element edge") == 1);
 
     std::remove("o.grid");

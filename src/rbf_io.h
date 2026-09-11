@@ -8,7 +8,7 @@
 //   read_graph_csr                   graph file (.graph): stencils -> (ia, ja)
 //   read_nodes, write_nodes          node file (.node), Triangle's format; what NodeSet reads and
 //   writes read_ordering, write_ordering    ordering file (.iperm): one new index per node
-//   read_grid, write_grid            grid file (.grid): Nishikawa's 2D unstructured grid -> Grid
+//   read_grid, write_grid            grid file (.grid): Nishikawa's format -> UnstructuredGrid
 //   read_bcmap, read_mapbc           boundary conditions (.bcmap, .mapbc): part tag -> name/number
 //   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
@@ -36,10 +36,10 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
+
+#include "rbf_grid.h"
 
 namespace rbf::io {
 
@@ -353,143 +353,6 @@ void write_nodes(const std::string& fname,
 // Grid file (.grid), Nishikawa's 2D unstructured grid
 // ---------------------------------------------------------------------------
 
-// A 2D unstructured grid as a grid file holds it: nodes, triangle and quad
-// connectivity, and the boundary as node lists, one list per boundary part.
-// The file is 1-based; zero_based says which base the indices are kept in
-// here, chosen by read_grid's second argument -- native 1-based, or
-// 0-based like the graph file and the rest of the library.
-template <class T = double, class I = std::int32_t>
-struct Grid {
-    std::vector<T> x, y;
-    std::vector<I> tri;                 // 3 * num_triangles(), row-major
-    std::vector<I> quad;                // 4 * num_quads(), row-major
-    std::vector<std::vector<I>> bound;  // node indices of each boundary part, in
-                                        // order along the boundary; a part marks
-                                        // itself closed by repeating its first
-                                        // node last
-    bool zero_based = false;            // base of tri, quad and bound: the file's
-                                        // 1-based by default, 0-based if shifted
-
-    std::size_t num_nodes() const { return x.size(); }
-    std::size_t num_triangles() const { return tri.size() / 3; }
-    std::size_t num_quads() const { return quad.size() / 4; }
-    std::size_t num_boundaries() const { return bound.size(); }
-
-    // Whether boundary part b closes a loop, which the format marks by
-    // repeating the node where the part closes; false for an open polyline.
-    bool closed(std::size_t b) const {
-        const auto& part = bound[b];
-        return part.size() > 1 && part.front() == part.back();
-    }
-
-    // Boundary marker per node in the convention of the node file: 0 for a
-    // node no part lists, else the number (from 1) of the first part that
-    // lists it. NodeSet takes a Grid and uses this as the flag; the result
-    // is indexed by node position, whatever the base.
-    std::vector<int> markers() const {
-        const I off = zero_based ? 0 : 1;
-        std::vector<int> m(num_nodes(), 0);
-        for (std::size_t b = 0; b < bound.size(); ++b)
-            for (const I j : bound[b])
-                if (m[j - off] == 0) m[j - off] = static_cast<int>(b + 1);
-        return m;
-    }
-
-    // The reference's orientation conventions:
-    //   - element nodes are ordered counterclockwise,
-    //   - boundary node ordering is induced by the element node ordering,
-    //   - the domain is always on your left while walking along a boundary.
-    // Checked against the coordinates and connectivity: an element whose
-    // signed area is not positive; a directed element edge used twice,
-    // which no consistent counterclockwise numbering produces; a part edge
-    // that is not an element edge, walks against one (domain on the
-    // right), or is an interior edge; and element boundary edges no part
-    // walks. One message per violation, in file order, empty when the grid
-    // follows the conventions; node numbers in the messages are 1-based,
-    // as in the file. read_grid does not call this: parsing accepts any
-    // orientation.
-    std::vector<std::string> orientation_report() const {
-        const I off = zero_based ? 0 : 1;
-        const std::uint64_t n = num_nodes();
-        const auto pos = [&](I v) {  // 0-based position of a stored index
-            assert(v >= off && static_cast<std::uint64_t>(v - off) < n &&
-                   "node index out of range");
-            return static_cast<std::size_t>(v - off);
-        };
-        const auto no = [&](I v) { return std::to_string(pos(v) + 1); };  // as in the file
-        const auto key = [&](I u, I v) { return static_cast<std::uint64_t>(pos(u)) * n + pos(v); };
-        std::vector<std::string> out;
-
-        // the directed element edges, and the counterclockwise test
-        std::unordered_map<std::uint64_t, int> edges;
-        const auto add_elements = [&](const std::vector<I>& conn, std::size_t nv,
-                                      const char* name) {
-            for (std::size_t e = 0; e * nv < conn.size(); ++e) {
-                const I* el = conn.data() + e * nv;
-                double area2 = 0;  // twice the signed area, by the shoelace formula
-                for (std::size_t i = 0; i < nv; ++i) {
-                    const std::size_t u = pos(el[i]), v = pos(el[(i + 1) % nv]);
-                    area2 += static_cast<double>(x[u]) * y[v] - static_cast<double>(x[v]) * y[u];
-                    ++edges[key(el[i], el[(i + 1) % nv])];
-                }
-                if (!(area2 > 0))
-                    out.push_back(std::string(name) + " " + std::to_string(e + 1) +
-                                  " is not counterclockwise");
-            }
-        };
-        add_elements(tri, 3, "triangle");
-        add_elements(quad, 4, "quadrilateral");
-
-        // every element edge again, in file order, for deterministic output
-        const auto each_edge = [&](auto&& f) {
-            const auto walk = [&](const std::vector<I>& conn, std::size_t nv) {
-                for (std::size_t e = 0; e * nv < conn.size(); ++e)
-                    for (std::size_t i = 0; i < nv; ++i)
-                        f(conn[e * nv + i], conn[e * nv + (i + 1) % nv]);
-            };
-            walk(tri, 3);
-            walk(quad, 4);
-        };
-        std::unordered_set<std::uint64_t> seen;
-        each_edge([&](I u, I v) {
-            if (edges[key(u, v)] > 1 && seen.insert(key(u, v)).second)
-                out.push_back("element edge " + no(u) + " -> " + no(v) +
-                              " is used twice in the same direction");
-        });
-
-        // a part edge must be an element edge whose reverse no element
-        // uses: a mesh-boundary edge, walked with the domain on the left
-        std::unordered_set<std::uint64_t> walked;
-        for (std::size_t b = 0; b < bound.size(); ++b) {
-            const auto& part = bound[b];
-            for (std::size_t j = 0; j + 1 < part.size(); ++j) {
-                const I u = part[j], v = part[j + 1];
-                const bool fwd = edges.count(key(u, v)) > 0, rev = edges.count(key(v, u)) > 0;
-                const std::string edge =
-                    "boundary part " + std::to_string(b + 1) + ", edge " + no(u) + " -> " + no(v);
-                if (fwd && !rev)
-                    walked.insert(key(u, v));
-                else if (!fwd && rev)
-                    out.push_back(edge + " walks with the domain on the right");
-                else if (fwd && rev)
-                    out.push_back(edge + " is an interior edge");
-                else
-                    out.push_back(edge + " is not an element edge");
-            }
-        }
-
-        // and the parts together must walk the whole mesh boundary
-        seen.clear();
-        each_edge([&](I u, I v) {
-            if (edges.count(key(v, u)) == 0 && walked.count(key(u, v)) == 0 &&
-                seen.insert(key(u, v)).second)
-                out.push_back("element boundary edge " + no(u) + " -> " + no(v) +
-                              " is not walked by any boundary part");
-        });
-        return out;
-    }
-};
-
 // Grid file, the custom 2D format of Nishikawa's grid-generation and
 // EDU2D solver codes (docs/file_formats.md#grid-file has the references):
 //
@@ -502,18 +365,19 @@ struct Grid {
 //     b1                   (then the node lists, part after part,
 //     ...                   one index per line)
 //
-// Node indices in the file are 1-based; zero_based = false keeps them
-// that way, zero_based = true shifts them to 0-based, the numbering of
-// the graph file, and the Grid records the choice for markers() and
-// write_grid. Every count must be met exactly, an index must lie in
-// [1, nnodes] in the file, an element's nodes must be distinct, and a
-// boundary part must list at least two nodes, consecutive ones distinct.
-// The format itself has no blank lines; the reader skips any it meets,
-// so a file spaced apart for readability reads the same. The reference's
+// Node indices in the file are 1-based; base = IndexBase::one keeps them
+// that way, IndexBase::zero shifts them to 0-based, the numbering of the
+// graph file, and the returned UnstructuredGrid records the choice.
+// Every count must be met exactly, an index must lie in [1, nnodes] in
+// the file, an element's nodes must be distinct, and a boundary part
+// must list at least two nodes, consecutive ones distinct. The format
+// itself has no blank lines; the reader skips any it meets, so a file
+// spaced apart for readability reads the same. The reference's
 // orientation conventions are not checked while parsing:
-// Grid::orientation_report() verifies them on demand.
+// UnstructuredGrid::orientation_report() verifies them on demand.
 template <class T = double, class I = std::int32_t>
-Grid<T, I> read_grid(const std::string& fname, bool zero_based) {
+UnstructuredGrid<T, I> read_grid(const std::string& fname, IndexBase base) {
+    const bool zero_based = base == IndexBase::zero;
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     static_assert(std::is_integral_v<I> && std::is_signed_v<I>,
                   "index type must be a signed integer");
@@ -538,8 +402,9 @@ Grid<T, I> read_grid(const std::string& fname, bool zero_based) {
         return n;
     };
 
-    Grid<T, I> g;
-    g.zero_based = zero_based;
+    std::vector<T> gx, gy;
+    std::vector<I> gtri, gquad;
+    std::vector<std::vector<I>> gbound;
     std::size_t nnodes = 0, ntria = 0, nquad = 0;
     next_line("the header");
     {
@@ -547,16 +412,16 @@ Grid<T, I> read_grid(const std::string& fname, bool zero_based) {
         if (!(c.next(nnodes) && c.next(ntria) && c.next(nquad)) || !c.at_end())
             fail_here("expected the header \"nnodes ntria nquad\"");
     }
-    g.x.reserve(nnodes);
-    g.y.reserve(nnodes);
+    gx.reserve(nnodes);
+    gy.reserve(nnodes);
     for (std::size_t i = 0; i < nnodes; ++i) {
         next_line("node " + std::to_string(i + 1) + " of " + std::to_string(nnodes));
         detail::LineCursor c{line};
         T px, py;
         if (!(c.next(px) && c.next(py)) || !c.at_end()) fail_here("expected \"x y\"");
         if (!std::isfinite(px) || !std::isfinite(py)) fail_here("coordinate is not finite");
-        g.x.push_back(px);
-        g.y.push_back(py);
+        gx.push_back(px);
+        gy.push_back(py);
     }
 
     // an element's nodes, or one boundary node: 1-based in the file, checked
@@ -590,11 +455,11 @@ Grid<T, I> read_grid(const std::string& fname, bool zero_based) {
                                   std::to_string(conn[at + v] + shift) + " listed twice");
         }
     };
-    read_elements(g.tri, ntria, 3, "triangle");
-    read_elements(g.quad, nquad, 4, "quadrilateral");
+    read_elements(gtri, ntria, 3, "triangle");
+    read_elements(gquad, nquad, 4, "quadrilateral");
 
     const std::size_t nbound = read_count("the boundary count");
-    g.bound.resize(nbound);
+    gbound.resize(nbound);
     const auto part_name = [](std::size_t b) { return "boundary part " + std::to_string(b + 1); };
     const auto read_part_count = [&](std::size_t b) {
         const std::size_t nb = read_count("the node count of " + part_name(b));
@@ -603,7 +468,7 @@ Grid<T, I> read_grid(const std::string& fname, bool zero_based) {
         return nb;
     };
     const auto read_part_nodes = [&](std::size_t b, std::size_t nb) {
-        auto& nodes = g.bound[b];
+        auto& nodes = gbound[b];
         nodes.reserve(nb);
         for (std::size_t j = 0; j < nb; ++j) {
             next_line("node " + std::to_string(j + 1) + " of " + part_name(b));
@@ -624,51 +489,33 @@ Grid<T, I> read_grid(const std::string& fname, bool zero_based) {
         read_part_nodes(b, nb[b]);
     in >> std::ws;
     if (!in.eof()) detail::fail(fname, "unexpected data after the last boundary part");
-    return g;
+    return UnstructuredGrid<T, I>(std::move(gx), std::move(gy), std::move(gtri), std::move(gquad),
+                                  std::move(gbound), base);
 }
 
 // Inverse of read_grid, writing the canonical layout: the counts on the
 // header line, boundary part counts before the lists, and indices
-// 1-based, as the format requires, shifted back if the Grid says it is
-// 0-based. The connectivity must be whole elements of valid indices in
-// the Grid's base, and every boundary part needs the two nodes the
-// reader requires; all of it is asserted, since a violation writes a
-// file read_grid rejects.
+// 1-based, as the format requires, shifted back if the grid keeps them
+// 0-based. The structural invariants the reader would check are the
+// class's own, established at construction.
 template <class T, class I>
-void write_grid(const std::string& fname, const Grid<T, I>& g) {
+void write_grid(const std::string& fname, const UnstructuredGrid<T, I>& g) {
     using detail::num;
-    const I shift = g.zero_based ? 1 : 0;
-    assert(g.x.size() == g.y.size() && "x and y differ in length");
-    assert(g.tri.size() % 3 == 0 && "tri is not whole triangles");
-    assert(g.quad.size() % 4 == 0 && "quad is not whole quadrilaterals");
-#ifndef NDEBUG
-    const auto in_range = [&](I v) {
-        return v >= 1 - shift && static_cast<std::size_t>(v + shift) <= g.x.size();
-    };
-    for (const I v : g.tri)
-        assert(in_range(v) && "triangle node out of range");
-    for (const I v : g.quad)
-        assert(in_range(v) && "quadrilateral node out of range");
-    for (const auto& part : g.bound) {
-        assert(part.size() >= 2 && "boundary part of fewer than 2 nodes");
-        for (const I v : part)
-            assert(in_range(v) && "boundary node out of range");
-    }
-#endif
+    const I shift = g.zero_based() ? 1 : 0;
     auto out = detail::open_out(fname);
     out << g.num_nodes() << ' ' << g.num_triangles() << ' ' << g.num_quads() << '\n';
     for (std::size_t i = 0; i < g.num_nodes(); ++i)
-        out << num(g.x[i]) << ' ' << num(g.y[i]) << '\n';
+        out << num(g.x()[i]) << ' ' << num(g.y()[i]) << '\n';
     for (std::size_t e = 0; e < g.num_triangles(); ++e)
-        out << (g.tri[3 * e] + shift) << ' ' << (g.tri[3 * e + 1] + shift) << ' '
-            << (g.tri[3 * e + 2] + shift) << '\n';
+        out << (g.tri()[3 * e] + shift) << ' ' << (g.tri()[3 * e + 1] + shift) << ' '
+            << (g.tri()[3 * e + 2] + shift) << '\n';
     for (std::size_t e = 0; e < g.num_quads(); ++e)
-        out << (g.quad[4 * e] + shift) << ' ' << (g.quad[4 * e + 1] + shift) << ' '
-            << (g.quad[4 * e + 2] + shift) << ' ' << (g.quad[4 * e + 3] + shift) << '\n';
+        out << (g.quad()[4 * e] + shift) << ' ' << (g.quad()[4 * e + 1] + shift) << ' '
+            << (g.quad()[4 * e + 2] + shift) << ' ' << (g.quad()[4 * e + 3] + shift) << '\n';
     out << g.num_boundaries() << '\n';
-    for (const auto& part : g.bound)
+    for (const auto& part : g.bound())
         out << part.size() << '\n';
-    for (const auto& part : g.bound)
+    for (const auto& part : g.bound())
         for (const I v : part)
             out << (v + shift) << '\n';
 }
@@ -678,7 +525,7 @@ void write_grid(const std::string& fname, const Grid<T, I>& g) {
 // ---------------------------------------------------------------------------
 
 // The condition on one boundary part of a grid file, by its tag -- the
-// part number Grid::markers() assigns. Which fields carry it depends on
+// part number UnstructuredGrid::markers() assigns. Which fields carry it depends on
 // the dialect: the .bcmap of the EDU2D solvers names the condition (bc
 // stays 0), FUN3D's .mapbc numbers it in bc, with name the optional
 // family name, empty when absent.
