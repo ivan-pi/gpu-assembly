@@ -135,6 +135,13 @@ rest:
   circles, the domain of the Wannier flow benchmark, its circles
   marked 1 and 6 and the interior a Poisson disk sample grown from
   them; the cylinders of Trask, Maxey and Hu (2016) by default.
+- `tools/triangle.py`: the equilateral triangle on its own lattice,
+  perturbed if asked, the domain of McCartin's closed-form Robin
+  eigenproblem, with the sides marked by their outward normals.
+- `tools/multilobe.py`: a multilobe catalyst pellet, the union of
+  overlapping circular lobes, its junctions sharp reentrant corners or
+  filleted with tangent arcs, and the interior a Poisson disk sample
+  grown from the boundary.
 - `tools/disk.py`: the disk about the origin, or the annulus between two
   concentric circles, in rings or in a quasi-uniform spiral, with the
   circles marked 1 and 6.
