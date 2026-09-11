@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <nanoflann.hpp>
@@ -59,6 +60,33 @@ public:
     // rbf::io::read_nodes directly and permute with file_order() if needed.
     explicit NodeSet(const std::string& fname) {
         num_points_ = io::read_nodes(fname, x, y, flag);
+        rebuild_bnd();
+        file_order_ = Permutation<I>::identity(num_points_);
+    }
+
+    // Nodes given directly: the coordinates and a flag per node (0 =
+    // interior), moved in. The three must have the same length.
+    NodeSet(std::vector<T> x_, std::vector<T> y_, std::vector<int> flag_)
+        : x(std::move(x_)), y(std::move(y_)), flag(std::move(flag_)) {
+        assert(y.size() == x.size() && flag.size() == x.size() && "x, y and flag differ in length");
+        num_points_ = x.size();
+        rebuild_bnd();
+        file_order_ = Permutation<I>::identity(num_points_);
+    }
+
+    // The nodes of a grid file (rbf::io::read_grid) as a node set: tri and
+    // quad are dropped, and the flag is Grid::markers(), the first boundary
+    // part listing each node, whatever base the Grid keeps its indices in.
+    // The Grid is taken by value, so
+    //
+    //     NodeSet<double> ns(std::move(g));    // moves the coordinates out of g
+    //     NodeSet<double> ns(g);               // copies, g stays usable
+    template <class IG>
+    explicit NodeSet(io::Grid<T, IG> g) {
+        flag = g.markers();  // before the coordinates move out of g
+        x = std::move(g.x);
+        y = std::move(g.y);
+        num_points_ = x.size();
         rebuild_bnd();
         file_order_ = Permutation<I>::identity(num_points_);
     }

@@ -45,6 +45,13 @@ static std::string first_line(const std::string& fname) {
     return line;
 }
 
+static bool same_file(const std::string& a, const std::string& b) {
+    std::ifstream fa(a), fb(b);
+    std::string sa((std::istreambuf_iterator<char>(fa)), {}),
+        sb((std::istreambuf_iterator<char>(fb)), {});
+    return !sa.empty() && sa == sb;
+}
+
 struct Point {
     double x, y;
 };
@@ -149,34 +156,33 @@ static void test_grid_file() {
                "9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
                "1 5 4 7\n4 8 6 2\n"
                "2\n5\n6\n4\n7\n9\n2\n4\n1\n5\n8\n6\n3\n1\n");
-    auto g = rbf::io::read_grid("s.grid");
-    CHECK(g.num_nodes() == 9 && g.num_triangles() == 5 && g.num_quads() == 2 &&
-          g.num_boundaries() == 2);
-    CHECK(g.x[6] == 1.3 && g.y[6] == 1.0);  // node 7 of the file
-    // indices come back 0-based
+
+    // native 1-based indices, as in the file
+    auto n1 = rbf::io::read_grid("s.grid", false);
+    CHECK(n1.num_nodes() == 9 && n1.num_triangles() == 5 && n1.num_quads() == 2 &&
+          n1.num_boundaries() == 2);
+    CHECK(!n1.zero_based);
+    CHECK(n1.x[6] == 1.3 && n1.y[6] == 1.0);  // node 7 of the file
+    CHECK(n1.tri == (std::vector<std::int32_t>{9, 2, 3, 5, 8, 4, 2, 6, 3, 1, 7, 9, 1, 9, 3}));
+    CHECK(n1.quad == (std::vector<std::int32_t>{1, 5, 4, 7, 4, 8, 6, 2}));
+    CHECK(n1.bound[0] == (std::vector<std::int32_t>{4, 7, 9, 2, 4}));  // 1st repeated: closed
+    CHECK(n1.bound[1] == (std::vector<std::int32_t>{1, 5, 8, 6, 3, 1}));
+    CHECK(n1.closed(0) && n1.closed(1));
+
+    // 0-based on request, the numbering of the graph file
+    auto g = rbf::io::read_grid("s.grid", true);
+    CHECK(g.zero_based);
     CHECK(g.tri == (std::vector<std::int32_t>{8, 1, 2, 4, 7, 3, 1, 5, 2, 0, 6, 8, 0, 8, 2}));
     CHECK(g.quad == (std::vector<std::int32_t>{0, 4, 3, 6, 3, 7, 5, 1}));
-    CHECK(g.bound.size() == 2);
-    CHECK(g.bound[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));  // first node repeated: closed
+    CHECK(g.bound[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));
     CHECK(g.bound[1] == (std::vector<std::int32_t>{0, 4, 7, 5, 2, 0}));
     CHECK(g.closed(0) && g.closed(1));
 
-    // markers: the first part listing a node names it; every node here is
-    // on the boundary
-    CHECK(g.markers() == (std::vector<int>{2, 1, 2, 1, 2, 2, 1, 2, 1}));
-
-    // the sectioned lecture variant of the same grid: each count on its
-    // own line before its section, each part's count before its list
-    write_text("l.grid",
-               "9\n"
-               "0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
-               "1.3 2.0\n"
-               "5\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
-               "2\n1 5 4 7\n4 8 6 2\n"
-               "2\n5\n4\n7\n9\n2\n4\n6\n1\n5\n8\n6\n3\n1\n");
-    auto gl = rbf::io::read_grid("l.grid");
-    CHECK(gl.x == g.x && gl.y == g.y && gl.tri == g.tri && gl.quad == g.quad &&
-          gl.bound == g.bound);
+    // markers: the first part listing a node names it, in either base;
+    // every node here is on the boundary
+    const std::vector<int> expected_markers{2, 1, 2, 1, 2, 2, 1, 2, 1};
+    CHECK(g.markers() == expected_markers);
+    CHECK(n1.markers() == expected_markers);
 
     // blank lines between the sections (or anywhere else) change nothing
     write_text("b.grid",
@@ -186,45 +192,53 @@ static void test_grid_file() {
                "\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
                "\n1 5 4 7\n4 8 6 2\n"
                "\n2\n\n5\n6\n\n4\n7\n9\n2\n4\n\n1\n5\n8\n6\n3\n1\n\n");
-    auto gb = rbf::io::read_grid("b.grid");
+    auto gb = rbf::io::read_grid("b.grid", true);
     CHECK(gb.x == g.x && gb.y == g.y && gb.tri == g.tri && gb.quad == g.quad &&
           gb.bound == g.bound);
 
-    // the markers hand the grid's nodes to NodeSet through a node file
-    const auto m = g.markers();
-    rbf::io::write_nodes("s.node", g.num_nodes(), g.x.data(), g.y.data(), m.data());
-    rbf::NodeSet<double> ns("s.node");
-    CHECK(ns.num_points() == 9 && ns.num_boundary() == 9);
+    // a NodeSet directly from the Grid: markers become the flag, tri and
+    // quad are dropped. Copied from an lvalue, moved from an rvalue, and
+    // the same node set from either base.
+    rbf::NodeSet<double> ns(g);  // copy: g stays intact
+    CHECK(!g.x.empty() && ns.num_points() == 9 && ns.num_boundary() == 9);
+    CHECK(ns.x == g.x && ns.y == g.y && ns.flag == expected_markers);
     CHECK(ns.indices_with(1) == (std::vector<std::int32_t>{1, 3, 6, 8}));
+    rbf::NodeSet<double> nm(std::move(n1));  // move: the coordinates leave n1
+    CHECK(nm.x == ns.x && nm.y == ns.y && nm.flag == ns.flag);
+    CHECK(n1.x.empty());
 
-    // round trip at full precision, awkward coordinates included
+    // round trip at full precision in both bases; the written file does
+    // not depend on the base
     for (std::size_t i = 0; i < awkward.size(); ++i) {
         g.x[i] = awkward[i];
         g.y[i] = -awkward[i];
     }
     rbf::io::write_grid("t.grid", g);
-    auto r = rbf::io::read_grid("t.grid");
+    auto r = rbf::io::read_grid("t.grid", true);
     CHECK(r.x == g.x && r.y == g.y && r.tri == g.tri && r.quad == g.quad && r.bound == g.bound);
+    auto r1 = rbf::io::read_grid("t.grid", false);
+    rbf::io::write_grid("t1.grid", r1);
+    CHECK(same_file("t.grid", "t1.grid"));
 
     // float coordinates and 64-bit indices read the same file
-    auto gf = rbf::io::read_grid<float, std::int64_t>("s.grid");
+    auto gf = rbf::io::read_grid<float, std::int64_t>("s.grid", true);
     CHECK(gf.x[6] == 1.3f && gf.tri.size() == 15 && gf.tri[0] == 8);
 
     // triangles only, no quads and no boundary; every node interior
     write_text("u.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n0\n");
-    auto u = rbf::io::read_grid("u.grid");
+    auto u = rbf::io::read_grid("u.grid", false);
     CHECK(u.num_triangles() == 1 && u.num_quads() == 0 && u.num_boundaries() == 0);
     CHECK(u.markers() == std::vector<int>(3, 0));
 
     // open parts sharing an endpoint: the first part keeps the shared node
     write_text("v.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n2\n2\n2\n1\n2\n2\n3\n");
-    auto v = rbf::io::read_grid("v.grid");
+    auto v = rbf::io::read_grid("v.grid", true);
     CHECK(v.bound[0] == (std::vector<std::int32_t>{0, 1}));
     CHECK(v.bound[1] == (std::vector<std::int32_t>{1, 2}));
     CHECK(!v.closed(0) && !v.closed(1));
     CHECK(v.markers() == (std::vector<int>{1, 1, 2}));
 
-    for (const char* fn : {"s.grid", "l.grid", "b.grid", "s.node", "t.grid", "u.grid", "v.grid"})
+    for (const char* fn : {"s.grid", "b.grid", "t.grid", "t1.grid", "u.grid", "v.grid"})
         std::remove(fn);
 }
 
@@ -440,13 +454,6 @@ static VtkFile read_vtk(const std::string& fname) {
         }
     }
     return f;
-}
-
-static bool same_file(const std::string& a, const std::string& b) {
-    std::ifstream fa(a), fb(b);
-    std::string sa((std::istreambuf_iterator<char>(fa)), {}),
-        sb((std::istreambuf_iterator<char>(fb)), {});
-    return !sa.empty() && sa == sb;
 }
 
 static void test_vtk_polydata() {

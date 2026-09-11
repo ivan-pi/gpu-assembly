@@ -353,7 +353,9 @@ void write_nodes(const std::string& fname,
 
 // A 2D unstructured grid as a grid file holds it: nodes, triangle and quad
 // connectivity, and the boundary as node lists, one list per boundary part.
-// The file is 1-based; here everything is 0-based, like the graph file.
+// The file is 1-based; zero_based says which base the indices are kept in
+// here, chosen by read_grid's second argument -- native 1-based, or
+// 0-based like the graph file and the rest of the library.
 template <class T = double, class I = std::int32_t>
 struct Grid {
     std::vector<T> x, y;
@@ -363,6 +365,8 @@ struct Grid {
                                         // order along the boundary; a part marks
                                         // itself closed by repeating its first
                                         // node last
+    bool zero_based = false;            // base of tri, quad and bound: the file's
+                                        // 1-based by default, 0-based if shifted
 
     std::size_t num_nodes() const { return x.size(); }
     std::size_t num_triangles() const { return tri.size() / 3; }
@@ -378,13 +382,14 @@ struct Grid {
 
     // Boundary marker per node in the convention of the node file: 0 for a
     // node no part lists, else the number (from 1) of the first part that
-    // lists it -- so write_nodes(fname, ..., markers().data()) hands the
-    // grid's nodes to NodeSet.
+    // lists it. NodeSet takes a Grid and uses this as the flag; the result
+    // is indexed by node position, whatever the base.
     std::vector<int> markers() const {
+        const I off = zero_based ? 0 : 1;
         std::vector<int> m(num_nodes(), 0);
         for (std::size_t b = 0; b < bound.size(); ++b)
             for (const I j : bound[b])
-                if (m[j] == 0) m[j] = static_cast<int>(b + 1);
+                if (m[j - off] == 0) m[j - off] = static_cast<int>(b + 1);
         return m;
     }
 };
@@ -401,22 +406,18 @@ struct Grid {
 //     b1                   (then the node lists, part after part,
 //     ...                   one index per line)
 //
-// The 2018 lecture notes show a variant in which the node, triangle and
-// quad counts each precede their own section on a line of their own, and
-// each part's node count immediately precedes its list; the header line
-// tells the two apart (one integer or three), and the reader accepts
-// both. write_grid writes the layout above.
-//
-// Node indices in the file are 1-based and are shifted to 0-based here.
-// Every count must be met exactly, an index must lie in [1, nnodes], an
-// element's nodes must be distinct, and a boundary part must list at
-// least two nodes, consecutive ones distinct. The format itself has no
-// blank lines; the reader skips any it meets, so a file spaced apart for
-// readability reads the same. The reference's orientation conventions
-// (elements counterclockwise, parts with the interior on their left) are
-// not checked.
+// Node indices in the file are 1-based; zero_based = false keeps them
+// that way, zero_based = true shifts them to 0-based, the numbering of
+// the graph file, and the Grid records the choice for markers() and
+// write_grid. Every count must be met exactly, an index must lie in
+// [1, nnodes] in the file, an element's nodes must be distinct, and a
+// boundary part must list at least two nodes, consecutive ones distinct.
+// The format itself has no blank lines; the reader skips any it meets,
+// so a file spaced apart for readability reads the same. The reference's
+// orientation conventions (elements counterclockwise, parts with the
+// interior on their left) are not checked.
 template <class T = double, class I = std::int32_t>
-Grid<T, I> read_grid(const std::string& fname) {
+Grid<T, I> read_grid(const std::string& fname, bool zero_based) {
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
     static_assert(std::is_integral_v<I> && std::is_signed_v<I>,
                   "index type must be a signed integer");
@@ -442,20 +443,13 @@ Grid<T, I> read_grid(const std::string& fname) {
     };
 
     Grid<T, I> g;
-    // The header: "nnodes ntria nquad", or the node count alone in the
-    // sectioned lecture variant, whose other counts come before their
-    // sections instead.
+    g.zero_based = zero_based;
     std::size_t nnodes = 0, ntria = 0, nquad = 0;
-    bool sectioned = false;
     next_line("the header");
     {
         detail::LineCursor c{line};
-        if (!c.next(nnodes))
-            fail_here("expected the header \"nnodes ntria nquad\", or the node count alone");
-        if (c.at_end())
-            sectioned = true;
-        else if (!(c.next(ntria) && c.next(nquad)) || !c.at_end())
-            fail_here("expected the header \"nnodes ntria nquad\", or the node count alone");
+        if (!(c.next(nnodes) && c.next(ntria) && c.next(nquad)) || !c.at_end())
+            fail_here("expected the header \"nnodes ntria nquad\"");
     }
     g.x.reserve(nnodes);
     g.y.reserve(nnodes);
@@ -470,14 +464,15 @@ Grid<T, I> read_grid(const std::string& fname) {
     }
 
     // an element's nodes, or one boundary node: 1-based in the file, checked
-    // against nnodes and shifted to 0-based
+    // against nnodes and shifted only if a 0-based grid was asked for
+    const I shift = zero_based ? 1 : 0;
     const auto next_index = [&](detail::LineCursor& c) {
         I v;
         if (!c.next(v)) fail_here("bad node index at \"" + c.here() + "\"");
         if (v < 1 || static_cast<std::size_t>(v) > nnodes)
             fail_here("node index " + std::to_string(v) + " outside [1, " + std::to_string(nnodes) +
                       "]; grid files are 1-based");
-        return static_cast<I>(v - 1);
+        return static_cast<I>(v - shift);
     };
     const auto read_elements = [&](std::vector<I>& conn, std::size_t ne, std::size_t nv,
                                    const char* name) {
@@ -495,13 +490,11 @@ Grid<T, I> read_grid(const std::string& fname) {
             for (std::size_t v = 0; v < nv; ++v)
                 for (std::size_t w = v + 1; w < nv; ++w)
                     if (conn[at + v] == conn[at + w])
-                        fail_here(std::string(name) + " node " + std::to_string(conn[at + v] + 1) +
-                                  " listed twice");
+                        fail_here(std::string(name) + " node " +
+                                  std::to_string(conn[at + v] + shift) + " listed twice");
         }
     };
-    if (sectioned) ntria = read_count("the triangle count");
     read_elements(g.tri, ntria, 3, "triangle");
-    if (sectioned) nquad = read_count("the quadrilateral count");
     read_elements(g.quad, nquad, 4, "quadrilateral");
 
     const std::size_t nbound = read_count("the boundary count");
@@ -522,23 +515,17 @@ Grid<T, I> read_grid(const std::string& fname) {
             const I v = next_index(c);
             if (!c.at_end()) fail_here("expected one boundary node per line");
             if (j > 0 && v == nodes.back())
-                fail_here(part_name(b) + " lists node " + std::to_string(v + 1) +
+                fail_here(part_name(b) + " lists node " + std::to_string(v + shift) +
                           " twice in a row");
             nodes.push_back(v);
         }
     };
-    if (sectioned) {
-        // lecture variant: each part's count immediately precedes its list
-        for (std::size_t b = 0; b < nbound; ++b)
-            read_part_nodes(b, read_part_count(b));
-    } else {
-        // every part's count first, then the lists, part after part
-        std::vector<std::size_t> nb(nbound);
-        for (std::size_t b = 0; b < nbound; ++b)
-            nb[b] = read_part_count(b);
-        for (std::size_t b = 0; b < nbound; ++b)
-            read_part_nodes(b, nb[b]);
-    }
+    // every part's count first, then the lists, part after part
+    std::vector<std::size_t> nb(nbound);
+    for (std::size_t b = 0; b < nbound; ++b)
+        nb[b] = read_part_count(b);
+    for (std::size_t b = 0; b < nbound; ++b)
+        read_part_nodes(b, nb[b]);
     in >> std::ws;
     if (!in.eof()) detail::fail(fname, "unexpected data after the last boundary part");
     return g;
@@ -546,18 +533,22 @@ Grid<T, I> read_grid(const std::string& fname) {
 
 // Inverse of read_grid, writing the canonical layout: the counts on the
 // header line, boundary part counts before the lists, and indices
-// 1-based, as the format requires. The connectivity must be whole
-// elements of valid 0-based indices, and every boundary part needs the
-// two nodes the reader requires; all of it is asserted, since a
-// violation writes a file read_grid rejects.
+// 1-based, as the format requires, shifted back if the Grid says it is
+// 0-based. The connectivity must be whole elements of valid indices in
+// the Grid's base, and every boundary part needs the two nodes the
+// reader requires; all of it is asserted, since a violation writes a
+// file read_grid rejects.
 template <class T, class I>
 void write_grid(const std::string& fname, const Grid<T, I>& g) {
     using detail::num;
+    const I shift = g.zero_based ? 1 : 0;
     assert(g.x.size() == g.y.size() && "x and y differ in length");
     assert(g.tri.size() % 3 == 0 && "tri is not whole triangles");
     assert(g.quad.size() % 4 == 0 && "quad is not whole quadrilaterals");
 #ifndef NDEBUG
-    const auto in_range = [&](I v) { return v >= 0 && static_cast<std::size_t>(v) < g.x.size(); };
+    const auto in_range = [&](I v) {
+        return v >= 1 - shift && static_cast<std::size_t>(v + shift) <= g.x.size();
+    };
     for (const I v : g.tri)
         assert(in_range(v) && "triangle node out of range");
     for (const I v : g.quad)
@@ -573,17 +564,17 @@ void write_grid(const std::string& fname, const Grid<T, I>& g) {
     for (std::size_t i = 0; i < g.num_nodes(); ++i)
         out << num(g.x[i]) << ' ' << num(g.y[i]) << '\n';
     for (std::size_t e = 0; e < g.num_triangles(); ++e)
-        out << (g.tri[3 * e] + 1) << ' ' << (g.tri[3 * e + 1] + 1) << ' ' << (g.tri[3 * e + 2] + 1)
-            << '\n';
+        out << (g.tri[3 * e] + shift) << ' ' << (g.tri[3 * e + 1] + shift) << ' '
+            << (g.tri[3 * e + 2] + shift) << '\n';
     for (std::size_t e = 0; e < g.num_quads(); ++e)
-        out << (g.quad[4 * e] + 1) << ' ' << (g.quad[4 * e + 1] + 1) << ' '
-            << (g.quad[4 * e + 2] + 1) << ' ' << (g.quad[4 * e + 3] + 1) << '\n';
+        out << (g.quad[4 * e] + shift) << ' ' << (g.quad[4 * e + 1] + shift) << ' '
+            << (g.quad[4 * e + 2] + shift) << ' ' << (g.quad[4 * e + 3] + shift) << '\n';
     out << g.num_boundaries() << '\n';
     for (const auto& part : g.bound)
         out << part.size() << '\n';
     for (const auto& part : g.bound)
         for (const I v : part)
-            out << (v + 1) << '\n';
+            out << (v + shift) << '\n';
 }
 
 // ---------------------------------------------------------------------------

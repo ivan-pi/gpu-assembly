@@ -8,6 +8,12 @@ undergone and a lazily-built index for the stencil search:
 #include "rbf_nodeset.h"
 ```
 
+Besides the file, a node set can be constructed from coordinate and
+flag vectors directly (`NodeSet(x, y, flag)`, moved in), or from a
+[grid file](file_formats.md#grid-file)'s `rbf::io::Grid`, whose
+`markers()` become the flag and whose connectivity is dropped; the
+`Grid` is taken by value, so `std::move` it in to avoid the copy.
+
 `T` is the coordinate type, `I` the index type of the stencils, chosen to
 match the `CsrMatrix<T, I>` they will feed (`double` and `int32_t` by
 default).

@@ -158,17 +158,19 @@ b1             then the node lists, part after part,
 ...            one node index per line
 ```
 
-The 2018 reference presents a variant in which the node, triangle and
-quad counts each precede their own section on a line of their own, and
-each part's node count immediately precedes its node list. The header
-line tells the two apart — one integer or three — and `read_grid`
-accepts both; `write_grid` writes the layout above.
+(The 2018 reference presents an older sectioned variant, each count on
+a line of its own before its section; that layout is not read.)
 
-Node indices in the file are 1-based, as the format prescribes;
-`read_grid` shifts them to 0-based, the numbering of the graph file, and
-`write_grid` shifts back on output. `Grid` holds the result: `x`, `y`,
-the connectivity `tri` and `quad` row-major, and the node list of each
-boundary part in `bound`.
+Node indices in the file are 1-based, as the format prescribes. The
+required second argument of `read_grid` chooses the base they are kept
+in: `read_grid(fname, false)` keeps them 1-based, native, while
+`read_grid(fname, true)` shifts them to 0-based, the numbering of the
+graph file and the rest of the library. `Grid` records the choice in
+its `zero_based` member, which `markers()` and `write_grid` consult, so
+a grid cannot be handed on in the wrong base; the file `write_grid`
+writes is 1-based either way. `Grid` holds `x`, `y`, the connectivity
+`tri` and `quad` row-major, and the node list of each boundary part in
+`bound`.
 
 A boundary part lists its nodes in order along the boundary, each pair
 of consecutive nodes a boundary edge. A part marks itself closed by
@@ -190,13 +192,17 @@ here, and the boundary-condition file of the
 
 `Grid::markers()` bridges to the [node file](#node-file) convention: a
 node gets the number of the first boundary part that lists it (from 1),
-or 0 if no part does, so a grid becomes a `NodeSet` via `write_nodes`:
+or 0 if no part does, in either base. `NodeSet` has a constructor
+taking a `Grid` — the nodes with the markers as the flag, the `tri` and
+`quad` connectivity dropped. It takes the `Grid` by value: pass it with
+`std::move` to move the coordinate arrays in instead of copying them
+(`NodeSet` owns its geometry, since `renumber` permutes it in place, so
+a non-owning view is not an option):
 
 ```cpp
-auto g = rbf::io::read_grid("case.grid");
-const auto m = g.markers();
-rbf::io::write_nodes("case.node", g.num_nodes(), g.x.data(), g.y.data(), m.data());
-rbf::NodeSet<double> ns("case.node");   // flag b: node on boundary part b
+auto g = rbf::io::read_grid("case.grid", false);
+rbf::NodeSet<double> ns(std::move(g));   // flag b: node on boundary part b
+ns.write("case.node");                   // the same nodes as a node file
 ```
 
 ## Boundary-condition files
