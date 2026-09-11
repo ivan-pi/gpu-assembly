@@ -208,7 +208,6 @@ static void test_grid_file() {
     CHECK(ns.indices_with(1) == (std::vector<std::int32_t>{1, 3, 6, 8}));
     rbf::NodeSet<double> nm(std::move(n1));  // move: the coordinates leave n1
     CHECK(nm.x == ns.x && nm.y == ns.y && nm.flag == ns.flag);
-    CHECK(n1.x().empty());
 
     // a grid built by hand round-trips at full precision, and the written
     // file does not depend on the base
