@@ -157,10 +157,22 @@ static void test_grid_file() {
     CHECK(g.bound.size() == 2);
     CHECK(g.bound[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));  // first node repeated: closed
     CHECK(g.bound[1] == (std::vector<std::int32_t>{0, 4, 7, 5, 2, 0}));
+    CHECK(g.closed(0) && g.closed(1));
 
     // markers: the first part listing a node names it; every node here is
     // on the boundary
     CHECK(g.markers() == (std::vector<int>{2, 1, 2, 1, 2, 2, 1, 2, 1}));
+
+    // blank lines between the sections (or anywhere else) change nothing
+    write_text("b.grid",
+               "9\n0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
+               "1.3 2.0\n"
+               "\n4\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n"
+               "\n2\n1 5 4 7\n4 8 6 2\n"
+               "\n2\n\n5\n4\n7\n9\n2\n4\n\n6\n1\n5\n8\n6\n3\n1\n\n");
+    auto gb = rbf::io::read_grid("b.grid");
+    CHECK(gb.x == g.x && gb.y == g.y && gb.tri == g.tri && gb.quad == g.quad &&
+          gb.bound == g.bound);
 
     // the markers hand the grid's nodes to NodeSet through a node file
     const auto m = g.markers();
@@ -193,9 +205,46 @@ static void test_grid_file() {
     auto v = rbf::io::read_grid("v.grid");
     CHECK(v.bound[0] == (std::vector<std::int32_t>{0, 1}));
     CHECK(v.bound[1] == (std::vector<std::int32_t>{1, 2}));
+    CHECK(!v.closed(0) && !v.closed(1));
     CHECK(v.markers() == (std::vector<int>{1, 1, 2}));
 
-    for (const char* fn : {"s.grid", "s.node", "t.grid", "u.grid", "v.grid"})
+    for (const char* fn : {"s.grid", "b.grid", "s.node", "t.grid", "u.grid", "v.grid"})
+        std::remove(fn);
+}
+
+static void test_bc_files() {
+    // .bcmap, the EDU2D example of the grid-file reference
+    write_text("a.bcmap",
+               "! Boundary tag  BC name\n1 freestream\n2 subsonic_outflow\n3 viscous_wall\n");
+    auto b = rbf::io::read_bcmap("a.bcmap");
+    CHECK(b.size() == 3);
+    CHECK(b[0].tag == 1 && b[0].name == "freestream" && b[0].bc == 0);
+    CHECK(b[1].tag == 2 && b[1].name == "subsonic_outflow");
+    CHECK(b[2].tag == 3 && b[2].name == "viscous_wall");
+
+    // .mapbc, the sample of the FUN3D manual: count, then tag, BC number
+    // and family name
+    write_text("a.mapbc",
+               "13\n1 6662 box_ymin\n2 5025 box_zmax\n3 5050 box_xmin\n4 5025 box_ymax\n"
+               "5 5025 box_zmin\n6 5025 box_xmax\n7 3000 wing_upper\n8 3000 wing_lower\n"
+               "9 3000 wing_upper\n10 3000 wing_upper\n11 3000 wing_lower\n12 3000 wing_lower\n"
+               "13 3000 wing_tip\n");
+    auto m = rbf::io::read_mapbc("a.mapbc");
+    CHECK(m.size() == 13);
+    CHECK(m[0].tag == 1 && m[0].bc == 6662 && m[0].name == "box_ymin");
+    CHECK(m[6].tag == 7 && m[6].bc == 3000 && m[6].name == "wing_upper");
+    CHECK(m[12].tag == 13 && m[12].bc == 3000 && m[12].name == "wing_tip");
+
+    // family names are optional; a commented header and blank lines are
+    // skipped, as in the grid-file reference's variant
+    write_text("b.mapbc", "! Boundary tag  BC #\n3\n\n1 5050\n2 5051 outflow\n3 4000\n");
+    auto s = rbf::io::read_mapbc("b.mapbc");
+    CHECK(s.size() == 3);
+    CHECK(s[0].tag == 1 && s[0].bc == 5050 && s[0].name.empty());
+    CHECK(s[1].tag == 2 && s[1].bc == 5051 && s[1].name == "outflow");
+    CHECK(s[2].tag == 3 && s[2].bc == 4000 && s[2].name.empty());
+
+    for (const char* fn : {"a.bcmap", "a.mapbc", "b.mapbc"})
         std::remove(fn);
 }
 
@@ -515,6 +564,7 @@ int main() {
     test_read_points();
     test_node_file();
     test_grid_file();
+    test_bc_files();
     test_read_graph_csr();
     test_ordering();
     test_matrix_market();

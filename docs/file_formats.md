@@ -5,9 +5,9 @@ plain-text formats, three are borrowed from Triangle, METIS and
 Nishikawa's EDU2D solvers, and the rest are standards or conventions of
 which only the parts we use are described here.
 
-The readers and writers of the first six formats are declared in
-`rbf_io.h`, `write_vtk_polydata` in `rbf_io_vtk.h`, and `write_columns`
-in `rbf_io_gnuplot.h`; include the ones whose formats you use.
+`write_vtk_polydata` is declared in `rbf_io_vtk.h` and `write_columns`
+in `rbf_io_gnuplot.h`; everything else in `rbf_io.h`. Include the
+headers whose formats you use.
 
 | Format | Extension | Read | Write |
 |---|---|---|---|
@@ -15,6 +15,7 @@ in `rbf_io_gnuplot.h`; include the ones whose formats you use.
 | [Graph file](#graph-file) | `.graph` | `read_graph_csr` | |
 | [Node file](#node-file) | `.node` | `read_nodes`, `NodeSet(fname)` | `write_nodes`, `NodeSet::write` |
 | [Grid file](#grid-file) | `.grid` | `read_grid` | `write_grid` |
+| [Boundary conditions](#boundary-condition-files) | `.bcmap`, `.mapbc` | `read_bcmap`, `read_mapbc` | |
 | [Ordering file](#ordering-file) | `.iperm` | `Permutation::read`, `read_ordering` | `Permutation::write`, `write_ordering` |
 | [Matrix Market](#matrix-market) | `.mtx` | | `write_matrix_market`, `write_matrix_market_pattern` |
 | [VTK legacy](#vtk) | `.vtk` | | `write_vtk_polydata` |
@@ -162,18 +163,22 @@ the connectivity `tri` and `quad` row-major, and the node list of each
 boundary part in `bound`.
 
 A boundary part lists its nodes in order along the boundary, each pair
-of consecutive nodes a boundary edge; a part that closes a loop repeats
-its first node last, as both parts of the reference's example do, but a
-part may also be an open polyline, ending where the next part begins.
-By the reference's conventions elements are numbered counterclockwise
-and a part runs with the interior on its left, the outer boundary
-counterclockwise and holes clockwise; the reader checks neither
-orientation nor closure. It does check that every count is met, that
-every index is in range, that an element's nodes are distinct, and that
-a part has at least two nodes, with no node twice in a row. A grid may
-have no triangles, no quads, or no boundary parts. The reference also
-describes a 3D format (`.ugrid`) and a companion boundary-condition
-file (`.bcmap`); neither is read here.
+of consecutive nodes a boundary edge. A part marks itself closed by
+repeating the node where it closes — both parts of the reference's
+example end on a repeat of their first node — and a part that does not
+is an open polyline, ending where the next part begins;
+`Grid::closed(b)` tells the two apart. By the reference's conventions
+elements are numbered counterclockwise and a part runs with the
+interior on its left, the outer boundary counterclockwise and holes
+clockwise; the reader checks neither orientation nor closure. It does
+check that every count is met, that every index is in range, that an
+element's nodes are distinct, and that a part has at least two nodes,
+with no node twice in a row. The format itself has no blank lines; the
+reader skips any it meets, so a file spaced apart for readability reads
+the same. A grid may have no triangles, no quads, or no boundary parts.
+The reference also describes a 3D format (`.ugrid`), which is not read
+here, and the boundary-condition file of the
+[next section](#boundary-condition-files).
 
 `Grid::markers()` bridges to the [node file](#node-file) convention: a
 node gets the number of the first boundary part that lists it (from 1),
@@ -185,6 +190,45 @@ const auto m = g.markers();
 rbf::io::write_nodes("case.node", g.num_nodes(), g.x.data(), g.y.data(), m.data());
 rbf::NodeSet<double> ns("case.node");   // flag b: node on boundary part b
 ```
+
+## Boundary-condition files
+
+The condition to apply on each boundary part of a [grid
+file](#grid-file), by the part's tag — the number `Grid::markers()`
+assigns. Two dialects, one reader each; both return
+`std::vector<BoundaryCondition>` in file order, treat `!` as starting a
+comment, skip blank lines, and reject a tag listed twice.
+
+`read_bcmap` reads the `.bcmap` of Nishikawa's EDU2D/3D solvers (see
+the [grid file](#grid-file) reference): one part per line as its tag
+and the name of its condition, read to end of file. The record's `name`
+holds the name and `bc` stays 0.
+
+```
+! Boundary tag  BC name
+1 freestream
+2 subsonic_outflow
+3 viscous_wall
+```
+
+`read_mapbc` reads FUN3D's `.mapbc` (the FUN3D manual, appendix B,
+<https://fun3d.larc.nasa.gov/>): the number of boundary groups on the
+first line, then one line per part with its tag, the FUN3D
+boundary-condition number, and optionally a family name. The number
+goes to `bc` and the family to `name`, empty when absent; the count
+must be met exactly, with nothing after the last group.
+
+```
+13
+1 6662 box_ymin
+2 5025 box_zmax
+...
+13 3000 wing_tip
+```
+
+Names are single tokens, read up to the next whitespace. Neither reader
+checks the tags against a grid, since the two files stand alone; a
+solver would look each `markers()` value up among the tags.
 
 ## Ordering file
 

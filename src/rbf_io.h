@@ -9,6 +9,7 @@
 //   read_nodes, write_nodes          node file (.node), Triangle's format; what NodeSet reads and
 //   writes read_ordering, write_ordering    ordering file (.iperm): one new index per node
 //   read_grid, write_grid            grid file (.grid): Nishikawa's 2D unstructured grid -> Grid
+//   read_bcmap, read_mapbc           boundary conditions (.bcmap, .mapbc): part tag -> name/number
 //   write_matrix_market              CSR matrix -> Matrix Market (real, or pattern)
 //
 // rbf_io_vtk.h and rbf_io_gnuplot.h add the plotting formats.
@@ -121,16 +122,32 @@ struct LineCursor {
         return true;
     }
 
+    // The next whitespace-delimited token, for names.
+    bool next_token(std::string& t) {
+        skip_ws();
+        const char* q = p;
+        while (q != end && !ws(*q))
+            ++q;
+        if (q == p) return false;
+        t.assign(p, q);
+        p = q;
+        return true;
+    }
+
     // The text at the cursor, for error messages.
     std::string here() const { return std::string(std::string_view(p, end - p).substr(0, 16)); }
 };
 
-// Next line with content: '#' starts a comment, blank lines are skipped.
-// The line is truncated at the comment so the cursor sees data only.
-inline bool next_data_line(std::istream& in, std::string& line, std::size_t& lineno) {
+// Next line with content: comment starts a comment ('#' for the node file,
+// '!' for the boundary-condition files), blank lines are skipped. The line
+// is truncated at the comment so the cursor sees data only.
+inline bool next_data_line(std::istream& in,
+                           std::string& line,
+                           std::size_t& lineno,
+                           char comment = '#') {
     while (std::getline(in, line)) {
         ++lineno;
-        if (const auto hash = line.find('#'); hash != std::string::npos) line.resize(hash);
+        if (const auto at = line.find(comment); at != std::string::npos) line.resize(at);
         if (line.find_first_not_of(" \t\r") != std::string::npos) return true;
     }
     return false;
@@ -342,14 +359,22 @@ struct Grid {
     std::vector<T> x, y;
     std::vector<I> tri;                 // 3 * num_triangles(), row-major
     std::vector<I> quad;                // 4 * num_quads(), row-major
-    std::vector<std::vector<I>> bound;  // node indices of each boundary part, in order
-                                        // along the boundary; a closed loop repeats
-                                        // its first node last
+    std::vector<std::vector<I>> bound;  // node indices of each boundary part, in
+                                        // order along the boundary; a part marks
+                                        // itself closed by repeating its first
+                                        // node last
 
     std::size_t num_nodes() const { return x.size(); }
     std::size_t num_triangles() const { return tri.size() / 3; }
     std::size_t num_quads() const { return quad.size() / 4; }
     std::size_t num_boundaries() const { return bound.size(); }
+
+    // Whether boundary part b closes a loop, which the format marks by
+    // repeating the node where the part closes; false for an open polyline.
+    bool closed(std::size_t b) const {
+        const auto& part = bound[b];
+        return part.size() > 1 && part.front() == part.back();
+    }
 
     // Boundary marker per node in the convention of the node file: 0 for a
     // node no part lists, else the number (from 1) of the first part that
@@ -382,8 +407,10 @@ struct Grid {
 // Each count must sit on its own line and be met exactly, an index must
 // lie in [1, nnodes], an element's nodes must be distinct, and a boundary
 // part must list at least two nodes, consecutive ones distinct. The
-// reference's orientation conventions (elements counterclockwise, parts
-// with the interior on their left) are not checked.
+// format itself has no blank lines; the reader skips any it meets, so a
+// file spaced apart for readability reads the same. The reference's
+// orientation conventions (elements counterclockwise, parts with the
+// interior on their left) are not checked.
 template <class T = double, class I = std::int32_t>
 Grid<T, I> read_grid(const std::string& fname) {
     static_assert(std::is_floating_point_v<T>, "coordinates must be floating point");
@@ -397,8 +424,10 @@ Grid<T, I> read_grid(const std::string& fname) {
         detail::fail(fname, "line " + std::to_string(lineno) + ": " + what);
     };
     const auto next_line = [&](const std::string& what) {
-        if (!std::getline(in, line)) detail::fail(fname, "unexpected end of file: " + what);
-        ++lineno;
+        do {
+            if (!std::getline(in, line)) detail::fail(fname, "unexpected end of file: " + what);
+            ++lineno;
+        } while (line.find_first_not_of(" \t\r") == std::string::npos);
     };
     const auto read_count = [&](const std::string& what) {
         next_line(what);
@@ -518,6 +547,108 @@ void write_grid(const std::string& fname, const Grid<T, I>& g) {
         for (const I v : part)
             out << (v + 1) << '\n';
     }
+}
+
+// ---------------------------------------------------------------------------
+// Boundary-condition files (.bcmap, .mapbc)
+// ---------------------------------------------------------------------------
+
+// The condition on one boundary part of a grid file, by its tag -- the
+// part number Grid::markers() assigns. Which fields carry it depends on
+// the dialect: the .bcmap of the EDU2D solvers names the condition (bc
+// stays 0), FUN3D's .mapbc numbers it in bc, with name the optional
+// family name, empty when absent.
+struct BoundaryCondition {
+    int tag = 0;
+    int bc = 0;
+    std::string name;
+};
+
+namespace detail {
+
+inline void check_unique_tags(const std::string& fname, const std::vector<BoundaryCondition>& bcs) {
+    for (std::size_t i = 0; i < bcs.size(); ++i)
+        for (std::size_t j = 0; j < i; ++j)
+            if (bcs[j].tag == bcs[i].tag)
+                fail(fname, "boundary tag " + std::to_string(bcs[i].tag) + " listed twice");
+}
+
+}  // namespace detail
+
+// Boundary-condition file of the EDU2D/3D solvers (.bcmap; the grid-file
+// reference describes it): one boundary part per line, its tag and the
+// name of its condition, read to end of file.
+//
+//     ! Boundary tag  BC name
+//     1 freestream
+//     2 subsonic_outflow
+//     3 viscous_wall
+//
+// '!' starts a comment and blank lines are skipped. A tag listed twice is
+// an error; the returned records keep the file's order.
+inline std::vector<BoundaryCondition> read_bcmap(const std::string& fname) {
+    auto in = detail::open_in(fname);
+    std::vector<BoundaryCondition> bcs;
+    std::string line;
+    std::size_t lineno = 0;
+    while (detail::next_data_line(in, line, lineno, '!')) {
+        detail::LineCursor c{line};
+        BoundaryCondition r;
+        if (!c.next(r.tag) || !c.next_token(r.name) || !c.at_end())
+            detail::fail(fname, "line " + std::to_string(lineno) + ": expected \"tag name\"");
+        bcs.push_back(std::move(r));
+    }
+    detail::check_unique_tags(fname, bcs);
+    return bcs;
+}
+
+// FUN3D's boundary-condition file (.mapbc; the FUN3D manual, appendix B):
+// the number of boundary groups on the first line, then one line per part
+// with its tag, the FUN3D boundary-condition number, and optionally a
+// family name.
+//
+//     13
+//     1 6662 box_ymin
+//     2 5025 box_zmax
+//     ...
+//
+// '!' starts a comment and blank lines are skipped, which also accepts the
+// commented header some variants carry. The count must be met exactly with
+// nothing after it, and a tag listed twice is an error; the returned
+// records keep the file's order, name empty where no family is given.
+inline std::vector<BoundaryCondition> read_mapbc(const std::string& fname) {
+    auto in = detail::open_in(fname);
+    std::string line;
+    std::size_t lineno = 0;
+
+    if (!detail::next_data_line(in, line, lineno, '!')) detail::fail(fname, "empty file");
+    std::size_t n;
+    if (detail::LineCursor c{line}; !c.next(n) || !c.at_end())
+        detail::fail(fname, "line " + std::to_string(lineno) +
+                                ": expected the boundary-group count on a line of its own");
+
+    std::vector<BoundaryCondition> bcs;
+    bcs.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!detail::next_data_line(in, line, lineno, '!'))
+            detail::fail(fname, "header says " + std::to_string(n) + " boundary groups, found " +
+                                    std::to_string(i));
+        detail::LineCursor c{line};
+        BoundaryCondition r;
+        if (!c.next(r.tag) || !c.next(r.bc))
+            detail::fail(fname,
+                         "line " + std::to_string(lineno) + ": expected \"tag bc [family]\"");
+        c.next_token(r.name);  // the family name is optional
+        if (!c.at_end())
+            detail::fail(fname, "line " + std::to_string(lineno) +
+                                    ": unexpected data after the family name");
+        bcs.push_back(std::move(r));
+    }
+    if (detail::next_data_line(in, line, lineno, '!'))
+        detail::fail(fname, "line " + std::to_string(lineno) + ": unexpected data after " +
+                                std::to_string(n) + " boundary groups");
+    detail::check_unique_tags(fname, bcs);
+    return bcs;
 }
 
 // ---------------------------------------------------------------------------
