@@ -139,20 +139,22 @@ static void test_node_file() {
 
 static void test_grid_file() {
     // the 9-node example of the format reference: a square domain with a
-    // square hole, 4 triangles, 2 quads, the hole (B1) and the outer
-    // boundary (B2) as closed loops
+    // square hole, 5 triangles, 2 quads, the hole (B1) and the outer
+    // boundary (B2) as closed loops. The counts share the header line and
+    // the boundary node counts come before the lists.
     write_text("s.grid",
-               "9\n0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
+               "9 5 2\n"
+               "0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
                "1.3 2.0\n"
-               "4\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n"
-               "2\n1 5 4 7\n4 8 6 2\n"
-               "2\n5\n4\n7\n9\n2\n4\n6\n1\n5\n8\n6\n3\n1\n");
+               "9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
+               "1 5 4 7\n4 8 6 2\n"
+               "2\n5\n6\n4\n7\n9\n2\n4\n1\n5\n8\n6\n3\n1\n");
     auto g = rbf::io::read_grid("s.grid");
-    CHECK(g.num_nodes() == 9 && g.num_triangles() == 4 && g.num_quads() == 2 &&
+    CHECK(g.num_nodes() == 9 && g.num_triangles() == 5 && g.num_quads() == 2 &&
           g.num_boundaries() == 2);
     CHECK(g.x[6] == 1.3 && g.y[6] == 1.0);  // node 7 of the file
     // indices come back 0-based
-    CHECK(g.tri == (std::vector<std::int32_t>{8, 1, 2, 4, 7, 3, 1, 5, 2, 0, 6, 8}));
+    CHECK(g.tri == (std::vector<std::int32_t>{8, 1, 2, 4, 7, 3, 1, 5, 2, 0, 6, 8, 0, 8, 2}));
     CHECK(g.quad == (std::vector<std::int32_t>{0, 4, 3, 6, 3, 7, 5, 1}));
     CHECK(g.bound.size() == 2);
     CHECK(g.bound[0] == (std::vector<std::int32_t>{3, 6, 8, 1, 3}));  // first node repeated: closed
@@ -163,13 +165,27 @@ static void test_grid_file() {
     // on the boundary
     CHECK(g.markers() == (std::vector<int>{2, 1, 2, 1, 2, 2, 1, 2, 1}));
 
+    // the sectioned lecture variant of the same grid: each count on its
+    // own line before its section, each part's count before its list
+    write_text("l.grid",
+               "9\n"
+               "0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
+               "1.3 2.0\n"
+               "5\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
+               "2\n1 5 4 7\n4 8 6 2\n"
+               "2\n5\n4\n7\n9\n2\n4\n6\n1\n5\n8\n6\n3\n1\n");
+    auto gl = rbf::io::read_grid("l.grid");
+    CHECK(gl.x == g.x && gl.y == g.y && gl.tri == g.tri && gl.quad == g.quad &&
+          gl.bound == g.bound);
+
     // blank lines between the sections (or anywhere else) change nothing
     write_text("b.grid",
-               "9\n0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
+               "9 5 2\n"
+               "0.0 0.0\n2.0 2.0\n0.0 3.0\n2.0 1.0\n2.0 0.0\n3.0 3.0\n1.3 1.0\n3.0 0.0\n"
                "1.3 2.0\n"
-               "\n4\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n"
-               "\n2\n1 5 4 7\n4 8 6 2\n"
-               "\n2\n\n5\n4\n7\n9\n2\n4\n\n6\n1\n5\n8\n6\n3\n1\n\n");
+               "\n9 2 3\n5 8 4\n2 6 3\n1 7 9\n1 9 3\n"
+               "\n1 5 4 7\n4 8 6 2\n"
+               "\n2\n\n5\n6\n\n4\n7\n9\n2\n4\n\n1\n5\n8\n6\n3\n1\n\n");
     auto gb = rbf::io::read_grid("b.grid");
     CHECK(gb.x == g.x && gb.y == g.y && gb.tri == g.tri && gb.quad == g.quad &&
           gb.bound == g.bound);
@@ -192,23 +208,23 @@ static void test_grid_file() {
 
     // float coordinates and 64-bit indices read the same file
     auto gf = rbf::io::read_grid<float, std::int64_t>("s.grid");
-    CHECK(gf.x[6] == 1.3f && gf.tri.size() == 12 && gf.tri[0] == 8);
+    CHECK(gf.x[6] == 1.3f && gf.tri.size() == 15 && gf.tri[0] == 8);
 
     // triangles only, no quads and no boundary; every node interior
-    write_text("u.grid", "3\n0 0\n1 0\n0 1\n1\n1 2 3\n0\n0\n");
+    write_text("u.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n0\n");
     auto u = rbf::io::read_grid("u.grid");
     CHECK(u.num_triangles() == 1 && u.num_quads() == 0 && u.num_boundaries() == 0);
     CHECK(u.markers() == std::vector<int>(3, 0));
 
     // open parts sharing an endpoint: the first part keeps the shared node
-    write_text("v.grid", "3\n0 0\n1 0\n0 1\n1\n1 2 3\n0\n2\n2\n1\n2\n2\n2\n3\n");
+    write_text("v.grid", "3 1 0\n0 0\n1 0\n0 1\n1 2 3\n2\n2\n2\n1\n2\n2\n3\n");
     auto v = rbf::io::read_grid("v.grid");
     CHECK(v.bound[0] == (std::vector<std::int32_t>{0, 1}));
     CHECK(v.bound[1] == (std::vector<std::int32_t>{1, 2}));
     CHECK(!v.closed(0) && !v.closed(1));
     CHECK(v.markers() == (std::vector<int>{1, 1, 2}));
 
-    for (const char* fn : {"s.grid", "b.grid", "s.node", "t.grid", "u.grid", "v.grid"})
+    for (const char* fn : {"s.grid", "l.grid", "b.grid", "s.node", "t.grid", "u.grid", "v.grid"})
         std::remove(fn);
 }
 

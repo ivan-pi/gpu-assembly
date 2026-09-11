@@ -134,27 +134,35 @@ reordered file can be read back as is, minus any attributes it had.
 
 A 2D unstructured grid — nodal coordinates, triangle and quadrilateral
 connectivity, and the boundary as lists of nodes — in the custom `.grid`
-format of Hiroaki Nishikawa's EDU2D solvers. Cite the format as:
+format of Hiroaki Nishikawa's grid-generation and EDU2D solver codes.
+Cite the format as:
 
 > Nishikawa, Hiroaki. (2018). Unstructured grid file format (2D, 3D).
 > <https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D>
 > (accessed Sep 11, 2026)
 
-Every count sits on a line of its own and every record on the next
-lines, in this order:
+with the layout below as in Nishikawa, "Making Your Own Mesh: A List of
+Custom Grid Generation Codes", joint NIA & SU2 Foundation user workshop,
+August 2019. The three counts share the header line, the element
+sections follow the coordinates directly, and the boundary section gives
+the node count of every part before the first node list:
 
 ```
-nnodes
+nnodes ntria nquad
 x y            one node per line, nnodes lines
-ntria
 a b c          one triangle per line, ntria lines
-nquad
 a b c d        one quad per line, nquad lines
 nbound
-nb             then for each of the nbound boundary parts:
-b1             its node count nb, followed by that many
-...            node indices, one per line
+nb             the node count of every part, one per line
+b1             then the node lists, part after part,
+...            one node index per line
 ```
+
+The 2018 reference presents a variant in which the node, triangle and
+quad counts each precede their own section on a line of their own, and
+each part's node count immediately precedes its node list. The header
+line tells the two apart — one integer or three — and `read_grid`
+accepts both; `write_grid` writes the layout above.
 
 Node indices in the file are 1-based, as the format prescribes;
 `read_grid` shifts them to 0-based, the numbering of the graph file, and
