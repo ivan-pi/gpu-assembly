@@ -9,10 +9,12 @@ to whoever needs it.
 
    Disk
    EccentricAnnulus
-   ReentrantCorner
+   EquilateralTriangle
+   Multilobe
    PerturbedGrid
    PoissonBox
    PolarRegion
+   ReentrantCorner
    RefinedCavity
 """
 
@@ -259,6 +261,296 @@ class EccentricAnnulus(NodeSet):
             title=f"eccentric annulus, radius={radius:g}, hole={hole:g}, "
             f"eccentricity={eccentricity:g}, spacing={spacing:g}",
         )
+
+
+class EquilateralTriangle(NodeSet):
+    """The equilateral triangle on its own lattice, perturbed if asked.
+
+    The natural step past the square: 60-degree corners, and two walls
+    whose normals are not axis-aligned. McCartin [1]_ gives the
+    eigenstructure of the Laplacian on the equilateral triangle in
+    closed form through Lame's construction, for the Robin wall with
+    the eigenvalues from transcendental equations, so the triangle
+    checks a Robin assembly against exact eigenpairs. With a negative
+    Robin coefficient alpha the lowest eigenfunctions concentrate at
+    the corners and the principal eigenvalue nears
+    ``-alpha^2 / sin^2(omega / 2)`` for the sharpest corner omega as
+    alpha grows [2]_ -- ``-4 alpha^2`` for the 60-degree corners
+    against ``-2 alpha^2`` on the square -- so how the assembly treats
+    the two normals meeting at a corner dominates the answer.
+
+    The base runs from the origin to ``(n, 0)`` and the apex is at
+    ``(n/2, n sqrt(3)/2)``, on the triangular lattice with the spacing
+    1: row j holds ``n + 1 - j`` nodes at the height ``j sqrt(3) / 2``,
+    offset by ``j / 2``, so every cell is an equilateral triangle and
+    the boundary nodes lie exactly on the sides. As on the perturbed
+    grid, every node can be displaced by a small random amount to break
+    the symmetries of the lattice: an interior node in both
+    coordinates, a side node along its side, a vertex not at all.
+
+    Parameters
+    ----------
+    n : int
+        Lattice spacings along a side.
+    sigma : float, default 0.0
+        The displacement of a node, uniform on ``[-sigma, sigma]``
+        spacings per coordinate; a node stays in its own cell below
+        0.5, and 0 is the exact lattice.
+    seed : int, optional
+        Of the displacements; random when not given.
+
+    Raises
+    ------
+    ValueError
+        For less than two spacings a side, and for a negative sigma.
+
+    Notes
+    -----
+    The markers name the sides by the x sign of their outward normals:
+    south (1) for the base, whose normal is ``-y``, east (2) for the
+    right side and west (4) for the left, whose normals lean along
+    ``+x`` and ``-x``, and corner (5) for the three vertices. The
+    boundary nodes come first; the rows come bottom up, x fastest.
+
+    References
+    ----------
+    .. [1] McCartin, "Eigenstructure of the equilateral triangle.
+       Part III. The Robin problem," Int. J. Math. Math. Sci. 2004,
+       372012, 19 pages, 2004, doi:10.1155/S0161171204306125.
+    .. [2] Levitin and Parnovski, "On the principal eigenvalue of a
+       Robin problem with a large parameter," Math. Nachr. 281,
+       272-281, 2008.
+    """
+
+    def __init__(self, n, sigma=0.0, *, seed=None):
+        if n < 2:
+            raise ValueError("the triangle needs at least two spacings a side")
+        if sigma < 0.0:
+            raise ValueError("sigma cannot be negative")
+        j = np.concatenate([np.full(n + 1 - k, k) for k in range(n + 1)])
+        i = np.concatenate([np.arange(n + 1 - k) for k in range(n + 1)])
+        pts = np.column_stack((i + j / 2, j * np.sqrt(3) / 2))
+        base, west, east = j == 0, i == 0, i == n - j
+        vertex = (base & west) | (base & east) | (j == n)
+        m = np.select(
+            [vertex, base, east, west],
+            [Marker.corner, Marker.south, Marker.east, Marker.west],
+            Marker.interior,
+        )
+        d = np.random.default_rng(seed).uniform(-sigma, sigma, pts.shape)
+        # a side node slides along its side, a vertex stays put
+        d[base] = d[base, :1] * np.array([1.0, 0.0])
+        d[west] = d[west, :1] * np.array([0.5, np.sqrt(3) / 2])
+        d[east] = d[east, :1] * np.array([-0.5, np.sqrt(3) / 2])
+        d[vertex] = 0.0
+        pts = np.round(pts + d, 12) + 0.0  # rounding noise, and no -0.0
+        first = boundary_first(m)
+        super().__init__(
+            pts[first],
+            m[first],
+            title=f"equilateral triangle, side={n}, sigma={sigma:g}",
+        )
+
+
+class Multilobe(NodeSet):
+    """A catalyst pellet of overlapping circular lobes, Poisson sampled.
+
+    The cross-section of an extruded multilobe catalyst pellet: the
+    union of `lobes` circles of radius R whose centres sit `offset`
+    from the origin, the first lobe pointing up. The
+    reaction-diffusion test on it, ``lap c = phi^2 c`` with the Robin
+    wall ``dc/dn = Bi (1 - c)`` of an external mass-transfer Biot
+    number, has no closed form, but integrating the equation gives
+    ``phi^2 int c dA = Bi oint (1 - c) ds``, so the effectiveness
+    factor [1]_ computed from the area integral must match the one
+    from the boundary flux, and the mismatch measures the flux
+    accuracy; sweeping phi and Bi moves the solution between smooth
+    and boundary-layer regimes on the same cloud.
+
+    Where two neighbouring lobes meet, the boundary turns through a
+    reentrant corner -- an interior angle of 300 degrees for three
+    lobes offset by their radius -- so the solution behaves like
+    ``r^(pi/omega)`` there and the boundary flux is singular; a
+    `fillet`, as pressed pellets have, replaces each junction with an
+    arc tangent to both lobes and switches the singularity off.
+
+    Nodes are laid along the boundary first, about a spacing apart:
+    the junctions, marked corner (5), then the lobe arcs between them,
+    marked circle (1) -- or, with a fillet, the tangent points and
+    fillet arcs, all marked circle, since the boundary is then smooth.
+    The interior is filled by `pointclouds.poisson.PoissonDisk` seeded
+    with the boundary, and what lands outside the pellet is discarded.
+
+    Parameters
+    ----------
+    radius : float
+        R of a lobe.
+    spacing : float, default 1.0
+        The distance h between neighbouring nodes.
+    lobes : int, default 3
+        The circles about the origin: 3 is the trilobe, 4 the
+        quadrilobe.
+    offset : float, optional
+        The distance of the lobe centres from the origin; R when not
+        given, the usual pellet.
+    fillet : float, default 0.0
+        The radius of the arc rounding each junction; 0 keeps the
+        sharp corners.
+    **sampler
+        Passed on to `pointclouds.poisson.PoissonDisk`: `seed`, of the
+        sample, random when not given, and `ncandidates`, the throws a
+        node makes before it is retired, 100 here rather than the
+        sampler's own 30, since more of them pack the nodes tighter.
+
+    Raises
+    ------
+    ValueError
+        For a radius or a spacing that is not positive, fewer than two
+        lobes, no offset (a disk: use `Disk`), lobes that do not
+        overlap their neighbours or swallow each other's junctions, a
+        fillet so large it eats a lobe's whole arc, and a junction or
+        fillet too tight for the spacing, which forces two boundary
+        nodes together.
+
+    Notes
+    -----
+    The spacing is uniform: the flux singularity of a sharp junction
+    is left to the resolution, or switched off by the fillet. Across a
+    sharp junction the first nodes of the two arcs stand about
+    ``2 h sin(pi - omega / 2)`` apart, a whisker under the spacing at
+    300 degrees, which the minimum-distance check allows.
+
+    References
+    ----------
+    .. [1] Aris, "The Mathematical Theory of Diffusion and Reaction in
+       Permeable Catalysts," Clarendon Press, Oxford, 1975.
+    """
+
+    def __init__(
+        self, radius, spacing=1.0, *, lobes=3, offset=None, fillet=0.0, **sampler
+    ):
+        from .poisson import PoissonDisk  # compiled by numba, only when needed
+
+        if radius <= 0.0 or spacing <= 0.0:
+            raise ValueError("the radius and the spacing must be positive")
+        if lobes < 2:
+            raise ValueError("a pellet needs at least two lobes")
+        if offset is None:
+            offset = radius
+        if offset <= 0.0:
+            raise ValueError("without an offset the pellet is a disk: use Disk")
+        if fillet < 0.0:
+            raise ValueError("the fillet cannot be negative")
+        half = np.pi / lobes
+        if offset * np.sin(half) >= radius:
+            raise ValueError(
+                f"lobes of radius {radius:g} offset by {offset:g} do not "
+                f"overlap their neighbours"
+            )
+        idx = np.arange(lobes)
+        th = np.pi / 2 + 2 * np.pi * idx / lobes  # the lobe directions
+        centres = offset * np.column_stack((np.cos(th), np.sin(th)))
+        bis = th + half  # the bisector toward the junction with the next lobe
+        tj = offset * np.cos(half) + np.sqrt(radius**2 - (offset * np.sin(half)) ** 2)
+        junctions = tj * np.column_stack((np.cos(bis), np.sin(bis)))
+        apart = np.linalg.norm(junctions[:, None] - centres[None], axis=2)
+        adjacent = np.zeros((lobes, lobes), bool)
+        adjacent[idx, idx] = adjacent[idx, (idx + 1) % lobes] = True
+        if lobes > 2 and apart[~adjacent].min() < radius:
+            raise ValueError("a lobe swallows the junctions of its neighbours")
+        pts, m = [], []
+        sharp = (
+            self._angle(junctions - centres) - self._angle(junctions[idx - 1] - centres)
+        ) % (2 * np.pi)
+        if fillet == 0.0:
+            starts = self._angle(junctions[idx - 1] - centres)
+            ends = self._angle(junctions - centres)
+            pts.append(junctions)
+            m.append(np.full(lobes, Marker.corner))
+        else:
+            # the fillet circle of a junction is tangent to both lobes
+            c = offset * np.cos(half)
+            tf = c + np.sqrt(c**2 + (radius + fillet) ** 2 - offset**2)
+            fc = tf * np.column_stack((np.cos(bis), np.sin(bis)))
+            u1 = centres - fc  # toward the lobe before the junction
+            u2 = centres[(idx + 1) % lobes] - fc  # and the one after
+            p1 = fc + fillet * u1 / np.linalg.norm(u1, axis=1, keepdims=True)
+            p2 = fc + fillet * u2 / np.linalg.norm(u2, axis=1, keepdims=True)
+            starts = self._angle(p2[idx - 1] - centres)
+            ends = self._angle(p1 - centres)
+            for k in range(lobes):  # tangent point to tangent point
+                a = self._angle(u1[k])
+                turn = self._wrap(self._angle(u2[k]) - a)
+                steps = max(int(abs(turn) * fillet / spacing), 1)  # steps of >= h
+                phi = a + turn * np.arange(steps + 1) / steps
+                pts.append(fc[k] + fillet * np.column_stack((np.cos(phi), np.sin(phi))))
+                m.append(np.full(steps + 1, Marker.circle))
+        # the arc of every lobe, between its junctions or tangent points
+        for k in range(lobes):
+            span = (ends[k] - starts[k]) % (2 * np.pi)
+            # a trimmed arc wider than the sharp one has wrapped around:
+            # the tangent points of the two fillets passed each other
+            if span * radius < spacing or span > sharp[k] + 1e-12:
+                raise ValueError(
+                    f"a fillet of radius {fillet:g} eats the whole arc of a lobe"
+                )
+            steps = max(int(span * radius / spacing), 1)  # steps of >= h
+            phi = starts[k] + span * np.arange(1, steps) / steps
+            pts.append(
+                centres[k] + radius * np.column_stack((np.cos(phi), np.sin(phi)))
+            )
+            m.append(np.full(steps - 1, Marker.circle))
+        seeds, m = np.vstack(pts), np.concatenate(m)
+        near = cKDTree(seeds).query(seeds, 2)[0][:, 1].min()
+        if near < 0.95 * spacing:
+            raise ValueError(
+                f"the junctions force two boundary nodes within {near:g} of "
+                f"each other, well under the spacing {spacing:g}: a finer "
+                f"spacing, or a wider fillet, gives them room"
+            )
+        lo = -(offset + radius) - 0.5 * spacing
+        sampler.setdefault("ncandidates", 100)
+        disk = PoissonDisk(
+            spacing,
+            np.full(2, 2 * (offset + radius) + spacing),
+            periodic=False,
+            **sampler,
+        )
+        disk.add_points(seeds - lo)
+        disk.fill_space()
+        drawn = disk.points[len(seeds) :] + lo
+        keep = (np.linalg.norm(drawn[:, None] - centres[None], axis=2) < radius).any(1)
+        if fillet > 0.0:
+            # the material a fillet adds in a notch: the wedge of the
+            # fillet circle between its tangent directions, from the
+            # fillet arc out to the cusp the arc replaced
+            for k in range(lobes):
+                v = drawn - fc[k]
+                a = self._angle(u1[k])
+                turn = self._wrap(self._angle(u2[k]) - a)
+                rel = self._wrap(self._angle(v) - a)
+                wedge = (rel * np.sign(turn) >= 0) & (np.abs(rel) <= abs(turn))
+                r = np.hypot(*v.T)
+                keep |= wedge & (r >= fillet) & (r <= tf - tj)
+        title = f"pellet of {lobes} lobes, radius={radius:g}, offset={offset:g}"
+        if fillet:
+            title += f", fillet={fillet:g}"
+        super().__init__(
+            np.vstack((seeds, drawn[keep])),
+            np.concatenate((m, np.full(np.count_nonzero(keep), Marker.interior))),
+            title=title + f", spacing={spacing:g}",
+        )
+
+    @staticmethod
+    def _angle(v):
+        """The angle of a vector, or of every row of an array of them."""
+        v = np.asarray(v)
+        return np.arctan2(v[..., 1], v[..., 0])
+
+    @staticmethod
+    def _wrap(a):
+        """Wraps an angle difference into (-pi, pi]."""
+        return -((-np.asarray(a) + np.pi) % (2 * np.pi) - np.pi)
 
 
 class PerturbedGrid(NodeSet):
