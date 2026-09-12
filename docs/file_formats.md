@@ -134,14 +134,16 @@ reordered file can be read back as is, minus any attributes it had.
 A 2D unstructured grid — nodal coordinates, triangle and quad
 connectivity, and the boundary as node lists, one per boundary part —
 in the custom `.grid` format of Hiroaki Nishikawa's grid-generation
-and EDU2D solver codes. Cite the format as:
+and EDU2D solver codes. The format is described in:
 
-> Nishikawa, Hiroaki. (2018). Unstructured grid file format (2D, 3D).
-> <https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D>
+- Nishikawa, Hiroaki. (2018). [Unstructured grid file format (2D,
+  3D)](https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D).
+- Nishikawa, Hiroaki. (2019). [Making Your Own Mesh: A List of Custom
+  Grid Generation
+  Codes](https://www.researchgate.net/publication/335062323_A_List_of_Custom_Grid_Generation_Codes_with_links_to_codes_Making_Your_Own_Mesh_JOINT_NATIONAL_INSTITUTE_OF_AEROSPACE_NIA_SU2_FOUNDATION_USER_WORKSHOP).
+  Joint NIA & SU2 Foundation user workshop.
 
-We use the layout of his 2019 talk "Making Your Own Mesh: A List of
-Custom Grid Generation Codes" (NIA & SU2 Foundation user workshop,
-August 2019):
+We implement the layout of the second talk:
 
 ```
 nnodes ntria nquad
