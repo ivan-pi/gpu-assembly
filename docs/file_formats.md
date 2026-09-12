@@ -136,8 +136,8 @@ connectivity, and the boundary as node lists, one per boundary part —
 in the custom `.grid` format of Hiroaki Nishikawa's grid-generation
 and EDU2D solver codes. Cite the format as:
 
-> Nishikawa, Hiroaki. (2018). Unstructured grid file format (2D, 3D).
-> <https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D>
+> Nishikawa, Hiroaki. (2018). [Unstructured grid file format (2D,
+> 3D)](https://www.researchgate.net/publication/356915452_Unstructured_grid_file_format_2D_3D).
 
 We use the layout of his 2019 talk ["Making Your Own Mesh: A List of
 Custom Grid Generation
